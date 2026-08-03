@@ -35,6 +35,8 @@ except ImportError:  # ``python scripts/geo_spec.py`` / run.py path import
 
 _VALID_KEYS = {"类型", "宽", "高", "外径", "内径", "外半径", "内半径",
                "网格", "网格尺寸", "内孔", "边界", "体力"}
+# BC 意图误写 → 响亮错误 (正确写法是 边界 键, 见 parse_spec 未知键分支)
+_BC_KEY_HINTS = frozenset({"固定", "拉力", "面力", "压力", "约束"})
 _TYPE_MAP = {"矩形板": "rect", "矩形": "rect", "圆板": "circle",
              "圆环": "annulus", "圆": "circle"}
 _BC_TYPES = {"固定", "压力", "拉力", "面力"}
@@ -79,6 +81,13 @@ def parse_spec(filepath):
         if key not in _VALID_KEYS:
             # 拼错/未知键曾整行静默丢弃 — .spec 路径有 WARN, 此处补上
             # (厚度 0.5 曾无痕消失, 用户以为已设置)
+            if key in _BC_KEY_HINTS:
+                # 初学者最常把 BC 直接写成键 (固定/拉力...) — 静默忽略会
+                # 丢约束/载荷后求解"成功", 升级为响亮错误带正确写法
+                raise ValueError(
+                    f"{filepath}:{lineno} '{key}' 不是有效键 — 边界条件写"
+                    f"在 '边界' 键里 (例: '边界 左 固定' / '边界 右 拉力 "
+                    f"1e6,0'); 可用键: {sorted(_VALID_KEYS)}")
             key_safe = "".join(c for c in key if c.isprintable())
             print(f"  [WARN] {filepath}:{lineno} 未知键 '{key_safe}' 已忽略 — "
                   f"可用键: {sorted(_VALID_KEYS)}")

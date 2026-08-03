@@ -388,3 +388,16 @@ def test_spec_traction_bad_components_rejected(tmp_path):
                              encoding="utf-8")
         with pytest.raises(ValueError, match="分量"):
             parse_spec(str(spec_path))
+
+
+@pytest.mark.parametrize("line", [
+    "固定 左\n", "拉力 右 1e6,0\n", "面力 右 1e6,0\n", "压力 右 1e6\n",
+])
+def test_spec_bc_key_misspelled_as_key_rejected(tmp_path, line):
+    """BC 意图误写为独立键 (固定/拉力/面力/压力) 必须响亮报错带正确写法 —
+    曾 WARN 忽略后求解成功但无约束/无载荷 (静默错结果)."""
+    path = tmp_path / "bc.txt"
+    path.write_text(f"类型 矩形板\n宽 3.0\n高 2.0\n网格 0.5\n{line}",
+                    encoding="utf-8")
+    with pytest.raises(ValueError, match="'边界' 键"):
+        parse_spec(str(path))
