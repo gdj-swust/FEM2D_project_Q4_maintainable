@@ -23,6 +23,15 @@ def compute_stresses(mesh, u):
 def principal_stresses(stress):
     """Compute in-plane principal stresses and maximum in-plane shear."""
     stress = np.asarray(stress)
+    if stress.ndim != 2 or stress.shape[1] != 3:
+        # (n,2)/(n,)/(标量) 曾冒裸 IndexError — 形状契约前置校验
+        raise ValueError(
+            "principal_stresses: stress 必须为 (n, 3) 数组 "
+            f"[σx, σy, τxy], got {stress.shape}")
+    if not np.all(np.isfinite(stress)):
+        raise ValueError(
+            "principal_stresses: stress contains NaN/Inf — "
+            "主应力对非法输入静默返回 NaN 曾掩盖上游错误")
     sx, sy, txy = stress[:, 0], stress[:, 1], stress[:, 2]
     # 防溢出: (0.5(sx-sy))² 在 |s|~1e308 时平方 inf; 0.5*(sx+sy) 在
     # sx=sy=1e308 时先加后乘也 inf — 先除以 2 再相加
@@ -260,6 +269,11 @@ def stress_at_point(mesh, result, x, y, mode="element"):
         raise ValueError(
             f"Unknown stress query mode '{mode}'. "
             f"Expected one of {sorted(valid_modes)}.")
+    if not isinstance(result, dict) or "stress" not in result:
+        # 非 solve() 输出曾冒裸 KeyError — 契约前置校验
+        raise ValueError(
+            "stress_at_point: result 必须是 solve() 的返回 dict 且含 "
+            f"'stress' 键, got {type(result).__name__}")
 
     eid = point_in_element(mesh, x, y)
     if eid < 0:

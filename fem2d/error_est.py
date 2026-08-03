@@ -167,6 +167,11 @@ def estimate(mesh, result, method="SPR", verbose=True):
         worst_elem  : int — 最差单元索引
         elem_contrib: (n_elem,) ndarray — 各单元误差贡献百分比 (%)
     """
+    if not isinstance(result, dict) or "stress" not in result:
+        # 非 solve() 输出的 dict 曾冒裸 KeyError — 契约前置校验
+        raise ValueError(
+            "estimate_error: result 必须是 solve() 的返回 dict 且含 "
+            f"'stress' 键, got {type(result).__name__}")
     stress = np.asarray(result["stress"], dtype=float)
     stress_qp = result.get("stress_qp")
     if stress_qp is not None:

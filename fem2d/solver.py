@@ -581,6 +581,11 @@ def solve(
         residual  : float — 相对残差 ||K·u - F|| / ||F||
     """
     log = print if verbose else (lambda *a, **k: None)
+    if not (hasattr(mesh, "validate_state") and hasattr(mesh, "n_dof")):
+        # 非 Mesh (dict/None/标量) 曾冒裸 AttributeError — 类型契约前置
+        raise TypeError(
+            f"solve: mesh 必须是 fem2d.Mesh 实例, "
+            f"got {type(mesh).__name__}: {mesh!r}")
     n_dof = mesh.n_dof
 
     # ── 0. 状态校验: 构造后字段可被重写, 求解前快速失败而非静默错解 ──

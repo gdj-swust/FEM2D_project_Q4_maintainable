@@ -601,6 +601,10 @@ def import_msh(msh_path, *, require_quads=False, plane_type="stress"):
     ``_extract_mesh`` 提取节点/单元/物理组 — 与 ``generate_from_geo`` 的
     API 路径共享同一提取逻辑, 保证两条路径语义一致。
     """
+    if not os.path.isfile(msh_path):
+        # 文件不存在曾透传 gmsh 底层 "Unable to open file" — 前置明确
+        # 报错 (与 generate_from_geo 的 FileNotFoundError 契约一致)
+        raise FileNotFoundError(f"Mesh file not found: {msh_path}")
     gmsh_module = _load_gmsh_module()
     initialized = bool(
         gmsh_module.isInitialized()

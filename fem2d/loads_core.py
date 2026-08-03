@@ -166,6 +166,11 @@ def parse_traction(s: str):
 
     返回: (edge_name, tx, ty, profile)  其中 profile ∈ {None, 'p', 'l', 'n'}
     """
+    if not isinstance(s, str):
+        # 非 str (int/None) 曾冒裸 TypeError ('in' 判据) — 类型契约前置
+        raise ValueError(
+            f"parse_traction: 需要面力规格字符串 (如 'right:1e6,0'), "
+            f"got {type(s).__name__}: {s!r}")
     if ':' not in s:
         return None, 0, 0, None
     parts = s.split(':')
@@ -327,6 +332,11 @@ def parse_vec2(s: str):
 
     含 x/y → 编译为 lambda x,y: expr; 纯数字 → float
     """
+    if not isinstance(s, str):
+        # 非 str (None/int) 曾冒裸 AttributeError (.replace) — 类型契约前置
+        raise ValueError(
+            f"parse_vec2: 需要载荷分量字符串 (如 '1e6,0'), "
+            f"got {type(s).__name__}: {s!r}")
     # 全角逗号曾报"需要两个分量"误导用户以为少写逗号
     parts = s.replace("，", ",").split(',')
     if len(parts) != 2:
