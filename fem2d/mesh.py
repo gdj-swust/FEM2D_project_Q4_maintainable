@@ -11,6 +11,87 @@ from dataclasses import dataclass, field
 import numpy as np
 
 
+# ═══════════════════════════════════════════════════════════════
+# 载荷 schema (P2-4): 四种载荷的合法形状集中定义, 统一校验
+#   body_force:          None | callable | 恰好 2 个分量 (bx, by)
+#   surface_tractions:   普通面力 (tx, ty) 恰好 2 个分量
+#                        压力 (p,) 恰好 1 个标量 (is_pressure=True)
+#   concentrated_forces: (fx, fy) 恰好 2 个数值分量
+# 分量 = 有限数值或 callable。整体 callable 的返回契约 (f(x,y)→(bx,by))
+# 在真实 Gauss 点检查 — 预调用会误拒形心在材料域外的合法体力
+# (带孔/凹域模型), 见 element.base.evaluate_vector_field。
+# ═══════════════════════════════════════════════════════════════
+
+def _load_component_ok(value):
+    """载荷分量合法: callable 或可转 float 且有限."""
+    if callable(value):
+        return True
+    try:
+        return bool(np.isfinite(float(value)))
+    except (TypeError, ValueError):
+        return False
+
+
+def _check_load_pair(value, field, allow_callable=True):
+    """校验二元载荷 (体力/面力/集中力) 的容器形状与分量.
+
+    多余/缺失分量、标量、任意非序列容器 → 带字段名和原始值的
+    ValueError (禁止裸 IndexError/TypeError 冒出)。
+    """
+    if isinstance(value, (tuple, list)):
+        if len(value) != 2:
+            raise ValueError(
+                f"{field} must have exactly 2 components "
+                f"(like (bx, by)), got {len(value)}: {value!r}")
+        comps = tuple(value)
+    elif isinstance(value, np.ndarray):
+        # 0-d ndarray 的 len() 抛裸 TypeError — 先查 ndim 再查长度
+        if value.ndim != 1 or value.shape[0] != 2:
+            raise ValueError(
+                f"{field} must have exactly 2 components "
+                f"(like (bx, by)), got shape {value.shape}: {value!r}")
+        comps = tuple(value)
+    else:
+        raise ValueError(
+            f"{field} must be a 2-component tuple/list, "
+            f"got {type(value).__name__}: {value!r}")
+    for i, comp in enumerate(comps):
+        if callable(comp):
+            if not allow_callable:
+                raise ValueError(
+                    f"{field}[{i}] is a callable — force components must be "
+                    f"finite numbers, got {comp!r}")
+            continue
+        if not _load_component_ok(comp):
+            raise ValueError(
+                f"{field}[{i}] = {comp!r} — must be a finite number or callable")
+    return comps
+
+
+def _check_load_scalar(value, field):
+    """校验单分量载荷 (压力幅值) — 接受标量或 1 元素序列, 返回规范化 1 元组."""
+    if isinstance(value, (tuple, list)):
+        if len(value) != 1:
+            raise ValueError(
+                f"{field} must have exactly 1 component (pressure magnitude p), "
+                f"got {len(value)}: {value!r}")
+        comp = value[0]
+    elif isinstance(value, np.ndarray):
+        # 0-d ndarray 的 len() 抛裸 TypeError — 先查 ndim 再查长度
+        if value.ndim != 1 or value.shape[0] != 1:
+            raise ValueError(
+                f"{field} must have exactly 1 component (pressure magnitude p), "
+                f"got shape {value.shape}: {value!r}")
+        comp = value[0]
+    else:
+        comp = value
+    if not _load_component_ok(comp):
+        raise ValueError(
+            f"{field} = {comp!r} — must be a finite number or callable "
+            f"(pressure magnitude)")
+    return (comp,)
+
+
 @dataclass(init=False)
 class Mesh:
     """二维、同构单元网格
@@ -428,7 +509,18 @@ class Mesh:
                     f"prescribed_vals[{d}] = {v} — must be finite")
 
     def _validate_loads_state(self):
-        for cf in self.concentrated_forces:
+        # 载荷 schema 校验 (P2-4): 形状错误在求解前响亮失败 — 曾
+        # 多余分量静默忽略 / 单分量裸 IndexError/TypeError。
+        for i, cf in enumerate(self.concentrated_forces):
+            if not isinstance(cf, dict):
+                raise ValueError(
+                    f"concentrated_forces[{i}] must be a dict, "
+                    f"got {type(cf).__name__}: {cf!r}")
+            missing = {"node", "force"} - set(cf)
+            if missing:
+                raise ValueError(
+                    f"concentrated_forces[{i}] is missing key(s) "
+                    f"{sorted(missing)} — full record: {cf!r}")
             # 构造函数直传的载荷不走 add_* API — 节点号必须整数。
             # 整数值浮点 (2.0) 规范化**写回** — 曾只转局部变量验证,
             # 原始记录仍是 2.0, 组装时 IndexError (审计 2026-08-03)
@@ -444,12 +536,32 @@ class Mesh:
                 raise ValueError(
                     f"concentrated force node {nid} out of range "
                     f"[0, {self._nodes.shape[0]-1}]")
-            fx, fy = cf["force"]
-            if not (np.isfinite(fx) and np.isfinite(fy)):
-                raise ValueError("concentrated force contains NaN/Inf")
             cf["node"] = nid   # 规范化写回 (整数)
-        for st in self.surface_tractions:
-            ni, nj = st["nodes"]
+            _check_load_pair(
+                cf["force"], f"concentrated_forces[{i}]['force']",
+                allow_callable=False)
+        for i, st in enumerate(self.surface_tractions):
+            if not isinstance(st, dict):
+                raise ValueError(
+                    f"surface_tractions[{i}] must be a dict, "
+                    f"got {type(st).__name__}: {st!r}")
+            missing = {"nodes", "traction"} - set(st)
+            if missing:
+                raise ValueError(
+                    f"surface_tractions[{i}] is missing key(s) "
+                    f"{sorted(missing)} — full record: {st!r}")
+            nodes_pair = st["nodes"]
+            if isinstance(nodes_pair, np.ndarray):
+                is_pair = nodes_pair.ndim == 1 and nodes_pair.shape[0] == 2
+            elif isinstance(nodes_pair, (tuple, list)):
+                is_pair = len(nodes_pair) == 2
+            else:
+                is_pair = False
+            if not is_pair:
+                raise ValueError(
+                    f"surface_tractions[{i}]['nodes'] must be exactly a "
+                    f"node pair (ni, nj), got: {nodes_pair!r}")
+            ni, nj = nodes_pair
             for n in (ni, nj):
                 if isinstance(n, bool) or not isinstance(n, (int, np.integer)):
                     if isinstance(n, float) and float(n).is_integer():
@@ -468,14 +580,16 @@ class Mesh:
             # solve 成功而误差估计崩溃 (审计 2026-08-03)
             self._validate_boundary_edge(ni, nj)
             st["nodes"] = (ni, nj)   # 规范化写回 (整数)
-            for t_val in st["traction"]:
-                if not callable(t_val) and not np.isfinite(t_val):
-                    raise ValueError("surface traction contains NaN/Inf")
-        if self.body_force is not None:
-            for b_val in (self.body_force if not callable(self.body_force)
-                          else ()):
-                if not callable(b_val) and not np.isfinite(b_val):
-                    raise ValueError("body force contains NaN/Inf")
+            if st.get("is_pressure"):
+                # 压力: 恰好 1 个标量 (数值或 callable) — 标量/1 元组
+                # 规范化写回 1 元组 (消费方统一 trac[0])
+                st["traction"] = _check_load_scalar(
+                    st["traction"], f"surface_tractions[{i}]['traction']")
+            else:
+                _check_load_pair(
+                    st["traction"], f"surface_tractions[{i}]['traction']")
+        if self.body_force is not None and not callable(self.body_force):
+            _check_load_pair(self.body_force, "body_force")
 
     def build_connectivity(self):
         """预计算 node→elements, element→neighbors, boundary edges + 几何缓存
