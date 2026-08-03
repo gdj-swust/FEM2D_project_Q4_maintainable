@@ -7,6 +7,14 @@
 > 单元内核公式 (element/)、solver 数值逻辑、error_est 公式为行为冻结区,
 > 本表只记录它们的**入口校验契约**, 不改内核。
 
+## 0.5 验收回填 (2026-08-03 主会话逐项复测)
+
+下表 ⚠️ 行经主会话实测, 大部分为**已修但状态列未同步** (自查轮只回填 K 节):
+
+**已修 (判别性测试在场, 实测确认)**: A0 thickness/E/nu 非数值 → TypeError "must be a finite real number"; A fix_node/add_force/add_traction/add_pressure 非数值分量 → TypeError 带上下文; B solve mesh 非 Mesh → TypeError "solve: mesh 必须是 fem2d.Mesh 实例"; B estimate_error result 缺键 → ValueError; B parse_vec2/parse_traction 非 str → 已修 (K6); C compute_stresses u NaN / nodal_weighted / nodal_L2 NaN → ValueError "contains NaN/Inf"; C principal_stresses 形状 → ValueError 带期望形状。
+
+**保留为有意决策的 ⚠️** (非缺口): A0 plane_type 构造期不校验 (validate_state 兜底); B estimate_condition method 静默降级 (返回 dict 带 error 字段); B assemble_loads 独立调用 n_dof (solve 路径已由 validate_state 防护)。
+
 ## 0. 全局约定
 
 | 约定 | 内容 |
