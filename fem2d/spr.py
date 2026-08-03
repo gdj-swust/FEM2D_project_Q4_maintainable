@@ -66,6 +66,9 @@ def _prepare_samples(mesh, elem_stress):
         raise ValueError(
             f"elem_stress first dimension must be {mesh.n_elements}, "
             f"got {elem_stress.shape[0]}")
+    if not np.all(np.isfinite(elem_stress)):
+        raise ValueError(
+            "spr_recovery: elem_stress contains NaN/Inf — 恢复输入非法")
 
     if elem_stress.ndim == 2:
         # (ne,ncomp): 代表应力定义在单元自然中心 (CST 形心 / Q4R 中心

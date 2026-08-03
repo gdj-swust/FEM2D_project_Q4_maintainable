@@ -15,6 +15,8 @@ from dataclasses import dataclass, field, fields
 
 import numpy as np
 
+from .checks import require_finite_positive, require_nu_valid
+
 
 @dataclass
 class AnalysisConfig:
@@ -86,21 +88,16 @@ class AnalysisConfig:
         self._validate_band_args()
 
     def _validate_scalar_params(self):
-        if self.E is not None and (not np.isfinite(self.E) or self.E <= 0.0):
-            raise ValueError(f"E={self.E} — 弹性模量必须为正且有限")
-        if self.nu is not None and (not np.isfinite(self.nu)
-                                     or not (-1.0 < self.nu < 0.5)):
-            raise ValueError(
-                f"nu={self.nu} — 泊松比必须在 (-1, 0.5) 内 (负泊松比材料允许)")
-        if self.thickness is not None and (not np.isfinite(self.thickness)
-                                           or self.thickness <= 0.0):
-            raise ValueError(f"thickness={self.thickness} — 厚度必须为正且有限")
-        if self.lc is not None and (not np.isfinite(self.lc) or self.lc <= 0.0):
-            raise ValueError(f"lc={self.lc} — 网格密度必须为正且有限")
-        if self.jump_ref is not None and (not np.isfinite(self.jump_ref)
-                                          or self.jump_ref <= 0.0):
-            raise ValueError(
-                f"jump_ref={self.jump_ref} — 参考应力必须为正且有限")
+        if self.E is not None:
+            require_finite_positive(self.E, "E")
+        if self.nu is not None:
+            require_nu_valid(self.nu, "nu")
+        if self.thickness is not None:
+            require_finite_positive(self.thickness, "thickness")
+        if self.lc is not None:
+            require_finite_positive(self.lc, "lc")
+        if self.jump_ref is not None:
+            require_finite_positive(self.jump_ref, "jump_ref")
         if self.plane not in (None, "stress", "strain"):
             raise ValueError(
                 f"plane='{self.plane}' — 仅支持 stress 或 strain")

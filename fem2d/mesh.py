@@ -10,6 +10,12 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .checks import (
+    require_finite_positive,
+    require_finite_scalar,
+    require_nu_valid,
+)
+
 
 # ═══════════════════════════════════════════════════════════════
 # 载荷 schema (P2-4): 四种载荷的合法形状集中定义, 统一校验
@@ -313,13 +319,10 @@ class Mesh:
         self.fixed_dofs = fixed
         self.fixed_dofs.setflags(write=False)
 
-        # ── 材料参数校验 ──
-        if not np.isfinite(self.E) or not np.isfinite(self.nu):
-            raise ValueError(f"E={self.E}, nu={self.nu} must be finite")
-        if not np.isfinite(self.thickness) or self.thickness <= 0.0:
-            raise ValueError(
-                f"thickness = {self.thickness} — must be > 0 and finite. "
-                f"For plane stress/strain, thickness represents the out-of-plane dimension.")
+        # ── 材料参数校验 (共享标量 helper: 非数值类型 → TypeError) ──
+        require_finite_scalar(self.E, "E")
+        require_finite_scalar(self.nu, "nu")
+        require_finite_positive(self.thickness, "thickness")
 
         # ── 锁定 & 存储 ──
         # 经 property setter 写入: 校验 → 复制 → 只读 → 缓存失效。
@@ -458,14 +461,18 @@ class Mesh:
         return self
 
     def _validate_material_and_mesh(self):
-        if not np.isfinite(self.E) or self.E <= 0.0:
+        # 共享 helper 负责类型 + NaN/Inf; 消息保持历史格式 (既有测试锁定)
+        require_finite_scalar(self.E, "E")
+        require_finite_scalar(self.nu, "nu")
+        require_finite_scalar(self.thickness, "thickness")
+        if self.E <= 0.0:
             raise ValueError(
                 f"E = {self.E} — must be finite and > 0")
-        if not np.isfinite(self.nu) or not (-1.0 < self.nu < 0.5):
+        if not (-1.0 < self.nu < 0.5):
             raise ValueError(
                 f"nu = {self.nu} — must be in (-1, 0.5) "
                 f"for isotropic material stability")
-        if not np.isfinite(self.thickness) or self.thickness <= 0.0:
+        if self.thickness <= 0.0:
             raise ValueError(
                 f"thickness = {self.thickness} — must be finite and > 0")
         if self.plane_type not in ("stress", "strain"):
@@ -713,9 +720,7 @@ class Mesh:
         if dof not in ("x", "y", "both"):
             raise ValueError(
                 f"fix_node: dof='{dof}' — must be 'x', 'y', or 'both'")
-        if not np.isfinite(value):
-            raise ValueError(
-                f"fix_node: prescribed displacement value={value} — must be finite")
+        require_finite_scalar(value, "fix_node: prescribed displacement value")
         dofs = []
         if dof in ("x", "both"):
             dofs.append(2 * nid)
@@ -784,8 +789,8 @@ class Mesh:
         nid = self._validate_node_id(nid)
         if not (0 <= nid < self.n_nodes):
             raise ValueError(f"add_force: nid={nid} out of range [0, {self.n_nodes-1}]")
-        if not (np.isfinite(fx) and np.isfinite(fy)):
-            raise ValueError(f"add_force: fx={fx}, fy={fy} — must be finite")
+        require_finite_scalar(fx, "add_force: fx")
+        require_finite_scalar(fy, "add_force: fy")
         if fx != 0.0 or fy != 0.0:
             # 曾用 abs>1e-30 阈值: 微尺度模型合法小载荷 (1e-31 N) 被静默
             # 丢弃, 求解"成功"但位移全零
@@ -862,9 +867,8 @@ class Mesh:
             if not (0 <= n < self.n_nodes):
                 raise ValueError(f"add_traction: node {n} out of range [0, {self.n_nodes-1}]")
         for name, val in (("tx", tx), ("ty", ty)):
-            if not callable(val) and not np.isfinite(val):
-                raise ValueError(
-                    f"add_traction: {name}={val} — must be finite or callable")
+            if not callable(val):
+                require_finite_scalar(val, f"add_traction: {name}")
         eids = self._get_edge_elements(ni, nj)
         if len(eids) != 1:
             raise ValueError(
@@ -890,9 +894,8 @@ class Mesh:
         for n in (ni, nj):
             if not (0 <= n < self.n_nodes):
                 raise ValueError(f"add_pressure: node {n} out of range [0, {self.n_nodes-1}]")
-        if not callable(p) and not np.isfinite(p):
-            raise ValueError(
-                f"add_pressure: p={p} — must be finite or callable")
+        if not callable(p):
+            require_finite_scalar(p, "add_pressure: p")
         # 不缓存外法向: 组装时由当前几何重新计算 (boundary_outward_normal),
         # 这样 replace_nodes/replace_elements 改变几何后载荷自动跟随 —
         # 缓存法向曾导致改几何后压力沿用旧方向。

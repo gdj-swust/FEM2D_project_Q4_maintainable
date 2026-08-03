@@ -13,6 +13,9 @@ def compute_stresses(mesh, u):
     u = np.asarray(u, dtype=float)
     if u.shape != (mesh.n_dof,):
         raise ValueError(f"u must have shape ({mesh.n_dof},), got {u.shape}")
+    if not np.all(np.isfinite(u)):
+        raise ValueError(
+            "compute_stresses: u contains NaN/Inf — 位移向量非法")
     return mesh.element_kernel.compute_response(
         mesh, u[mesh.element_dofs])
 
@@ -46,6 +49,9 @@ def nodal_average(mesh, elem_stress, weights=None):
         raise ValueError(
             "elem_stress must have shape (n_elem, n_comp), got "
             f"{elem_stress.shape}")
+    if not np.all(np.isfinite(elem_stress)):
+        raise ValueError(
+            "nodal_average: elem_stress contains NaN/Inf — 恢复输入非法")
     n_comp = elem_stress.shape[1]
     if weights is None:
         w = np.ones(mesh.n_elements, dtype=float)
@@ -56,6 +62,8 @@ def nodal_average(mesh, elem_stress, weights=None):
         if w.shape != (mesh.n_elements,):
             raise ValueError(
                 f"weights must have shape ({mesh.n_elements},), got {w.shape}")
+        if not np.all(np.isfinite(w)):
+            raise ValueError("nodal_average: weights contain NaN/Inf")
 
     flat_nodes = mesh.elements.ravel()
     repeated = np.repeat(w, mesh.elements.shape[1])
@@ -115,6 +123,10 @@ def nodal_L2_projection(mesh, elem_stress):
         raise ValueError(
             f"elem_stress first dimension must be {mesh.n_elements}, "
             f"got {elem_stress.shape[0]}")
+    if not np.all(np.isfinite(elem_stress)):
+        raise ValueError(
+            "nodal_L2_projection: elem_stress contains NaN/Inf — "
+            "恢复输入非法")
     n_nodes = mesh.n_nodes
     n_comp = elem_stress.shape[-1]
     kernel = mesh.element_kernel

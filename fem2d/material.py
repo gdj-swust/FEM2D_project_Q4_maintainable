@@ -3,17 +3,13 @@ import sys
 
 import numpy as np
 
+from .checks import require_finite_positive, require_nu_valid
+
 
 def D_matrix(E, nu, plane_type="stress"):
     """Return the isotropic 2-D constitutive matrix."""
-    if not np.isfinite(E) or E <= 0.0:
-        raise ValueError(
-            f"Young's modulus E = {E:.3e} Pa — must be finite and > 0 "
-            "(Bathe Table 4.3: D requires positive definiteness)")
-    if not np.isfinite(nu) or not (-1.0 < nu < 0.5):
-        raise ValueError(
-            f"Poisson's ratio ν = {nu} — must be in (-1, 0.5) "
-            "(Bathe Table 4.3: D singular at ν = 0.5 and -1)")
+    require_finite_positive(E, "E")
+    require_nu_valid(nu, "nu")
 
     D = np.zeros((3, 3))
     if plane_type == "stress":
