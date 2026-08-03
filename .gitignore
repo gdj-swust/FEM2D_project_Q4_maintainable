@@ -2,6 +2,9 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
 *.egg-info/
 build/
 dist/
@@ -11,6 +14,10 @@ tools/
 
 # 运行产物
 models/tmp*
+models/*.msh
+
+# 派发任务文件 (任务完成后是派发记录, 不入库)
+PROMPT*.md
 
 # 分包 worktree (git 已管理, 避免 add -A 误跟踪)
 wt_*/

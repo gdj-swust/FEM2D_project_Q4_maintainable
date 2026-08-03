@@ -1,0 +1,22 @@
+# 行尾策略: 文本统一 LF, 二进制显式声明 (Windows 上 git 曾把
+# tracked 文件整批标记为 modified — 129 文件行尾差异噪音)
+
+* text=auto
+
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
+*.spec text eol=lf
+*.geo text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+*.inp text eol=lf
+
+*.pdf binary
+*.png binary
+*.jpg binary
+*.msh binary
+*.zip binary
+*.pyc binary
