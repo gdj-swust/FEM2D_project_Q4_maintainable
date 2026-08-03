@@ -20,6 +20,37 @@ def _generate(tmp_path, text):
     return spec, out
 
 
+def test_rect_missing_width_rejected(tmp_path):
+    """矩形缺宽 — 曾静默默认 1.0, 用户以为按描述建模实际 1×1 (审查 P2-3)."""
+    with pytest.raises(ValueError, match="缺少参数.*宽"):
+        _generate(tmp_path, "类型 矩形板\n高 2.0\n")
+
+
+def test_rect_missing_height_rejected(tmp_path):
+    with pytest.raises(ValueError, match="缺少参数.*高"):
+        _generate(tmp_path, "类型 矩形板\n宽 3.0\n")
+
+
+def test_circle_missing_outer_r_rejected(tmp_path):
+    """圆板缺外径 — 曾静默默认 1.0."""
+    with pytest.raises(ValueError, match="缺少参数.*外径"):
+        _generate(tmp_path, "类型 圆板\n")
+
+
+def test_annulus_missing_inner_r_rejected(tmp_path):
+    """圆环缺内径 — 曾静默生成实心圆, 几何语义根本改变 (审查 P2-3)."""
+    with pytest.raises(ValueError, match="缺少参数.*内径"):
+        _generate(tmp_path, "类型 圆环\n外径 4.0\n")
+
+
+def test_annulus_with_inner_r_ok(tmp_path):
+    """合法圆环不受影响."""
+    spec, out = _generate(tmp_path, "类型 圆环\n外径 4.0\n内径 2.0\n")
+    assert spec["type"] == "annulus"
+    assert "Circle: outer R=2.0 inner R=1.0" in open(
+        out, encoding="utf-8").read()
+
+
 def test_rect_hole_outside_rejected(tmp_path):
     with pytest.raises(ValueError, match="矩形可布区域"):
         _generate(tmp_path, "类型 矩形板\n宽 3.0\n高 2.0\n"
