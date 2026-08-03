@@ -20,10 +20,19 @@ description = "2D displacement FEM solver — CST/Q4/Q4R/Q4I, plane stress/strai
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
+# 版本下限 = 首个兼容 numpy 2.x 的发行版 (矩阵决策记录见 docs/ci.md):
+#   numpy>=2.0      — 声明最低版; 代码只用 np.ptp 顶层函数 (numpy 2.0 只
+#                     移除 arr.ptp() 方法, 顶层函数保留), 无已删别名
+#                      (np.float_/np.NaN 等 — grep 全库 0 命中)
+#   scipy>=1.13.0   — 首个支持 numpy 2.0 的 scipy (1.12 与 numpy 2.x 不兼容)
+#   matplotlib>=3.8.4 — 首个支持 numpy 2.0 的 matplotlib (3.5 会崩)
+# 注意: gmsh 是运行时依赖, 其 Python API 在 Linux 需系统 libGLU.so.1
+# (CI 用 apt-get install libglu1-mesa, 见 docs/ci.md); 无 gmsh 时
+# 相关测试按设计 skip 而非失败。
 dependencies = [
     "numpy>=2.0",
-    "scipy>=1.12",
-    "matplotlib>=3.5",
+    "scipy>=1.13.0",
+    "matplotlib>=3.8.4",
     "gmsh>=4.11",
 ]
 

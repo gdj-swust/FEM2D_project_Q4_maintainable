@@ -1,37 +1,93 @@
-# FEM2D CI — 依赖/语法升级的回归保障 (2026-08-02 补充).
-# 矩阵: Python 3.9/3.11/3.13 × numpy 1.24/最新 — 覆盖 requires-python
-# 声明与最新栈。Linux 缺 libGLU 时 gmsh 相关测试自动跳过 (测试自带条件)。
-name: CI
-
-on:
+# FEM2D CI — 矩阵/步骤决策记录见 docs/ci.md (2026-08-03 重写).
+#
+# 三个 job:
+#   lint       — 静态检查 (compileall/ruff/mypy) + 独立自检, 无 gmsh, 跑一次
+#   test-core  — 矩阵 4 组合; 显式卸载 gmsh, 确定性验证"无 gmsh →
+#                gmsh 依赖测试 skip 而非失败" (与 runner 镜像无关)
+#   test-full  — 最新栈 (3.13) + libGLU → gmsh Python API 可用, 全量测试
+#
+# 所有 job 都无 tools/gmsh.exe (86MB 可执行文件 gitignore 不入库) →
+# 依赖捆绑可执行文件的测试 (test_geo_models) 在所有 job 恒定 skip。
+"on":
   push:
   pull_request:
 
 jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.9", "3.11", "3.13"]
-        numpy-version: ["1.24", "latest"]
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install deps
+          python-version: "3.13"
+      - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install "numpy==${{ matrix.numpy-version }}" \
-            scipy matplotlib gmsh pytest ruff mypy
+          python -m pip install -e ".[dev]"
       - name: Compile check
         run: python -m compileall -q fem2d scripts tests run.py run_demo.py
       - name: ruff
         run: ruff check fem2d/ scripts/ tests/ run.py run_demo.py
       - name: mypy
-        run: mypy fem2d/ --ignore-missing-imports
-      - name: pytest
-        run: python -m pytest tests/ -q
-      - name: Self-test
+        run: mypy fem2d/
+      - name: Self-test (standalone patch test, no gmsh needed)
         run: python run.py --self-test
+
+  test-core:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # numpy==2.0 = pyproject 声明的最低版 (numpy 2.0 只有到
+          # Python 3.12 的 wheel, 3.13 起需 numpy>=2.1 → 地板组合放 3.11)
+          - python-version: "3.11"
+            numpy-constraint: "==2.0"
+          - python-version: "3.11"
+            numpy-constraint: ">=2.0,<3"
+          - python-version: "3.12"
+            numpy-constraint: ">=2.0,<3"
+          - python-version: "3.13"
+            numpy-constraint: ">=2.0,<3"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" "numpy${{ matrix.numpy-constraint }}"
+      - name: Force gmsh-less environment (skip-path check)
+        # gmsh 是声明的运行时依赖, wheel 安装必然成功; 本 job 要确定性
+        # 验证无 gmsh 环境的 skip 行为, 与 runner 镜像是否预装 libGLU 无关
+        # (tests/ 模块级 pytest.skip 捕 ImportError/OSError, gmsh_adapter
+        # 懒加载, 见 docs/ci.md)。
+        run: |
+          python -m pip uninstall -y gmsh
+          if python -c "import gmsh" 2>/dev/null; then
+            echo "gmsh unexpectedly importable" >&2
+            exit 1
+          else
+            echo "OK: gmsh unavailable — gmsh-dependent tests must skip"
+          fi
+      - name: pytest (gmsh-dependent tests expected to skip)
+        run: python -m pytest -q
+
+  test-full:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install system libGLU (gmsh Python API)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglu1-mesa libgl1
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: pytest (gmsh API available)
+        run: python -m pytest -q -rs
