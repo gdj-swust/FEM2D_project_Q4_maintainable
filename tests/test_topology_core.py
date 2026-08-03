@@ -181,7 +181,7 @@ def test_locator_cache_is_invalidated_with_topology():
 
 def test_locator_zero_span_axis_micro_scale():
     """零跨度轴 (共线退化网格) 的定位器不得崩溃 — extent 曾回落绝对
-    1.0, 微尺度网格分桶随 1.0 发散 (审计 2026-08-03)."""
+    1.0, 微尺度网格分桶随 1.0 发散."""
     from fem2d.topology_core import ElementLocator
     s = 1e-16
     nodes = np.array([[0.0, 0.0], [s, 0.0], [2 * s, 0.0]], dtype=float)

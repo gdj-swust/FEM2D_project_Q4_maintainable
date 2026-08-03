@@ -80,7 +80,7 @@ def _gmsh_exe():
 def test_msh2_import_never_silent(tmp_path, capsys):
     """MSH 2.2 导入: gmsh 对 2.2 的物理组恢复行为不稳定 (实测有时恢复
     有时丢失) — 无论哪种情况, 网格导入必须成功且不抛异常; 物理组
-    丢失时由 import_msh 的检测给出 WARN (审计 2026-08-03)."""
+    丢失时由 import_msh 的检测给出 WARN."""
     import subprocess
     from fem2d.gmsh_adapter import import_msh
     exe = _gmsh_exe()

@@ -22,7 +22,7 @@ def principal_stresses(stress):
     stress = np.asarray(stress)
     sx, sy, txy = stress[:, 0], stress[:, 1], stress[:, 2]
     # 防溢出: (0.5(sx-sy))² 在 |s|~1e308 时平方 inf; 0.5*(sx+sy) 在
-    # sx=sy=1e308 时先加后乘也 inf — 先除以 2 再相加 (第五轮外部审查)
+    # sx=sy=1e308 时先加后乘也 inf — 先除以 2 再相加
     average = 0.5 * sx + 0.5 * sy
     half_diff = 0.5 * sx - 0.5 * sy
     radius = np.hypot(half_diff, txy)
@@ -63,7 +63,7 @@ def nodal_average(mesh, elem_stress, weights=None):
     orphan = np.flatnonzero(denom == 0.0)
     if len(orphan):
         # 曾 denom==0 → 1.0 静默填 0 应力, 与 L2 路径抛错行为分叉 —
-        # 孤立节点在三条恢复路径统一显式报错 (审计 2026-08-03)
+        # 孤立节点在三条恢复路径统一显式报错
         raise ValueError(
             f"节点平均恢复失败: {len(orphan)} 个孤立节点未被任何单元引用, "
             f"加权计数为零 (节点: {orphan[:10].tolist()}) — "
@@ -213,7 +213,7 @@ def nodal_L2_projection(mesh, elem_stress):
     orphan = np.flatnonzero(np.asarray(mass.diagonal()) == 0.0)
     if len(orphan):
         # 孤立节点行全零 → splu 抛 "Factor is exactly singular" 裸异常,
-        # 与网格无关的底层报错 (审计 2026-08-03)
+        # 与网格无关的底层报错
         raise ValueError(
             f"L2 投影失败: {len(orphan)} 个孤立节点未被任何单元引用, "
             f"一致质量矩阵奇异 (节点: {orphan[:10].tolist()}) — "
@@ -234,7 +234,7 @@ def point_in_element(mesh, x, y):
 def stress_at_point(mesh, result, x, y, mode="element"):
     """Query representative, two-sided, averaged or recovered point stress.
 
-    模式语义 (高强度审计 2026-08-02 澄清):
+    模式语义:
       'element'  — 查询点所在单元的**代表应力** (单元均值, 与点位置无关)
       'sides'    — 共享边上两侧单元的**代表应力** (单元均值, 非点插值)
       'average'  — 两侧单元代表应力的**算术平均** (非点插值)

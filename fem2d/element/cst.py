@@ -96,7 +96,7 @@ def _element_stiffness(xi, yi, xj, yj, xk, yk, E, nu, t=1.0, plane="stress"):
     # 面积判据基于单元自身尺寸 (最大边长), 不是坐标绝对值 —
     # 曾用绝对 1e-30 拒纳米单元; 改用 max|x_i,y_i| 后又误拒远离原点的
     # 合法单元 (1e7 偏移的单位三角形, 面积 0.5 < 1.42 判据) — 批量路径
-    # 用坐标差构造, 天然与原点无关 (审计 2026-08-03)
+    # 用坐标差构造, 天然与原点无关
     scl = max(np.hypot(xj - xi, yj - yi), np.hypot(xk - xj, yk - yj),
               np.hypot(xi - xk, yi - yk), np.finfo(float).tiny)
     if abs(area) <= 64.0 * np.finfo(float).eps * scl * scl:
@@ -156,7 +156,7 @@ def _verify_element(xi, yi, xj, yj, xk, yk, tol=1e-12):
     _, b, c, area = _shape_coeffs(xi, yi, xj, yj, xk, yk)
     if abs(area) <= np.finfo(float).tiny:
         # 退化 (共线/零面积) 单元 — 曾 _B_matrix 的 1/(2A) 抛裸
-        # ZeroDivisionError, 验证路径崩溃而非报告失败 (审计 2026-08-03)
+        # ZeroDivisionError, 验证路径崩溃而非报告失败
         return {
             "completeness": False, "rigid_body": False,
             "completeness_err": float("inf"),

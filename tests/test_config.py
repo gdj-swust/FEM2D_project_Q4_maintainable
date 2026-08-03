@@ -213,7 +213,7 @@ def test_resolve_geo_lc_missing_lc_no_spurious_warn_in_batch(capsys, tmp_path):
 
 def test_spec_float_conversion_reports_key_name(tmp_path):
     """.spec float 值转换失败必须带键名 — 曾裸 ValueError 无上下文
-    (审计 2026-08-03)."""
+   ."""
     from fem2d.input_source import resolve_spec_overrides
     from fem2d.config import AnalysisConfig
     spec = _write_spec("mesh = m.geo\nE = 2,1e11\n")
@@ -432,7 +432,7 @@ def test_main_accepts_msh_input(monkeypatch):
 
 def test_resolve_txt_preserves_handwritten_geo(tmp_path, monkeypatch):
     """.txt 输入遇到同名手写 .geo 必须生成临时副本, 原始文件不碰 —
-    曾静默覆盖导致手写几何永久丢失 (审计 2026-08-03 实测复现)."""
+    曾静默覆盖导致手写几何永久丢失."""
     import shutil
     from fem2d import input_source
     from fem2d.input_source import resolve_txt

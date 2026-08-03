@@ -150,13 +150,13 @@ def test_interactive_bc_path(monkeypatch):
 
 
 # ═══════════════════════════════════════════════════════════════
-# 外部审查修复 (2026-08-03): BC 公共 API 输入校验
+# BC 公共 API 输入校验
 # ═══════════════════════════════════════════════════════════════
 
 def test_bc_api_rejects_invalid_inputs():
     """apply_penalty/apply_elimination 公开 API 必须拒绝非法输入 —
     曾 NaN/Inf 罚因子进入 K_mod、布尔掩码约束错 DOF、负 DOF 静默
-    约束最后一个 (外部审查复现, 2026-08-03)."""
+    约束最后一个."""
     import numpy as np
     import pytest
     from scipy.sparse import csr_matrix

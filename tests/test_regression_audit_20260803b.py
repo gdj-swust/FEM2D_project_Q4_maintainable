@@ -31,7 +31,7 @@ def _square_loop_coords(scale):
 
 def test_boundary_micro_scale_square_still_lines():
     """1e-16 尺度方形边界必须仍识别为直边 — 曾 1e-15 绝对零长判据
-    使每条边都被判退化, 整环合并成 arc (审计 2026-08-03)."""
+    使每条边都被判退化, 整环合并成 arc."""
     from fem2d.boundary.geometry import (
         _classify_line, compute_tolerance, sharp_corner_indices)
     for scale in (1.0, 1e-9, 1e-16):
@@ -60,7 +60,7 @@ def test_boundary_micro_scale_square_still_lines():
 
 def test_validate_nodes_micro_scale_not_rejected():
     """微尺度物理曲线节点链不得被误判零长边 — 曾 1.0 下限使容差
-    ~7e-15 > 整个 1e-16 模型, 每条边都 ValueError (审计 2026-08-03)."""
+    ~7e-15 > 整个 1e-16 模型, 每条边都 ValueError."""
     from fem2d.boundary.segment_builder import BoundarySegmentBuilder
     from fem2d import Mesh
     s = 1e-16
@@ -77,7 +77,7 @@ def test_validate_nodes_micro_scale_not_rejected():
 
 def test_geo_spec_micro_hole_full_precision(tmp_path):
     """微尺度孔坐标必须全精度写入 .geo — 曾 6 位小数把 1e-7 孔塌缩成
-    0.000000, Gmsh 得到零半径圆弧 (审计 2026-08-03)."""
+    0.000000, Gmsh 得到零半径圆弧."""
     from scripts.geo_spec import parse_spec, generate_geo
     spec_path = tmp_path / "micro.txt"
     spec_path.write_text("类型 矩形板\n宽 1e-6\n高 2e-6\n"
@@ -98,7 +98,7 @@ def test_geo_spec_micro_hole_full_precision(tmp_path):
 
 def test_spec_config_missing_equals_rejected(tmp_path):
     """.spec 漏写 = 必须报错 — 曾静默丢键, 约束消失无提示, 与 .txt
-    缺值报错行为分叉 (审计 2026-08-03)."""
+    缺值报错行为分叉."""
     from fem2d.preprocess import parse_spec_config
     p = tmp_path / "bad.spec"
     p.write_text("mesh = m.geo\nfix left\nE = 2.1e11\n", encoding="utf-8")
@@ -107,7 +107,7 @@ def test_spec_config_missing_equals_rejected(tmp_path):
 
 
 def test_spec_config_empty_value_rejected(tmp_path):
-    """.spec 空值 (fix =) 必须报错 — 曾静默丢键 (审计 2026-08-03)."""
+    """.spec 空值 (fix =) 必须报错 — 曾静默丢键."""
     from fem2d.preprocess import parse_spec_config
     p = tmp_path / "empty.spec"
     p.write_text("mesh = m.geo\nfix =\n", encoding="utf-8")
@@ -121,7 +121,7 @@ def test_spec_config_empty_value_rejected(tmp_path):
 
 def test_solver_micro_nontrivial_not_labeled_trivial():
     """微尺度载荷的非平凡解 (max|u| 显著非零) 不得打印 "trivial solution"
-    — 曾 denom<1e-15 绝对判据误标 (审计 2026-08-03)."""
+    — 曾 denom<1e-15 绝对判据误标."""
     from fem2d import Mesh, solve
     s = 1e-16
     m = Mesh(nodes=np.array([[0, 0], [s, 0], [0, s]], dtype=float),
@@ -145,7 +145,7 @@ def test_solver_micro_nontrivial_not_labeled_trivial():
 
 def test_quality_area_cv_micro_scale_realistic():
     """微尺度网格 (面积 ~1e-32) 的 area_cv 必须反映真实离散 — 曾
-    1e-30 绝对地板把 CV 从 ~27% 压到 ~0.4% (审计 2026-08-03)."""
+    1e-30 绝对地板把 CV 从 ~27% 压到 ~0.4%."""
     from fem2d.quality import evaluate
     from fem2d import Mesh
     s = 1e-16
@@ -164,7 +164,7 @@ def test_quality_area_cv_micro_scale_realistic():
 
 def test_nodes_on_edge_micro_scale_selective():
     """1e-32 跨度模型 nodes_on_edge('x','min') 必须只返回左边界节点 —
-    曾 1.0 地板使 tol=1e-8 覆盖全部节点 (审计 2026-08-03)."""
+    曾 1.0 地板使 tol=1e-8 覆盖全部节点."""
     from fem2d import Mesh
     s = 1e-32
     m = Mesh(nodes=np.array([[0, 0], [s, 0], [s, s], [0, s]], dtype=float),
@@ -183,7 +183,7 @@ def test_nodes_on_edge_micro_scale_selective():
 def test_pressure_callable_error_has_edge_context():
     """压力表达式在 Gauss 点抛异常必须带边/点上下文 — 曾裸
     ValueError (math domain) 无载荷上下文, 面力路径已有包装
-    (审计 2026-08-03)."""
+   ."""
     from fem2d import Mesh, solve
     nodes = np.array([[0., 0.], [1., 0.], [0., 1.], [1., 1.]], dtype=float)
     elems = np.array([[0, 1, 2], [1, 3, 2]], dtype=int)

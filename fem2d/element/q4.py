@@ -63,7 +63,7 @@ def element_stiffness(coords, E, nu, t=1.0, plane="stress"):
     """Full-integration Q4 stiffness matrix."""
     # 以第一个节点为原点居中 — 与 _batch_kinematics 一致 (绝对坐标的
     # 浮点乘加在大坐标原点下引入 ~ulp(原点) 误差, 1e12 偏移实测刚度
-    # 偏差 ~1e-4, 审计 2026-08-03)
+    # 偏差 ~1e-4)
     coords = np.asarray(coords, dtype=float)
     coords = coords - coords[:1]
     D = material.D_matrix(E, nu, plane)
@@ -84,7 +84,7 @@ def _polygon_geometry(coords):
 
     基于局部坐标 (每单元以其第一个节点为原点): 绝对坐标下鞋带公式
     cross = x·y_next − x_next·y 对大坐标原点 + 小局部尺寸灾难性消差
-    (审计 2026-08: 1e6 原点 + 0.01 边长 → 面积误差 22%、形心偏差 6 万、
+    (1e6 原点 + 0.01 边长 → 面积误差 22%、形心偏差 6 万、
     0.001 边长合法单元被判退化)。
     """
     origin = coords[:, :1, :]           # (ne, 1, 2) — 每单元第一个节点
@@ -110,7 +110,7 @@ def _batch_kinematics(coords, sample_points):
 
     Jacobian 基于局部坐标 (每单元以其第一个节点为原点) — 形函数导数
     行和为零, 平移数学上不变, 但绝对坐标的浮点乘加会引入 ~ulp(原点)
-    误差, 大坐标原点下刚度相对变化实测 ~9e-5 (审计 2026-08)。
+    误差, 大坐标原点下刚度相对变化实测 ~9e-5。
     """
     ne = coords.shape[0]
     nq = len(sample_points)
@@ -206,7 +206,7 @@ class Q4Element(ElementKernel):
             B = B_gauss[:, q]
             # 先加权再二次型: B̃ = √(t·detJ)·B, Ke = B̃ᵀDB̃ —
             # 曾先算 BᵀDB ~ E/L² 中间量, 微尺度几何 (L~1e-150) 下溢出
-            # Inf 后再乘 detJ 已来不及 (外部审查, 2026-08-03)。数学等价,
+            # Inf 后再乘 detJ 已来不及。数学等价,
             # 中间量尺度 O(√t·D) 不随 L 发散。
             if np.any(det_gauss[:, q] <= 0.0):
                 # 曾 sqrt(max(...,0)) 把负 Jacobian 静默夹成零 (第三轮

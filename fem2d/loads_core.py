@@ -85,7 +85,7 @@ def assemble(mesh, n_dof):
         dx, dy = xj_c - xi_c, yj_c - yi_c
         L = float(np.hypot(dx, dy))
         # 零长判据基于该边端点的局部坐标尺度 — 曾用 max(全局节点, 1.0)
-        # 下限, 微米/纳米模型 (边长 1e-16) 全被判退化 (审计 2026-08-03)
+        # 下限, 微米/纳米模型 (边长 1e-16) 全被判退化
         edge_ulp = 64.0 * np.finfo(float).eps * max(
             float(max(abs(xi_c), abs(xj_c), abs(yi_c), abs(yj_c))),
             np.finfo(float).tiny)
@@ -109,7 +109,7 @@ def assemble(mesh, n_dof):
                         p_val = p_raw(xg, yg)
                     except Exception as error:
                         # 1/x 除零等表达式错误 — 曾裸异常无载荷上下文,
-                        # 面力路径已有包装, 压力路径补齐 (审计 2026-08-03)
+                        # 面力路径已有包装, 压力路径补齐
                         raise ValueError(
                             f"边 ({ni},{nj}) 压力表达式在 Gauss 点 "
                             f"({xg:.4g},{yg:.4g}) 求值失败: {error}") from error
@@ -127,7 +127,7 @@ def assemble(mesh, n_dof):
         else:
             # 全局坐标面力 (tx, ty), 3 点 Gauss 积分
             # 边界边校验 — 曾缺失: replace_elements 使该边变内部边后,
-            # 压力路径抛错而面力路径静默施加到内部边 (审计 2026-08-03)
+            # 压力路径抛错而面力路径静默施加到内部边
             mesh._validate_boundary_edge(ni, nj)
             for w, xi_g in LINE_GAUSS:
                 Ni=0.5*(1-xi_g); Nj=0.5*(1+xi_g)
@@ -136,7 +136,7 @@ def assemble(mesh, n_dof):
                     tx,ty = evaluate_vector_field(trac, xg, yg)
                 except Exception as error:
                     # 1/x 除零 / sqrt(x-10) 域错误曾无载荷上下文裸抛
-                    # (审计 2026-08-03)
+                    #
                     raise ValueError(
                         f"边 ({ni},{nj}) 面力表达式在 Gauss 点 "
                         f"({xg:.4g},{yg:.4g}) 求值失败: {error}") from error
@@ -312,7 +312,7 @@ def _compile_expr(expr: str):
         tree = ast.parse(expr.strip(), mode='eval')
     except SyntaxError as error:
         # '1e6x,0' 等语法错误曾抛裸 SyntaxError 无表达式上下文
-        # (审计 2026-08-03)
+        #
         raise ValueError(
             f"表达式语法错误: {error.msg} — 表达式: '{expr}' "
             "(仅支持 数字/运算符/x/y/sin/cos/tan/exp/sqrt/log/abs/pi)") from None
@@ -327,7 +327,7 @@ def parse_vec2(s: str):
 
     含 x/y → 编译为 lambda x,y: expr; 纯数字 → float
     """
-    # 全角逗号曾报"需要两个分量"误导用户以为少写逗号 (审计 2026-08-03)
+    # 全角逗号曾报"需要两个分量"误导用户以为少写逗号
     parts = s.replace("，", ",").split(',')
     if len(parts) != 2:
         raise ValueError(
@@ -339,7 +339,7 @@ def parse_vec2(s: str):
         if p.lower() in ("nan", "+nan", "-nan", "inf", "+inf", "-inf",
                          "infinity", "+infinity", "-infinity"):
             # CLI 的 NaN/Inf 体力/面力曾静默不施加载荷 (bc_apply 的
-            # abs(bfx) > 1e-30 对 NaN 恒 False; 审计 2026-08)
+            # abs(bfx) > 1e-30 对 NaN 恒 False)
             raise ValueError(
                 f"载荷分量 {p!r} 不是有限数值 — NaN/Inf 会被静默忽略")
         if not p:
@@ -357,7 +357,7 @@ def parse_vec2(s: str):
                     f"注意: 不含 x/y 的函数表达式 (如 sin(pi/2)) 不会被识别为空间函数, "
                     f"请直接写数值 (如 1.0).")
             if not np.isfinite(value):
-                # 数值溢出 (如 1e999 → inf) — CLI 曾静默忽略 (审计 2026-08)
+                # 数值溢出 (如 1e999 → inf) — CLI 曾静默忽略
                 raise ValueError(
                     f"载荷分量 {p!r} 不是有限数值 ({value})")
             results.append(value)

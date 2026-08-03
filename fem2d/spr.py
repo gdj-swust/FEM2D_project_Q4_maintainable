@@ -71,7 +71,7 @@ def _prepare_samples(mesh, elem_stress):
         # (ne,ncomp): 代表应力定义在单元自然中心 (CST 形心 / Q4R 中心
         # 单点 / Q4·Q4I 对称高斯均值 — 物理位置均为节点坐标均值), 不是
         # 多边形质心; 扭曲四边形上两者差 ~3.7% 边长, SPR 线性精确性从
-        # 2e-16 退化到 5e-3 (审计 2026-08-03)
+        # 2e-16 退化到 5e-3
         positions = np.mean(mesh.nodes[mesh.elements], axis=1)
         return positions[:, None, :], elem_stress[:, None, :]
     positions = recovery_sample_positions(mesh, elem_stress.shape[1])

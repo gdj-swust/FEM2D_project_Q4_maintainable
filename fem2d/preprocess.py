@@ -55,7 +55,7 @@ def parse_spec_config(filepath):
     两者同名曾是输入端分叉温床 (2026-08-03 审计后改名消歧)。
 
     格式错误 (漏写 = / 空值) 必须响亮报错 — 曾静默丢键, 约束/载荷
-    无声消失, 与 .txt 入口的缺值报错行为分叉 (审计 2026-08-03)。
+    无声消失, 与 .txt 入口的缺值报错行为分叉。
     """
     spec = {}
     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
@@ -63,7 +63,7 @@ def parse_spec_config(filepath):
             line = raw_line.strip()
             if lineno == 1:
                 # Windows 记事本 UTF-8 BOM 曾把首行键变成 '﻿mesh',
-                # mesh 键丢失 → FATAL 报空路径 (审计 2026-08-03)
+                # mesh 键丢失 → FATAL 报空路径
                 line = line.lstrip("﻿")
             # 剥离行尾注释 (例: mesh = test.txt  # 说明)
             line = line.split('#')[0].strip()
@@ -89,7 +89,7 @@ def parse_geo_fem_config(geo_path: str):
 
     格式错误必须响亮失败 (带文件名/行号/原始内容) — 曾 traction 字段
     不足静默丢弃、空 @FEM:pressure= 连正则都不匹配, 求解成功但工况
-    已变 (第五轮外部审查: 静默丢载荷是最危险的错误类型)。
+    已变: 静默丢载荷是最危险的错误类型。
     """
     if not geo_path or not os.path.isfile(geo_path):
         return {"fix": [], "traction": [], "pressure": [], "body": None}
@@ -144,7 +144,7 @@ def parse_geo_fem_config(geo_path: str):
                 config['body'] = val
             else:
                 # 未知 @FEM: 键 (如 geo_spec 曾生成的 bc=) 曾静默丢弃,
-                # 载荷消失无提示 (审计 2026-08-03)
+                # 载荷消失无提示
                 print(f"  [WARN] .geo @FEM: 未知键 '{key}' 已忽略 — "
                       "支持: fix/traction/pressure/body")
     return config
@@ -167,7 +167,7 @@ def merge_geo_fem_config(geo_fem, config, *, verbose=True):
             print(f"  [auto] fix: {config.fix}")
     elif geo_fem['fix'] and config.fix and verbose:
         # 与 traction 分支一致: .geo @FEM:fix 被 CLI --fix 覆盖须提示 —
-        # 曾静默替换, 用户以为 .geo 约束已生效 (审计 2026-08-03)
+        # 曾静默替换, 用户以为 .geo 约束已生效
         print(
             "  [WARN] .geo 配置含 fix 但 CLI 已显式指定 --fix — "
             "按 CLI 优先, .geo 约束未施加")
@@ -213,7 +213,7 @@ def _coordinate_ulp(nodes):
     """坐标 ULP 容差 — 基于网格局部坐标尺度, 不强制下限 1.0.
 
     曾用 max(..., 1.0) 下限: 微米/纳米模型 (坐标 1e-16) 的容差被抬到
-    ~1.4e-14, 正常节点被判重复、正常边被判退化 (审计 2026-08-03)。
+    ~1.4e-14, 正常节点被判重复、正常边被判退化。
     tiny 下限仅防纯零坐标时出现 0 容差, 不再放大微尺度模型。
     """
     return 64.0 * np.finfo(float).eps * max(
@@ -321,7 +321,7 @@ def _find_degenerate_elements(nodes, elements):
         if not bad and len(conn) == 4:
             # 蝴蝶形 (自交) 四边形: 两片三角有向面积异号, 净面积仍为正
             # 而漏检 — 求解器 Jacobian 检查会以 inverted 拒绝, 导入校验
-            # 必须给出同样诊断 (审计 2026-08-03)
+            # 必须给出同样诊断
             c = nodes[conn]
             a1 = 0.5 * ((c[1, 0] - c[0, 0]) * (c[2, 1] - c[0, 1]) -
                         (c[2, 0] - c[0, 0]) * (c[1, 1] - c[0, 1]))
@@ -428,11 +428,11 @@ def validate_mesh(nodes, elements, elem_type=None, tol=None):
     nodes = np.asarray(nodes, dtype=float)
     if not np.all(np.isfinite(nodes)):
         # cKDTree 对 NaN/Inf 抛裸 scipy ValueError, 与网格无关的底层报错
-        # 会把用户引向错误方向 (审计 2026-08-03)
+        # 会把用户引向错误方向
         raise MeshValidationError(
             "节点坐标含 NaN/Inf — 网格导入前必须清理")
     # 先验证连接关系的有限性/整数值, 再转换 — 曾先 dtype=int 把浮点
-    # 1.9 静默截断成 1, 校验错误通过 (审计 2026-08)
+    # 1.9 静默截断成 1, 校验错误通过
     elems_raw = np.asarray(elements)
     if not np.issubdtype(elems_raw.dtype, np.integer):
         if not np.all(np.isfinite(elems_raw)):
@@ -440,7 +440,7 @@ def validate_mesh(nodes, elements, elem_type=None, tol=None):
                 "Element node indices must be finite integers — "
                 f"NaN/Inf found (e.g. {elems_raw.flat[0]})")
         # 拓扑编号必须严格整数: np.allclose 的相对容差会把 1.000001
-        # 当整数, 静默改变拓扑 (审计 2026-08)
+        # 当整数, 静默改变拓扑
         bad = elems_raw != np.rint(elems_raw)
         if np.any(bad):
             first_bad = elems_raw[bad].flat[0]
@@ -451,12 +451,12 @@ def validate_mesh(nodes, elements, elem_type=None, tol=None):
         elems_raw = np.rint(elems_raw)
     elements = elems_raw.astype(np.int64, copy=False)
     if elements.shape[1] not in _LOCAL_EDGES:
-        # 5/6 列连接曾在 _find_zero_edges 抛裸 KeyError (审计 2026-08-03)
+        # 5/6 列连接曾在 _find_zero_edges 抛裸 KeyError
         raise MeshValidationError(
             f"单元连接宽度 {elements.shape[1]} 不受支持 — 仅支持 "
             f"{sorted(_LOCAL_EDGES)} 节点 (三角/四边形)")
     if elements.shape[0] == 0:
-        # 空单元集让所有校验循环空转, ok=True 误导下游 (审计 2026-08-03)
+        # 空单元集让所有校验循环空转, ok=True 误导下游
         raise MeshValidationError("网格不包含任何单元")
     n_node = nodes.shape[0]
     n_elem = elements.shape[0]
@@ -487,7 +487,7 @@ def validate_mesh(nodes, elements, elem_type=None, tol=None):
         elements, edge_to_elems)
     if msg: errors.append(msg)
 
-    # ── 9. 全局连通性 (高强度审计 2026-08-02): 互不接触的多个域
+    # ── 9. 全局连通性: 互不接触的多个域
     # 通过全部校验, 但求解时刚体检查会以奇异拒绝 — 提前给出诊断
     from scipy.sparse.csgraph import connected_components
     from scipy.sparse import csr_matrix

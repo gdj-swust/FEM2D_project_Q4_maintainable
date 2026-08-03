@@ -280,7 +280,7 @@ class Mesh:
         raw_fixed = np.asarray(self.fixed_dofs)
         if np.issubdtype(raw_fixed.dtype, np.bool_):
             # 布尔掩码曾经 asarray(dtype=float) 变成 [0,0,1,1,...], unique
-            # 折叠成 {0,1} — 用户想约束的 DOF 被静默换成节点 0 (审计 2026-08-03)
+            # 折叠成 {0,1} — 用户想约束的 DOF 被静默换成节点 0
             raise TypeError(
                 "fixed_dofs must be integer DOF indices, not a boolean mask — "
                 "pass np.flatnonzero(mask) or explicit integer indices")
@@ -494,7 +494,7 @@ class Mesh:
         _u, _c = np.unique(fixed, return_counts=True)
         dup = _u[_c > 1]
         if len(dup):
-            # 重复约束: 罚函数 RHS 重复累加 → 静默错误位移 (审计 2026-08)
+            # 重复约束: 罚函数 RHS 重复累加 → 静默错误位移
             raise ValueError(
                 f"fixed_dofs 含重复 DOF: {dup.tolist()} — "
                 "同一 DOF 只能约束一次")
@@ -523,7 +523,7 @@ class Mesh:
                     f"{sorted(missing)} — full record: {cf!r}")
             # 构造函数直传的载荷不走 add_* API — 节点号必须整数。
             # 整数值浮点 (2.0) 规范化**写回** — 曾只转局部变量验证,
-            # 原始记录仍是 2.0, 组装时 IndexError (审计 2026-08-03)
+            # 原始记录仍是 2.0, 组装时 IndexError
             nid = cf["node"]
             if isinstance(nid, bool) or not isinstance(nid, (int, np.integer)):
                 if isinstance(nid, float) and float(nid).is_integer():
@@ -577,7 +577,7 @@ class Mesh:
                     f"surface traction nodes ({ni},{nj}) out of range "
                     f"[0, {self._nodes.shape[0]-1}]")
             # 内部边载荷必须在此拒绝 — 曾绕过 add_traction 的边界检查,
-            # solve 成功而误差估计崩溃 (审计 2026-08-03)
+            # solve 成功而误差估计崩溃
             self._validate_boundary_edge(ni, nj)
             st["nodes"] = (ni, nj)   # 规范化写回 (整数)
             if st.get("is_pressure"):
@@ -677,7 +677,7 @@ class Mesh:
     @staticmethod
     def _validate_node_id(nid):
         """节点编号必须为整数 — 曾接受 1.5 静默约束错误 DOF (fix_node
-        1.5 → 节点 1 Y + 节点 2 X) / 载荷接口组装时崩溃 (审计 2026-08)。
+        1.5 → 节点 1 Y + 节点 2 X) / 载荷接口组装时崩溃。
 
         兼容"有限且恰为整数"的浮点 (如 1.0); 拒绝 bool (True==1 陷阱)。
         """
@@ -720,7 +720,7 @@ class Mesh:
             if d in existing:
                 old_val = self.prescribed_vals.get(d, 0.0)
                 # 曾绝对 1e-12: 微尺度位移 (1e-13 vs 2e-13) 覆盖静默无警告
-                # (审计 2026-08-03)
+                #
                 if abs(old_val - value) > 1e-12 * max(
                         abs(old_val), abs(value), np.finfo(float).tiny):
                     import warnings
@@ -775,7 +775,7 @@ class Mesh:
             raise ValueError(f"add_force: fx={fx}, fy={fy} — must be finite")
         if fx != 0.0 or fy != 0.0:
             # 曾用 abs>1e-30 阈值: 微尺度模型合法小载荷 (1e-31 N) 被静默
-            # 丢弃, 求解"成功"但位移全零 (审计 2026-08-03)
+            # 丢弃, 求解"成功"但位移全零
             self.concentrated_forces.append({"node": nid, "force": (fx, fy)})
 
     def _get_edge_elements(self, ni, nj):
@@ -906,7 +906,7 @@ class Mesh:
         val = self.nodes[:, col].min() if edge == "min" else self.nodes[:, col].max()
         span = max(np.ptp(self.nodes[:, 0]), np.ptp(self.nodes[:, 1]))
         # 曾 span<1e-30 → 1.0 绝对地板: 子 1e-30 跨度模型 tol=1e-8 覆盖
-        # 全部节点, 边界查询静默返回整条边 (审计 2026-08-03)
+        # 全部节点, 边界查询静默返回整条边
         if span < 64.0 * np.finfo(float).eps * max(
                 float(np.max(np.abs(self.nodes))), np.finfo(float).tiny):
             span = np.finfo(float).tiny
@@ -993,7 +993,7 @@ class Mesh:
             origin = xy.mean(axis=0)
             # 分量特征尺寸: 局部跨度 + 坐标 ULP — 固定 1.0 下限在极小
             # 尺寸模型 (1e-16) 下破坏刚体模态检查的尺度不变性, 合法
-            # 约束被误报"仍有转动模态" (审计 2026-08; 内层 1.0 残留
+            # 约束被误报"仍有转动模态" (内层 1.0 残留
             # 在坐标<1 且跨度<~3e-29 时仍把旋转列缩到 SVD 阈值下 —
             # 2026-08-03 补修)
             scl = max(np.ptp(xy, axis=0).max(),
@@ -1026,7 +1026,7 @@ class Mesh:
                         missing.append("转动")
                 elif rank == 2:
                     # 零空间向量指示真正缺失的模态 — 曾一律报"转动", 但
-                    # 三个仅 y 约束的节点缺失的是 x 平动 (审计 2026-08-03)
+                    # 三个仅 y 约束的节点缺失的是 x 平动
                     _, _, vt = np.linalg.svd(R)
                     null = vt[2]
                     if abs(null[0]) > 0.5:

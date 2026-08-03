@@ -63,7 +63,7 @@ def curvature(coords, closed=True):
     kappa = np.zeros(n)
 
     # 零长边判据基于坐标尺度, 不用绝对 1e-15 — 微尺度模型 (边长 1e-16)
-    # 曾全部 κ=0, 曲率分段静默失效 (审计 2026-08-03)
+    # 曾全部 κ=0, 曲率分段静默失效
     zero_len = min(
         1e-15,
         64.0 * np.finfo(float).eps
@@ -73,7 +73,7 @@ def curvature(coords, closed=True):
     # 闭合重复点不是几何特征: 首尾精确重合或闭合边落在浮点噪声内
     # (三角采样圆的 cos(2π)≠1.0, 闭合边 ~1e-16)。重复点处差分退化
     # κ=0, 且 i=0 的 prev 引用到它 — segment_by_curvature 在接缝误报
-    # 伪断点 (审计 2026-08-03)
+    # 伪断点
     has_duplicate = bool(
         closed and n > 2
         and (np.array_equal(coords[0], coords[-1])
@@ -157,7 +157,7 @@ def sharp_corner_indices(coords, angle_threshold_deg=35.0):
     ulp = _coords_ulp(coords)
     # 闭合重复点 (首尾精确重合或落在 ULP 内): 与 curvature() 同款处理 —
     # 曾使闭合链的首个角点 (prev 指向重复点 → 零长边) 被静默跳过
-    # (审计 2026-08-03)
+    #
     has_duplicate = bool(
         n > 2
         and (np.array_equal(coords[0], coords[-1])
@@ -173,7 +173,7 @@ def sharp_corner_indices(coords, angle_threshold_deg=35.0):
         v1 = coords[i] - coords[prev]
         v2 = coords[nxt] - coords[i]
         l1, l2 = np.linalg.norm(v1), np.linalg.norm(v2)
-        # 曾绝对 1e-15: 微尺度多边形的所有角点被跳过 (审计 2026-08-03)
+        # 曾绝对 1e-15: 微尺度多边形的所有角点被跳过
         if l1 <= ulp or l2 <= ulp:
             continue
         # orient2d: prev → i → nxt 的定向量 (平行四边形的有向面积)
@@ -396,7 +396,7 @@ def _classify_line(coords, tolerance, prefix):
     delta_y = y[-1] - y[0]
     length = float(np.hypot(delta_x, delta_y))
     # 曾绝对 1e-15: 微尺度直边全被判零长 → 整环合并成单个 curve 段
-    # (审计 2026-08-03)
+    #
     if length <= tolerance or length <= _coords_ulp(coords):
         return None
 
@@ -487,7 +487,7 @@ def _classify_closed_conic(coords, is_closed, prefix):
 
 def _axis_ratio(semi_major, semi_minor):
     """轴比判据 — 唯一实现 (曾 geometry/topology 各复制一份, 拓扑层
-    保留 1e-30 绝对分母使微尺度椭圆误判整圆, 第三轮外部审查复现)。
+    保留 1e-30 绝对分母使微尺度椭圆误判整圆)。
     纯相对: 分母仅防除零 (微尺度轴仍精确)。返回 (ratio, is_circle)。
     """
     semi_minor = max(float(semi_minor), np.finfo(float).tiny)
@@ -712,7 +712,7 @@ def fit_ellipse(points):
     xs, ys = x - xm, y - ym
     scl = np.sqrt(xs.std()**2 + ys.std()**2)
     # 曾绝对 1e-15: 微尺度椭圆 (散布 1e-16) 拟合静默返回 None → 整段
-    # 落入 curve 分类 (审计 2026-08-03)
+    # 落入 curve 分类
     if scl <= _coords_ulp(points):
         return None
     xs, ys = xs / scl, ys / scl
@@ -865,7 +865,7 @@ def _unwrap_angle_range(angles):
     圆环顺序上最大间隔 = 缺失段, 弧跨度 = 2π − 最大间隔 (含首尾环绕
     间隔)。旧实现只在间隔 > π 时处理环绕 — 跨 ±π 切线的优弧
     (200° 弧 160°→360°) 返回 360°−表示间隙 (=340°) 而非真实跨度
-    (高强度审计 2026-08-02)。
+   。
     """
     sorted_angles = np.sort(angles)
     diffs = np.diff(sorted_angles)

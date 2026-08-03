@@ -53,14 +53,14 @@ def test_internal_edge_traction_rejected():
 
 def test_lc_scientific_notation():
     """生产 lc 正则可读 1e-3, 0.15, 2.0e-4 — 直接测 input_source._LC_PATTERN
-    (曾测测试内联的正则副本, 生产正则改了测试仍绿 — 审计 2026-08-03)."""
+    (曾测测试内联的正则副本, 生产正则改了测试仍绿)."""
     from fem2d.input_source import _LC_PATTERN
     cases = [
         ("lc = 1e-3",    0.001),
         ("lc = 2.0e-4",  0.0002),
         ("lc = 0.15",    0.15),
         ("lc=5E-2",      0.05),
-        ("  lc = 0.5",   0.5),   # 前导空白曾漏匹配 (审计 2026-08-03)
+        ("  lc = 0.5",   0.5),   # 前导空白曾漏匹配
     ]
     for text, expected in cases:
         m = re.search(_LC_PATTERN, text, re.MULTILINE)

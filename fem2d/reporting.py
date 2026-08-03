@@ -17,7 +17,7 @@ def displacement_scale(mesh, u):
             + mesh.nodes[:, 1].max() - mesh.nodes[:, 1].min()) / 2
     if mag.max() == 0.0:
         # 零位移 (全约束/零载荷): 放大系数无意义 — 曾 1e-30 分母给出
-        # 误导性的 1e6 上限 (审计 2026-08-03)
+        # 误导性的 1e6 上限
         return 1.0
     return max(0.0, min(span / mag.max() * 0.1, 1e6))
 
@@ -51,7 +51,7 @@ def print_result_summary(config, mesh, result, z2, q, scale,
     print(f"{'='*55}")
     print("  求解状态:      [OK] 成功")
     # 标签与 solver 实际公式对齐: 分子只含自由 DOF 残差, penalty 路径是
-    # 修改系统残差 — 曾标签声称全系统公式 (审计 2026-08-03)
+    # 修改系统残差 — 曾标签声称全系统公式
     print(f"  求解系统残差 (后向误差) = {result['residual']:.2e}  "
           f"{'[OK] 正常' if result['residual'] < 1e-8 else '[WARN] 偏大'}")
     if cond_info and cond_info.get('condition_number') is not None:
@@ -87,7 +87,7 @@ def print_result_summary(config, mesh, result, z2, q, scale,
           f"(|max|={max(abs(u2[:,1].min()), abs(u2[:,1].max())):.6e})")
     if mag.max() == 0.0:
         # 曾显示误导性的 "变形放大 1000000x" (零位移时 1e-30 分母)
-        # (审计 2026-08-03)
+        #
         print("    (零位移 — 无变形放大)")
     else:
         print(f"    (变形放大 {scale:.0f}x 用于云图显示)")
@@ -134,7 +134,7 @@ def build_warnings(config, mesh, z2, bending_stiff, n_through_x, n_through_y):
             f"    建议: ν≤0.4 或换用混合/选择性积分格式单元")
 
     # Q4R 专用提示: compact 公式限制 (非编码错误, 见 q4r.py) —
-    # 建议 Q4I 交叉验证 (外部审查建议, 2026-08-03)
+    # 建议 Q4I 交叉验证
     if getattr(mesh, "elem_type", "").upper() in ("CPS4R", "CPE4R"):
         warnings.append(
             "  [INFO] Q4R 为专用可选单元 (规则网格/长宽比<10/膜主导):"

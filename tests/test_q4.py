@@ -156,7 +156,7 @@ def test_q4_visualization_paths():
     try:
         plot_mesh(mesh, ax=ax)
         assert len(ax.collections) + len(ax.lines) > 0, \
-            "plot_mesh 未画出任何内容 (曾零断言 — 审计 2026-08-03)"
+            "plot_mesh 未画出任何内容 (曾零断言)"
     finally:
         plt.close(fig)
 
@@ -166,7 +166,7 @@ def test_q4_visualization_paths():
             mesh, result["vm_stress"], ax=ax,
             shading="flat", location="element")
         assert len(ax.collections) > 0, \
-            "plot_contour 未画出任何 collection (曾零断言 — 审计 2026-08-03)"
+            "plot_contour 未画出任何 collection (曾零断言)"
     finally:
         plt.close(fig)
 

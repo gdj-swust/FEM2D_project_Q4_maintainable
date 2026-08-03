@@ -24,7 +24,7 @@ def _current_axes():
 
 def test_plot_three_mesh_draws_content():
     """tag='mesh' 必须画出网格 — 曾零断言, plot_three 改成 pass 也通过
-    (审计 2026-08-03)."""
+   ."""
     mesh, r = _make_result()
     plot_three(mesh, r, tag='mesh')
     axes = _current_axes()
@@ -36,7 +36,7 @@ def test_plot_three_mesh_draws_content():
 
 
 def test_plot_three_loads_draws_content():
-    """tag='loads' 必须画出载荷/网格 — 曾零断言 (审计 2026-08-03)."""
+    """tag='loads' 必须画出载荷/网格 — 曾零断言."""
     mesh, r = _make_result()
     plot_three(mesh, r, tag='loads')
     axes = _current_axes()
@@ -47,7 +47,7 @@ def test_plot_three_loads_draws_content():
 
 
 def test_plot_three_displacement_draws_content():
-    """tag='ux'/'uy'/'umag' 必须画出变形图 — 曾零断言 (审计 2026-08-03)."""
+    """tag='ux'/'uy'/'umag' 必须画出变形图 — 曾零断言."""
     mesh, r = _make_result()
     for tag in ('ux', 'uy', 'umag'):
         plot_three(mesh, r, tag=tag)
@@ -76,7 +76,7 @@ def test_isoband_tag_scoping(capsys):
 
     用远小于应力量级的 levels 作探针: tag 匹配 → levels 应用 → 超界
     警告; tag 不匹配 → 回退 auto levels → 无警告. 曾只测"不崩溃"
-    (审计 2026-08-03).
+   .
     """
     mesh, r = _make_result()
     levels = np.array([0.0, 1.0])   # 远小于应力量级 → 必然超界

@@ -53,7 +53,7 @@ def _interactive_edge_index(segs):
             continue
         if len(indices) > 1:
             # 曾 yield indices[0] 静默丢弃其余匹配: "left" 命中 3 段时
-            # 只施加第 1 段, 打印却显示成功 (审计 2026-08-03)
+            # 只施加第 1 段, 打印却显示成功
             print(f"    {len(indices)} 个匹配段 — 逐段处理: "
                   f"{', '.join(str(i + 1) for i in indices)}")
         for index in indices:
@@ -84,7 +84,7 @@ def _apply_fix_bcs(config, mesh, segs, batch_mode):
     """边界约束 (CLI 预设 fix/fix_ux/fix_uy 或 交互逐边).
 
     batch_mode: 批处理判定与 traction/body 分支一致 (曾只按 config.fix
-    是否为空分流 — --body/--save 时 fix 仍交互提问阻塞, 审计 2026-08-03)。
+    是否为空分流 — --body/--save 时 fix 仍交互提问阻塞)。
     """
     print("\n  --- 边界约束 (Ux=?, Uy=?) ---")
     if config.fix or config.fix_ux or config.fix_uy:
@@ -205,7 +205,7 @@ def _apply_tractions(config, mesh, segs, batch_mode):
         edge_str, tx, ty, profile = parse_traction(t_spec)
         if edge_str is None:
             # 无 ':' 前缀 (如 --traction "1e6,0"): 曾报"未找到边 'None'"
-            # 把用户引向检查边名, 真正问题是缺 edge: 前缀 (审计 2026-08-03)
+            # 把用户引向检查边名, 真正问题是缺 edge: 前缀
             msg = (f"面力规格 '{t_spec}' 缺少边前缀 — 正确格式: "
                    f"edge:tx,ty (例: right:1e6,0) 或 edge:p:n")
             if is_batch_traction:
@@ -260,7 +260,7 @@ def _apply_concentrated_forces(config, mesh, region_registry, node_id_map,
         fx, fy = float(parts[1]), float(parts[2])
     except ValueError:
         # 曾 float() 裸 ValueError 由顶层兜底 → [ERROR] 退出码 2,
-        # 与字段数错误的 [FATAL] 退出码 1 风格分裂 (审计 2026-08-03)
+        # 与字段数错误的 [FATAL] 退出码 1 风格分裂
         raise CliError(
             f"  [FATAL] --force 载荷分量无法解析: '{parts[1]},{parts[2]}' "
             f"— 需要两个数值 (例: --force 5,1e6,0)",
@@ -292,7 +292,7 @@ def _apply_concentrated_forces(config, mesh, region_registry, node_id_map,
                 orig_nid = int(target)
             except ValueError:
                 # 失败原因曾统一报"未找到" — 歧义/超距是不同问题,
-                # 排查方向完全不同 (审计 2026-08-03)
+                # 排查方向完全不同
                 reason_hint = {
                     "ambiguous": "该名称映射到多个 Physical Point — 请确认"
                                  ".geo 中同名点唯一",
@@ -365,7 +365,7 @@ def _apply_body_force(config, mesh, batch_mode):
     else:
         bfx, bfy = 0.0, 0.0
     if callable(bfx) or callable(bfy) or bfx != 0.0 or bfy != 0.0:
-        # 曾用 abs>1e-30 阈值: 微尺度模型合法小体力被静默丢弃 (审计 2026-08-03)
+        # 曾用 abs>1e-30 阈值: 微尺度模型合法小体力被静默丢弃
         mesh.body_force = (bfx, bfy)
         print("  体力: 已设置")
     return bfx, bfy

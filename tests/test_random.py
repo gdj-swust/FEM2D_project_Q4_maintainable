@@ -49,7 +49,7 @@ def test_random_mesh_z2_estimate():
     for n in mesh.nodes_on_edge('x', 'min'): mesh.fix_node(int(n), 'both', 0.0)
     for n in mesh.nodes_on_edge('x', 'max'): mesh.fix_node(int(n), 'y', 0.0)
     # 多个集中力确保非零应力 — x 向力 (x-max 边只固定了 y, x 自由).
-    # 曾加 y 向力到 y 已固定节点: 应力≈0, eta=0 恒真通过 (审计 2026-08-03)
+    # 曾加 y 向力到 y 已固定节点: 应力≈0, eta=0 恒真通过
     for n in mesh.nodes_on_edge('x', 'max'): mesh.add_force(int(n), -500., 0.)
     result = solve(mesh, verbose=False)
     z2 = estimate_error(mesh, result)
@@ -95,7 +95,7 @@ def test_spr_single_element():
     result = solve(mesh, verbose=False)
     recovered = spr_recovery(mesh, result['stress'])
     # 单元素: 恢复值应等于原始应力 — rtol=0.1 曾使任何大偏差都通过
-    # (审计 2026-08-03)
+    #
     assert np.allclose(recovered, result['stress'][0], rtol=1e-12, atol=0.0)
 
 def test_spr_boundary_node():

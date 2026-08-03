@@ -207,7 +207,7 @@ def _closed_conic_segment(nodes, loop, loop_id):
         **fit_info,
     }
     # 轴比/标签判据统一到 geometry._axis_ratio (曾复制旧 1e-30 分母逻辑,
-    # 微尺度椭圆误判整圆 — 第三轮外部审查复现)
+    # 微尺度椭圆误判整圆)
     from .geometry import _axis_ratio, _semi_axis_label
     _ratio, is_circle = _axis_ratio(semi_major, semi_minor)
     if is_circle:
@@ -286,6 +286,106 @@ def _orient_closed_segments(segments):
 # 内部工具
 # ═══════════════════════════════════════════════════════════════
 
+def _dedup_loop_vertices(xs, ys):
+    """顶点元组列表: 相邻重复合并 + 闭合首尾重复去掉. 不足 3 → None."""
+    vertices = []
+    for x, y in zip(xs, ys):
+        point = (float(x), float(y))
+        if not vertices or point != vertices[-1]:
+            vertices.append(point)
+    if len(vertices) > 1 and vertices[0] == vertices[-1]:
+        vertices.pop()
+    if len(vertices) < 3:
+        return None
+    return vertices
+
+
+def _loop_edges(vertices):
+    """环边列表 (相邻顶点对, 首尾环绕). 去重后不可能出现自环, 防御保留."""
+    edges = []
+    for i, p1 in enumerate(vertices):
+        p2 = vertices[(i + 1) % len(vertices)]
+        if p1 == p2:
+            continue
+        edges.append((p1, p2))
+    return edges
+
+
+def _on_loop_boundary(px, py, edges):
+    """点是否恰在环边/顶点上 (orient2d==0 且落在包围盒内) — 判在内."""
+    for (x1, y1), (x2, y2) in edges:
+        side = orient2d(x1, y1, x2, y2, float(px), float(py))
+        if side == 0.0 and (
+                min(x1, x2) <= px <= max(x1, x2)
+                and min(y1, y2) <= py <= max(y1, y2)):
+            return True
+    return False
+
+
+def _count_proper_intersections(px, py, out_x, out_y, edges):
+    """Gmsh 4×orient2d 规则: 线段与射线 proper 相交计数 (端点不计数)."""
+    count = 0
+    for (x1, y1), (x2, y2) in edges:
+        a = orient2d(x1, y1, x2, y2, float(px), float(py))
+        b = orient2d(x1, y1, x2, y2, out_x, out_y)
+        if a * b >= 0.0:
+            continue
+        c = orient2d(float(px), float(py), out_x, out_y, x1, y1)
+        d = orient2d(float(px), float(py), out_x, out_y, x2, y2)
+        if c * d < 0.0:
+            count += 1
+    return count
+
+
+def _general_position_ray(px, py, vertices, edges):
+    """尺度感知射线 (显式一般位置): 8 个无理斜率扰动, 奇偶计数.
+
+    固定 ``py + 1e-14`` 扰动对大坐标无效、对微尺度过大; 改用坐标
+    ULP 尺度扰动。无理相关因子避免多个顶点与查询点对齐时反复选中
+    同一斜率。全部斜率与某顶点共线 → 返回 None (调用方走半开规则).
+    """
+    vx = np.array([point[0] for point in vertices])
+    vy = np.array([point[1] for point in vertices])
+    span = max(float(np.ptp(vx)), float(np.ptp(vy)))
+    magnitude = max(
+        float(np.max(np.abs(vx))), float(np.max(np.abs(vy))),
+        abs(float(px)), abs(float(py)), 1.0)
+    margin = max(span * 2.0, np.spacing(magnitude) * 64.0, 1.0)
+    out_x = np.nextafter(float(np.max(vx)) + margin, np.inf)
+    perturb = max(
+        np.spacing(magnitude) * 8.0,
+        np.finfo(float).eps * max(span, 1.0) * 8.0)
+
+    factors = (1.0, -1.0, np.sqrt(2.0), -np.sqrt(2.0),
+               np.pi, -np.pi, np.e, -np.e)
+    for factor in factors:
+        out_y = float(py) + perturb * factor
+        if out_y == py:
+            out_y = np.nextafter(
+                float(py), np.inf if factor > 0 else -np.inf)
+        if any(
+                orient2d(float(px), float(py), out_x, out_y, x, y) == 0.0
+                for x, y in vertices):
+            continue
+        return _count_proper_intersections(
+            px, py, out_x, out_y, edges) % 2 == 1
+    return None
+
+
+def _half_open_crossing(px, py, edges):
+    """半开穿越规则兜底 — 极对称/大坐标下一般位置射线可能找不到."""
+    inside = False
+    for (x1, y1), (x2, y2) in edges:
+        if (y1 > py) == (y2 > py):
+            continue
+        side = orient2d(x1, y1, x2, y2, float(px), float(py))
+        if side == 0.0:
+            return True
+        if (side > 0.0) == (y2 > y1):
+            inside = not inside
+    return inside
+
+
 def _point_in_loop(px, py, xs, ys):
     """Robust odd/even point-in-polygon test.
 
@@ -305,80 +405,19 @@ def _point_in_loop(px, py, xs, ys):
             and np.all(np.isfinite(xs)) and np.all(np.isfinite(ys))):
         return False
 
-    vertices = []
-    for x, y in zip(xs, ys):
-        point = (float(x), float(y))
-        if not vertices or point != vertices[-1]:
-            vertices.append(point)
-    if len(vertices) > 1 and vertices[0] == vertices[-1]:
-        vertices.pop()
-    if len(vertices) < 3:
+    vertices = _dedup_loop_vertices(xs, ys)
+    if vertices is None:
         return False
-
-    edges = []
-    for i, p1 in enumerate(vertices):
-        p2 = vertices[(i + 1) % len(vertices)]
-        if p1 == p2:
-            continue
-        edges.append((p1, p2))
-        side = orient2d(
-            p1[0], p1[1], p2[0], p2[1], float(px), float(py))
-        if side == 0.0 and (
-                min(p1[0], p2[0]) <= px <= max(p1[0], p2[0])
-                and min(p1[1], p2[1]) <= py <= max(p1[1], p2[1])):
-            return True
+    edges = _loop_edges(vertices)
+    if _on_loop_boundary(px, py, edges):
+        return True
     if len(edges) < 3:
         return False
 
-    vx = np.array([point[0] for point in vertices])
-    vy = np.array([point[1] for point in vertices])
-    span = max(float(np.ptp(vx)), float(np.ptp(vy)))
-    magnitude = max(
-        float(np.max(np.abs(vx))), float(np.max(np.abs(vy))),
-        abs(float(px)), abs(float(py)), 1.0)
-    margin = max(span * 2.0, np.spacing(magnitude) * 64.0, 1.0)
-    out_x = np.nextafter(float(np.max(vx)) + margin, np.inf)
-    perturb = max(
-        np.spacing(magnitude) * 8.0,
-        np.finfo(float).eps * max(span, 1.0) * 8.0)
-
-    # Irrationally related factors avoid repeatedly selecting the same slope
-    # when several vertices are aligned with the query point.
-    factors = (1.0, -1.0, np.sqrt(2.0), -np.sqrt(2.0),
-               np.pi, -np.pi, np.e, -np.e)
-    for factor in factors:
-        out_y = float(py) + perturb * factor
-        if out_y == py:
-            out_y = np.nextafter(
-                float(py), np.inf if factor > 0 else -np.inf)
-        if any(
-                orient2d(float(px), float(py), out_x, out_y, x, y) == 0.0
-                for x, y in vertices):
-            continue
-
-        count = 0
-        for (x1, y1), (x2, y2) in edges:
-            a = orient2d(x1, y1, x2, y2, float(px), float(py))
-            b = orient2d(x1, y1, x2, y2, out_x, out_y)
-            if a * b >= 0.0:
-                continue
-            c = orient2d(float(px), float(py), out_x, out_y, x1, y1)
-            d = orient2d(float(px), float(py), out_x, out_y, x2, y2)
-            if c * d < 0.0:
-                count += 1
-        return count % 2 == 1
-
-    # Extremely symmetric/large-coordinate fallback: half-open crossing rule.
-    inside = False
-    for (x1, y1), (x2, y2) in edges:
-        if (y1 > py) == (y2 > py):
-            continue
-        side = orient2d(x1, y1, x2, y2, float(px), float(py))
-        if side == 0.0:
-            return True
-        if (side > 0.0) == (y2 > y1):
-            inside = not inside
-    return inside
+    result = _general_position_ray(px, py, vertices, edges)
+    if result is not None:
+        return result
+    return _half_open_crossing(px, py, edges)
 
 
 def _signed_loop_area(coords):
@@ -668,7 +707,7 @@ def has_boundary_self_intersection(loop_nodes):
     if not np.all(np.isfinite(coords)):
         return True
     # 容差基于局部坐标尺度, 不得强制 1.0 下限 — 曾让尺度 ≤1e-14 的合法
-    # 模型每条边都被判零长, 误报 "Self-intersecting" 拒绝 (审计 2026-08-03)
+    # 模型每条边都被判零长, 误报 "Self-intersecting" 拒绝
     magnitude = max(float(np.max(np.abs(coords))), np.finfo(float).tiny)
     span = max(
         float(np.ptp(coords[:, 0])),
@@ -686,7 +725,7 @@ def has_boundary_self_intersection(loop_nodes):
         end = vertices[(index + 1) % n]
         # 闭合链接缝边 (P_{n-1}→P_0) 是环的闭合, 不是零长边特征 — 三角
         # 采样等数值噪声会在此产生 ULP 量级的微小闭合边, 曾使微尺度
-        # 模型每条边界都被判自交拒绝 (审计 2026-08-03)
+        # 模型每条边界都被判自交拒绝
         if index != n - 1 and (
                 abs(start[0] - end[0]) <= tolerance
                 and abs(start[1] - end[1]) <= tolerance):
@@ -719,7 +758,7 @@ def _intersecting_boundary_loop_pair(loop_coordinates):
         return None
     combined = np.vstack(finite_arrays)
     # 同 has_boundary_self_intersection: 1.0 下限破坏微尺度尺度不变性
-    # (审计 2026-08-03)
+    #
     magnitude = max(float(np.max(np.abs(combined))), np.finfo(float).tiny)
     span = max(
         float(np.ptp(combined[:, 0])),

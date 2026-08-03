@@ -100,7 +100,7 @@ def sanitize_geo_source(source):
     """剥离 .geo 脚本中的 Save / Mesh 命令 / Mesh.Format 赋值 (纯文本).
 
     唯一实现 — gmsh_adapter._safe_geo_source (API 路径) 与子进程路径
-    共用, 曾双实现且正则常量各一份, 语义靠人工对齐 (审计 2026-08-03)。
+    共用, 曾双实现且正则常量各一份, 语义靠人工对齐。
 
     - ``Save`` 可绕过验证后的 ``-o`` 目标;
     - ``Mesh 2;`` 会在解析期 + 命令行 ``-2`` 各网格化一次;
@@ -223,7 +223,7 @@ def run_gmsh(
             timeout=300,
             errors="replace")  # 畸形 .geo / Gmsh 卡死时快速失败; 中文路径
             # 下 gmsh 输出非 ASCII 字节曾 UnicodeDecodeError 冒泡掩盖真实
-            # 失败信息 (审计 2026-08-03)
+            # 失败信息
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout).strip()
             print(f"[Gmsh] failed (exit {completed.returncode}):\n{detail}")

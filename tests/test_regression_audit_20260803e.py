@@ -88,7 +88,7 @@ def test_geo_fem_config_normal_format_unaffected(tmp_path):
 
 # ═══════════════════════════════════════════════════════════════
 # 单元刚度对称性 — 全局抽样 256 行会漏掉未抽中位置的非对称项,
-# scatter 前对每个小型 Ke 全量检查 (第五轮外部审查)
+# scatter 前对每个小型 Ke 全量检查
 # ═══════════════════════════════════════════════════════════════
 
 def test_local_symmetry_check_rejects_asymmetric():
@@ -143,7 +143,7 @@ def test_q4r_agrees_with_q4_in_recommended_domain():
 
 
 # ═══════════════════════════════════════════════════════════════
-# 主应力 — 有限极端应力下直接平方溢出 inf (第五轮外部审查)
+# 主应力 — 有限极端应力下直接平方溢出 inf
 # ═══════════════════════════════════════════════════════════════
 
 def test_principal_stresses_extreme_finite():

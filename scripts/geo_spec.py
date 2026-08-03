@@ -78,13 +78,13 @@ def parse_spec(filepath):
 
         if key not in _VALID_KEYS:
             # 拼错/未知键曾整行静默丢弃 — .spec 路径有 WARN, 此处补上
-            # (厚度 0.5 曾无痕消失, 用户以为已设置) (审计 2026-08-03)
+            # (厚度 0.5 曾无痕消失, 用户以为已设置)
             key_safe = "".join(c for c in key if c.isprintable())
             print(f"  [WARN] {filepath}:{lineno} 未知键 '{key_safe}' 已忽略 — "
                   f"可用键: {sorted(_VALID_KEYS)}")
             continue
         if not rest:
-            # 合法键无值曾静默丢弃, 用户以为已设置 (审计 2026-08-03)
+            # 合法键无值曾静默丢弃, 用户以为已设置
             raise ValueError(
                 f"{filepath}:{lineno} 键 '{key}' 缺少数值 — 格式: "
                 f"{key} <数值> (如 '{key} 0.5')")
@@ -101,7 +101,7 @@ def parse_spec(filepath):
         elif key in ("宽", "高", "外径", "内径", "外半径", "内半径",
                      "网格", "网格尺寸"):
             if len(rest) > 1:
-                # 多余 token 曾静默丢弃 (宽 3 4 取 3 丢 4) (审计 2026-08-03)
+                # 多余 token 曾静默丢弃 (宽 3 4 取 3 丢 4)
                 raise ValueError(
                     f"{filepath}:{lineno} '{key}' 多余参数: "
                     f"{' '.join(rest[1:])} — 每个键只需一个数值")
@@ -128,7 +128,7 @@ def parse_spec(filepath):
             for prev in spec["boundaries"]:
                 if prev["edge"] == bc["edge"]:
                     # 同一边多类型 (固定+拉力) 曾并存: 约束把载荷吞掉,
-                    # 求解成功但载荷静默消失 (审计 2026-08-03)
+                    # 求解成功但载荷静默消失
                     raise ValueError(
                         f"{filepath}:{lineno} 边界 '{bc['edge']}' 重复声明 "
                         f"(已声明 '{prev['bc']}') — 同一边只能声明一种载荷, "
@@ -148,7 +148,7 @@ def parse_spec(filepath):
                     f"{filepath}:{lineno} 体力值无法解析: '{' '.join(rest)}' "
                     "— 需要两个数值") from None
             if not all(math.isfinite(v) for v in body_values):
-                # NaN/Inf 曾延迟到求解阶段才被拒 (审计 2026-08-03)
+                # NaN/Inf 曾延迟到求解阶段才被拒
                 raise ValueError(
                     f"{filepath}:{lineno} 体力值必须为有限数值: "
                     f"'{' '.join(rest)}'")
@@ -160,7 +160,7 @@ def _parse_hole(text, filepath="", lineno=0):
     """内孔 圆 x=1.5 y=1.0 r=0.3 — 参数缺失/无法解析必须报错.
 
     曾静默回落 r=0.1 于原点 (用户毫不知情的孔), 尾部缺值还抛裸
-    IndexError (审计 2026-08-03).
+    IndexError.
     """
     parts = text.replace("=", " ").split()
     hole = {"type": None}
@@ -184,7 +184,7 @@ def _parse_hole(text, filepath="", lineno=0):
                     f"'{parts[i + 1]}'") from None
             if not math.isfinite(value) or (kw in ("r", "w", "h") and value <= 0):
                 # NaN 坐标曾生成含字面 nan 的 .geo, Gmsh 报错不可读
-                # (审计 2026-08-03)
+                #
                 raise ValueError(
                     f"{filepath}:{lineno} 内孔参数 '{kw}' 必须为"
                     + ("有限正数" if kw in ("r", "w", "h") else "有限数值")
@@ -209,7 +209,7 @@ def _parse_bc(text, filepath="", lineno=0):
     """边界 左 固定  or  边界 右 拉力 1e6 — 未知类型/缺值必须报错.
 
     曾写 @FEM:bc= 死注解被下游静默丢弃 (载荷消失), 或静默施加载荷 0
-    (审计 2026-08-03).
+   .
     """
     parts = text.split()
     if len(parts) < 2:
@@ -227,7 +227,7 @@ def _parse_bc(text, filepath="", lineno=0):
             f"{filepath}:{lineno} 边界类型 '{bc}' 需要数值 "
             f"(如 '边界 右 拉力 1e6') — 曾静默施加载荷 0")
     if bc == "固定" and len(parts) > 2:
-        # 固定约束无幅值 — 曾接受值并写进物理曲线名 (审计 2026-08-03)
+        # 固定约束无幅值 — 曾接受值并写进物理曲线名
         raise ValueError(
             f"{filepath}:{lineno} 边界类型 '固定' 不接受数值: "
             f"{' '.join(parts[2:])} — 固定约束无幅值")
@@ -236,7 +236,7 @@ def _parse_bc(text, filepath="", lineno=0):
         raw_val = parts[2]
         if bc in ("拉力", "面力") and ("," in raw_val or "，" in raw_val):
             # 双分量面力: 拉力 1e6,2e6 → (tx,ty). 曾只能单值, ty 恒 0
-            # (审计 2026-08-03 输入端整改)
+            # (输入端整改)
             comps = [c.strip() for c in raw_val.replace("，", ",").split(",")]
             if len(comps) != 2:
                 raise ValueError(
@@ -260,7 +260,7 @@ def _parse_bc(text, filepath="", lineno=0):
                     f"{filepath}:{lineno} 边界数值无法解析: '{raw_val}'"
                 ) from None
             if not math.isfinite(val):
-                # NaN/Inf 曾延迟到求解阶段才被拒 (审计 2026-08-03)
+                # NaN/Inf 曾延迟到求解阶段才被拒
                 raise ValueError(
                     f"{filepath}:{lineno} 边界数值必须为有限数值: '{raw_val}'")
     if len(parts) > 3:
@@ -354,7 +354,7 @@ def generate_geo(spec, output_path, quad=False):
             tag = f'{edge_name}_{b["bc"]}'
             if b.get("value") is not None:
                 # 双分量面力 (1e6,2e6): 逗号会打断 @FEM 逗号分隔往返,
-                # 标签内用下划线编码 (审计 2026-08-03 输入端整改)
+                # 标签内用下划线编码 (输入端整改)
                 tag += f'_{str(b["value"]).replace(",", "_")}'
             W(f'Physical Curve("{tag}", {bc_id}) = {{{eids}}};')
             physical_names.append(tag)
@@ -362,7 +362,7 @@ def generate_geo(spec, output_path, quad=False):
             # 该边名对当前几何不可用 (圆板无 左/右/上/下, 无孔时无 内孔) —
             # 曾静默写注释 + @FEM 注解照常输出: 圆板"左固定"只钉住极区
             # 小段弧, 载荷静默退化; 无孔时"内孔"到求解期才 FATAL
-            # (审计 2026-08-03)
+            #
             available = [k for k in edges if edges.get(k)]
             raise ValueError(
                 f"边界 '{edge_name}' 无法映射到当前几何的边 — "
@@ -391,7 +391,7 @@ def generate_geo(spec, output_path, quad=False):
             W(f'// @FEM:traction={edge_name},{v_str}')
         else:
             # @FEM:bc= 是死注解, parse_geo_fem_config 无此分支, 载荷会
-            # 静默消失 — 解析阶段已拦截未知类型, 此处防御 (审计 2026-08-03)
+            # 静默消失 — 解析阶段已拦截未知类型, 此处防御
             raise ValueError(
                 f"未知边界类型 '{bc_type}' — 支持: {sorted(_BC_TYPES)}")
     if spec.get("body_force"):
@@ -649,7 +649,7 @@ def _geo_circle(L, outer_r, inner_r, holes, lc):
         L.append(f'Curve Loop({next_loop}) = {{{",".join(str(x) for x in hole_lines)}}};')
         hole_loops.append(next_loop)
         # 圆板的 内孔N 编号 — 曾与矩形不一致 (圆板多孔时 内孔2 无法
-        # 引用, 求解期才 FATAL) (审计 2026-08-03)
+        # 引用, 求解期才 FATAL)
         edges[f"内孔{hi + 1}"] = hole_lines
         prev = edges.get("内孔", [])
         edges["内孔"] = (prev + hole_lines
@@ -705,7 +705,7 @@ def main():
         generate_geo(spec, geo_path)
     except ValueError as error:
         # 解析/生成错误曾裸 traceback, 行号信息已在错误消息内
-        # (审计 2026-08-03); 退出码曾恒 0, 脚本化调用无法感知失败
+        #; 退出码曾恒 0, 脚本化调用无法感知失败
         print(f"[ERROR] {error}")
         return 1
 

@@ -17,6 +17,7 @@ import os
 import tempfile
 
 from .cli import ask
+from .errors import CliError
 
 # ── 形状 → 可用边名白名单 (与 geo_spec._edge_ids 的命名一致) ──
 _SHAPE_EDGES = {
@@ -64,9 +65,8 @@ def _ask_number(prompt, default=None, *, positive=False, what="数值"):
         if not raw and default is not None:
             return float(default)
         if not raw:
-            # EOF (标准输入关闭) 且无默认值 — 曾在此死循环 (审计 2026-08-03)
-            print("\n  [INFO] 未提供数值 — 退出向导")
-            raise SystemExit(0)
+            # EOF (标准输入关闭) 且无默认值 — 曾在此死循环
+            raise CliError("\n  [INFO] 未提供数值 — 退出向导", exit_code=0)
         try:
             value = float(raw)
         except ValueError:
@@ -224,7 +224,7 @@ def _ask_material(config):
     """材料 E/nu/t — CLI 已显式指定的字段不重复提问 (CLI > 向导).
 
     曾无条件提问并覆盖 config: --wizard --E 5e7 被向导默认值覆盖,
-    优先级分叉 (审计 2026-08-03)。
+    优先级分叉。
     """
     explicit = getattr(config, "_explicit", frozenset())
     material = {}
@@ -342,11 +342,9 @@ def run_wizard(config):
     else:
         fp = ask("  文件路径: ").strip()
         if not fp:
-            print("  [INFO] 未输入路径 — 退出")
-            raise SystemExit(0)
+            raise CliError("  [INFO] 未输入路径 — 退出", exit_code=0)
         if not os.path.isfile(fp):
-            print(f"  [FATAL] 文件不存在: {fp}")
-            raise SystemExit(1)
+            raise CliError(f"  [FATAL] 文件不存在: {fp}", exit_code=1)
     return fp
 
 
@@ -366,7 +364,7 @@ def _build_and_generate(config):
             break
         print("\n  — 重新开始 —")
         if not _ask_yes("  重新建模? [y/N]", default="n"):
-            raise SystemExit(0)
+            raise CliError("  [INFO] 取消建模 — 退出", exit_code=0)
 
     spec = {
         "type": shape,
@@ -390,8 +388,8 @@ def _build_and_generate(config):
     try:
         generate_geo(spec, geo_p, quad=config.quad)
     except (ValueError, IndexError) as error:
-        print(f"  [FATAL] 几何生成失败: {error}")
-        raise SystemExit(1) from error
+        raise CliError(
+            f"  [FATAL] 几何生成失败: {error}", exit_code=1) from error
     atexit.register(lambda p=geo_p: os.path.isfile(p) and os.unlink(p))
 
     # 可选: 保存为 .txt (用户资产格式, 以后可直接 run.py xxx.txt)

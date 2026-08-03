@@ -255,7 +255,7 @@ def test_timoshenko_shear_traction_sign():
     """右端面合剪力必须向下 (负) — 与闭式解方向一致.
 
     旧行为: FE 载荷被施加成向上 +10000 N, 与注释声称的向下相反,
-    方向错误被 abs() 掩盖 (审计 2026-08).
+    方向错误被 abs() 掩盖.
     """
     from fem2d.convergence import _parabolic_shear_traction, _timoshenko_tip_deflection
     L, H, t, P_mag, E, nu = 5.0, 1.0, 0.1, 10000.0, 210e9, 0.3
@@ -651,7 +651,7 @@ def test_micro_newton_model_balance_passes():
     m.add_force(3, -1e-9, 0.0)   # 自平衡
     r = solve(m, method="elimination", verbose=False)
     # 曾 OR 恒真: 微牛位移 ~1e-21, abs(u).max()<1e-9 永远成立, balance_ok
-    # 无论真假都通过 (审计 2026-08-03). 自平衡载荷必须显式通过平衡检查.
+    # 无论真假都通过. 自平衡载荷必须显式通过平衡检查.
     assert r["balance_ok"] is True
 
 
@@ -874,7 +874,7 @@ def test_gmsh_geometry_saveall_always_enforced():
 
 
 def test_node_id_must_be_integer():
-    """fix_node(1.5) 曾静默约束错误 DOF — 节点编号必须整数 (审计 2026-08)."""
+    """fix_node(1.5) 曾静默约束错误 DOF — 节点编号必须整数."""
     from fem2d import Mesh
     import numpy as np
     m = Mesh(nodes=np.array([[0., 0.], [1., 0.], [0., 1.]]),
@@ -891,7 +891,7 @@ def test_node_id_must_be_integer():
 
 
 def test_parse_vec2_rejects_nonfinite():
-    """CLI NaN/Inf 体力/面力曾静默不施加 — 现在必须报错 (审计 2026-08)."""
+    """CLI NaN/Inf 体力/面力曾静默不施加 — 现在必须报错."""
     from fem2d.loads import parse_vec2
     for expr in ("nan,0", "inf,0", "0,1e999"):
         with pytest.raises(ValueError, match="有限数值"):
@@ -900,7 +900,7 @@ def test_parse_vec2_rejects_nonfinite():
 
 
 def test_parse_vec2_fullwidth_comma_accepted():
-    """全角逗号必须正常解析 — 曾报"需要两个分量"误导用户 (审计 2026-08-03)."""
+    """全角逗号必须正常解析 — 曾报"需要两个分量"误导用户."""
     from fem2d.loads import parse_vec2
     bx, by = parse_vec2("1e6，0")
     assert bx == 1e6 and by == 0.0
@@ -910,7 +910,7 @@ def test_parse_vec2_fullwidth_comma_accepted():
 
 def test_parse_vec2_expr_syntax_error_reports_expression():
     """表达式语法错误必须 ValueError 且带原表达式 — 曾裸 SyntaxError 无
-    载荷上下文 (审计 2026-08-03)."""
+    载荷上下文."""
     from fem2d.loads import parse_vec2
     with pytest.raises(ValueError, match="sin\\("):
         parse_vec2("0,sin(x")
@@ -927,7 +927,7 @@ def test_isoband_band_count_capped():
 
 
 def test_q4_large_origin_geometry_stable():
-    """大坐标原点 + 小局部尺寸: 面积/形心不得消差 (审计 2026-08).
+    """大坐标原点 + 小局部尺寸: 面积/形心不得消差.
 
     修复前 1e6 原点 + 0.01 边长 → 面积误差 22%、形心偏差 6 万;
     0.001 边长合法单元被判退化。
@@ -948,7 +948,7 @@ def test_q4_large_origin_geometry_stable():
 
 
 def test_rigid_body_scale_invariance():
-    """刚体模态检查的尺度不变性: 1e-16 尺寸不得误报转动模态 (审计 2026-08)."""
+    """刚体模态检查的尺度不变性: 1e-16 尺寸不得误报转动模态."""
     from fem2d import Mesh, solve
     import numpy as np
     s = 1e-16
@@ -963,7 +963,7 @@ def test_rigid_body_scale_invariance():
 
 
 def test_apply_penalty_argument_validation():
-    """apply_penalty 公开 API: 长度不等/负 DOF 必须拒绝 (审计 2026-08)."""
+    """apply_penalty 公开 API: 长度不等/负 DOF 必须拒绝."""
     from fem2d.bc import apply_penalty
     import numpy as np
     K = np.diag(np.ones(4))
@@ -1003,7 +1003,7 @@ def test_material_rejects_nan():
 
 
 def test_large_id_near_integer_rejected():
-    """大编号 100001.25 不得被 np.allclose 静默取整 (审计 2026-08-03)."""
+    """大编号 100001.25 不得被 np.allclose 静默取整."""
     from fem2d import Mesh
     import numpy as np
     nodes = np.zeros((100002, 2))
@@ -1014,7 +1014,7 @@ def test_large_id_near_integer_rejected():
 
 @pytest.mark.parametrize("s", [1e-6, 1e-16])
 def test_micro_scale_edge_load_not_dropped(s):
-    """微尺度网格边载荷不得被绝对 1e-15 下限静默丢弃 (审计 2026-08-03).
+    """微尺度网格边载荷不得被绝对 1e-15 下限静默丢弃.
 
     s=1e-16 是判别用例: 旧判据 64·eps·max(全局坐标, 1.0) ≈ 1.4e-14,
     边长 1e-16 会被误判退化 — 测试放回旧实现即失败; s=1e-6 单独
@@ -1037,7 +1037,7 @@ def test_micro_scale_edge_load_not_dropped(s):
 
 def test_micro_scale_pressure_normal_no_absolute_threshold():
     """微尺度 (s=1e-16) 法向压力: boundary_outward_normal 不得用绝对
-    1e-15 阈值判退化 — 曾与边载荷同病 (审计 2026-08-03)."""
+    1e-15 阈值判退化 — 曾与边载荷同病."""
     from fem2d import Mesh, solve
     import numpy as np
     s = 1e-16
@@ -1058,7 +1058,7 @@ def test_micro_scale_mesh_import_no_false_degenerate():
     """微尺度网格导入不得因 1.0 下限 ULP 误报重复节点/退化边.
 
     preprocess._coordinate_ulp 曾用 max(..., 1.0), 1e-16 网格的容差被
-    抬到 ~1.4e-14, 全部节点判重复、全部边判退化 (审计 2026-08-03).
+    抬到 ~1.4e-14, 全部节点判重复、全部边判退化.
     """
     from fem2d.preprocess import validate_mesh
     import numpy as np
@@ -1074,7 +1074,7 @@ def test_construct_direct_load_float_integer_normalized():
     """构造函数直传整数值浮点节点号须规范化写回 (曾组装时 IndexError).
 
     2.0 通过验证后仍以 float 留在记录里, 组装时 2*nid 触发 IndexError
-    — 必须真正保存 int (审计 2026-08-03).
+    — 必须真正保存 int.
     """
     from fem2d import Mesh, solve
     import numpy as np
@@ -1121,7 +1121,7 @@ def test_construct_interior_edge_traction_rejected_at_solve():
     """构造函数直传内部边面力必须在 solve 时即拒绝.
 
     曾先成功求解、误差估计阶段才崩溃 — 同一模型"先成功再失败"的行为
-    不一致; validate_state 须覆盖所有原始面力记录 (审计 2026-08-03).
+    不一致; validate_state 须覆盖所有原始面力记录.
     """
     from fem2d import Mesh, solve
     import numpy as np

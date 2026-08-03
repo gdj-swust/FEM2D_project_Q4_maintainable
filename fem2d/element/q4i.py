@@ -82,7 +82,7 @@ def element_operators(coords):
     incompatible 3x4 operator built from the centre Jacobian.
     """
     # 以第一个节点为原点居中 — 与批量路径一致 (大坐标原点下绝对坐标
-    # 乘加引入 ~ulp(原点) 误差, 审计 2026-08-03)
+    # 乘加引入 ~ulp(原点) 误差)
     coords = np.asarray(coords, dtype=float)
     coords = coords - coords[:1]
     jacobian_centre = shape_derivatives(0.0, 0.0) @ coords
@@ -182,7 +182,7 @@ def _condensation_blocks(mesh, selector):
     for q in range(B.shape[1]):
         Bq, Biq = B[:, q], Bi[:, q]
         # 先加权再二次型 (与 q4 同策略): B̃=√(t·detJ)·B — 微尺度几何下
-        # BᵀDB ~ E/L² 中间量曾溢出 Inf (外部审查, 2026-08-03)
+        # BᵀDB ~ E/L² 中间量曾溢出 Inf
         if np.any(det[:, q] <= 0.0):
             # 曾 sqrt(max(...,0)) 把负 Jacobian 静默夹成零 (第三轮审查)
             raise ValueError(

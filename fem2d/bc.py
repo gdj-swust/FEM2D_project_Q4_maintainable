@@ -27,7 +27,7 @@ def apply_elimination(
         return_info=False, *, _system_validated=False):
     # cg_rtol 必须保持 1e-10: 实测 1e-8 时 CG 残差污染固定 DOF 反力
     # (~4.3e-3 N @ 29 万单元), 与平衡检查 tol_rel=1e-8·|F| 同量级,
-    # 合法大模型被 ΣF 检查误杀 (审计 2026-08-03 性能优化试验后回退)
+    # 合法大模型被 ΣF 检查误杀 (性能优化试验后回退)
     """用消去法施加位移约束 (Bathe §4.2.2 Eq 4.42-4.45)
 
     将 DOF 划分为自由 (a) 和约束 (b) 两组，仅求解自由 DOF，
@@ -57,7 +57,7 @@ def apply_elimination(
         system_validated=_system_validated)
 
     # solver 名称在任何分支前校验 — 曾纯 Dirichlet 分支在名称检查前
-    # 返回, linear_solver="bogus" 静默成功 (外部审查, 2026-08-03)
+    # 返回, linear_solver="bogus" 静默成功
     solver_key = str(linear_solver).strip().lower()
     if solver_key == "cg-block":
         solver_key = "cg"
@@ -102,7 +102,7 @@ def apply_elimination(
                 "CG requires a positive finite stiffness diagonal. "
                 "Check element Jacobians and boundary constraints.")
         if solver_key == "ilu":
-            # ⚠️ 数值方法风险 (外部审查, 2026-08-03): CG 理论上要求预条件器
+            # ⚠️ 数值方法风险: CG 理论上要求预条件器
             # 对称正定, 而 SuperLU 的 ILU 不保证 SPD — 病态网格/畸形单元下
             # 可能异常停滞 (rho 崩溃, 已有下游检查)。工程上 ILU-PCG 是常见
             # 近似, 本项目限定: ILU 仅作显式选择, 默认 auto 走 Jacobi (SPD);
@@ -272,7 +272,7 @@ def _validate_system_inputs(K, F):
 
 def _validate_elimination_inputs(K, F, free_dofs, fixed_dofs,
                                  prescribed_vals, system_validated=False):
-    """apply_elimination 统一输入校验 (第三轮外部审查, 2026-08-03):
+    """apply_elimination 统一输入校验:
     K 方阵/有限 / F 形状与有限性 / DOF 分区 (重复、重叠、覆盖) / 给定位移。
     返回 (free_dofs, fixed_dofs, prescribed_vals) 规范化后的分区。
     """
@@ -286,7 +286,7 @@ def _validate_elimination_inputs(K, F, free_dofs, fixed_dofs,
 
 
 def _validate_dof_partition(free_dofs, fixed_dofs, n_dof):
-    """自由/约束 DOF 分区校验 — 曾缺省 (外部审查, 2026-08-03):
+    """自由/约束 DOF 分区校验 — 曾缺省:
     free/fixed 重叠时约束值覆盖自由解, 遗漏 DOF 静默设 0。
     要求: free 合法整数、无重叠、free ∪ fixed 完整覆盖 [0, n_dof)。
     """
@@ -304,7 +304,7 @@ def _validate_dof_partition(free_dofs, fixed_dofs, n_dof):
     if np.any((free < 0) | (free >= n_dof)):
         raise ValueError(f"free_dofs out of range [0, {n_dof - 1}]")
     if np.unique(free).size != free.size:
-        # 自身重复曾延迟到 SuperLU 奇异才报错 (第三轮外部审查)
+        # 自身重复曾延迟到 SuperLU 奇异才报错
         dup = free[np.flatnonzero(
             np.diff(np.sort(free)) == 0)]
         raise ValueError(
@@ -327,7 +327,7 @@ def _validate_dof_partition(free_dofs, fixed_dofs, n_dof):
 
 
 def _reject_duplicate_fixed_dofs(fixed_dofs, prescribed_vals, n_dof=None):
-    """罚函数参数统一验证 + 重复约束防御 (审计 2026-08).
+    """罚函数参数统一验证 + 重复约束防御.
 
     公开 API 曾对长度不等静默丢约束 (zip 截断)、负 DOF 静默约束最后
     一个 — 主 solve() 路径已由 validate_state 防护, 此处兜底直接调用。
@@ -338,7 +338,7 @@ def _reject_duplicate_fixed_dofs(fixed_dofs, prescribed_vals, n_dof=None):
         raise ValueError(f"fixed_dofs must be 1-D, got shape {fixed.shape}")
     if fixed.dtype == np.bool_ or fixed.dtype.kind == "b":
         # 布尔掩码 [True] 曾 rint→1 被当作 DOF 1, 静默约束错自由度
-        # (外部审查复现, 2026-08-03)
+        #
         raise ValueError(
             "fixed_dofs must be integer DOF indices, got boolean mask")
     if not np.all(np.isfinite(fixed)):

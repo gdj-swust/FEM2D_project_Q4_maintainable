@@ -53,14 +53,14 @@ def generate_geo_with_topology(
     验证失败 (混合三角/四边、quad 重组不完整) 时不发布, 旧文件保留
     (评审发现: 原流程先发布后验证, 非法新网格会覆盖旧文件)。
 
-    异常契约 (外部审查, 2026-08-03): gmsh 生成失败 (可执行文件缺失/
+    异常契约: gmsh 生成失败 (可执行文件缺失/
     退出码非零) → 返回 ``(None, None)``; 拓扑验证失败 (网格生成成功但
     非法) → 抛异常。调用方必须同时处理 None 与异常 — 测试层应
     检查 None 后 skip/报错, 不应在 None 上解包。
     """
     # quad 重组在 gmsh Blossom 下非确定性 (8 线程实测 ~75% 成功, 其余
     # 产出混合三角/四边) — 拓扑验证失败自动重试, 重试 2 次成功率 >98%
-    # (高强度审计 2026-08-02)。
+    #。
     max_attempts = 3 if quad else 1
     last_error = None
     for attempt in range(max_attempts):
@@ -102,7 +102,7 @@ def physical_point_from_geo(geo_path, name, mesh):
     注意: 边线中间的 Point 不保证有网格节点 (偏差可达单元尺寸量级),
     偏差由调用方打印警告。
 
-    域判定 (审计 2026-08): 仅 AABB 包含不足以排除凹域/孔洞内但不属于
+    域判定: 仅 AABB 包含不足以排除凹域/孔洞内但不属于
     实体的 construction point — 点必须落在某个单元内才接受, 且最近节点
     距离不得超过典型单元边长的 3 倍 (再远说明该点不属于此网格)。
 
@@ -110,11 +110,11 @@ def physical_point_from_geo(geo_path, name, mesh):
     失败时 nid/label/dist 为 None, reason 区分失败原因
     (not_found / ambiguous / outside_domain / too_far / gmsh_unavailable
      / no_geo_source) — 曾统一 (None,None,None) 让调用方把歧义/超距也
-    报成"未找到" (审计 2026-08-03)。
+    报成"未找到"。
     """
     if not geo_path:
         # .msh 直接输入无源 .geo — 曾 _safe_geo_source(None) 抛 TypeError
-        # 被宽 except 吞掉, 误报 "Gmsh API 不可用" (审计 2026-08-03)
+        # 被宽 except 吞掉, 误报 "Gmsh API 不可用"
         return None, None, None, "no_geo_source"
     try:
         from fem2d.gmsh_adapter import _load_gmsh_module, _safe_geo_source
@@ -165,7 +165,7 @@ def physical_point_from_geo(geo_path, name, mesh):
             return None, None, None, "outside_domain"
         # 二级过滤: 真实域包含 — 点必须落在某个单元内。凹域/孔洞内但
         # 不属于实体的 construction point 会在 AABB 内却不属于任何单元,
-        # 旧实现会把它施加到任意最近节点 (审计 2026-08)。
+        # 旧实现会把它施加到任意最近节点。
         from fem2d.stress import point_in_element
         if point_in_element(mesh, found[0][0], found[0][1]) < 0:
             return None, None, None, "outside_domain"
@@ -238,7 +238,7 @@ def resolve_spec_overrides(fp, config):
                 exit_code=1)
         if field == "no_plot":
             # 接受 1/0/true/false/yes/no (曾只认字面 "true"; 其他字符串
-            # 静默当 False, 拼写错误不易发现 — 审计 2026-08-03 白名单)
+            # 静默当 False, 拼写错误不易发现 白名单)
             text = str(value).strip().lower()
             if text in ("1", "true", "yes"):
                 value = True
@@ -253,7 +253,7 @@ def resolve_spec_overrides(fp, config):
                 value = float(value)
             except ValueError:
                 # 'E = 2,1e11' 曾报无键名上下文的裸 ValueError
-                # (审计 2026-08-03)
+                #
                 raise ValueError(
                     f".spec 键 '{spec_key}' 值 {value!r} 无法解析为数值 — "
                     f"期望十进制数字 (如 2.1e11), 不能用逗号作小数分隔符") from None
@@ -262,7 +262,7 @@ def resolve_spec_overrides(fp, config):
     for spec_key in spec:
         if spec_key not in _SPEC_FIELD_MAP and spec_key != "mesh":
             # 未知键曾静默忽略: 拼错 traction/force 等键名时载荷不生效,
-            # 求解照常"成功" (审计 2026-08-03)
+            # 求解照常"成功"
             print(f"  [WARN] .spec 键 '{spec_key}' 不被识别, 已忽略 — "
                   f"可用键: {sorted(_SPEC_FIELD_MAP) + ['mesh']}")
 
@@ -300,7 +300,7 @@ def _resolve_geo_lc(fp, config, ask):
     if m is None:
         # 无 lc 变量 — 覆盖请求无法兑现, 明确告知而非假装修改。
         # 交互判定与 bc_apply 统一用 is_batch_mode — 曾手写条件漏掉
-        # fix_ux/fix_uy, 批处理下静默不提示 (审计 2026-08-03)
+        # fix_ux/fix_uy, 批处理下静默不提示
         if config.lc is not None or not batch:
             print(
                 "  [WARN] .geo 中未找到 'lc' 赋值行 (例如 'lc = 0.1;'), "
@@ -316,11 +316,11 @@ def _resolve_geo_lc(fp, config, ask):
         new_lc = float(lc_str) if lc_str else None
 
     # 精确相等才视为未更改 — 曾 1e-15 容差使微尺度 lc (如 2e-16 vs 1e-16)
-    # 的覆盖被静默忽略 (审计 2026-08-03)
+    # 的覆盖被静默忽略
     if new_lc is None or new_lc == current_lc:
         return fp, None
     # 只替换第一个 lc 赋值 (多 lc 变量几何曾被全文替换一起覆盖;
-    # 高强度审计 2026-08-02), 其余 lc 行保留原值并警告
+    # 多 lc 变量几何曾全文替换误伤), 其余 lc 行保留原值并警告
     lc_lines = re.findall(_LC_PATTERN, geo_text, re.MULTILINE)
     if len(lc_lines) > 1:
         print(
@@ -399,7 +399,7 @@ def resolve_txt(fp, config):
             print(f"  [WARN] 覆盖已生成的 {geo_p} — 内容以 .txt 为准")
         else:
             # 手写 .geo: 生成到临时副本, 原始文件不碰 — 曾静默覆盖导致
-            # 用户手写几何永久丢失 (审计 2026-08-03 实测复现)
+            # 用户手写几何永久丢失
             fd, tmp_geo = tempfile.mkstemp(
                 prefix='.fem2d-txt-', suffix='.geo',
                 dir=os.path.dirname(os.path.abspath(geo_p)))
@@ -414,7 +414,7 @@ def resolve_txt(fp, config):
         generate_geo(parse_spec(fp), geo_p, quad=config.quad)
     except (ValueError, IndexError) as error:
         # IndexError 防御: 曾 '内孔 圆 x=' 透传裸 'list index out of range'
-        # (修复后 parse_spec 不再抛, 双保险) (审计 2026-08-03)
+        # (修复后 parse_spec 不再抛, 双保险)
         raise CliError(
             f"  [FATAL] 几何生成失败: {error}",
             exit_code=1)
@@ -467,7 +467,7 @@ def resolve_input_file(fp, config, ask=None):
         # .txt 生成的 .geo 含 @FEM 注解 — 由 runner._apply_geo_fem_config 合并
         if config.lc is not None:
             # --lc 只对 .geo 输入生效 (.txt 用自身的 网格 行) — 曾静默
-            # 忽略, 用户以为加密了实际没有 (审计 2026-08-03)
+            # 忽略, 用户以为加密了实际没有
             print("  [WARN] --lc 只对 .geo 输入生效 — .txt 用自身的"
                   " '网格' 行, --lc 已忽略 (请在 .txt 中修改 网格 值)")
     elif fp.endswith('.msh'):
@@ -476,7 +476,7 @@ def resolve_input_file(fp, config, ask=None):
         # --plane strain 的 CPE 判型与导入的 CPS 类型冲突 (评审发现)
         if config.quad:
             # 重组只在 .geo/.txt 生成阶段生效, 直接输入 .msh 时静默
-            # 忽略会误导用户 (高强度审计 2026-08-02)
+            # 忽略会误导用户
             print("  [WARN] --quad 只对 .geo/.txt 网格生成生效, "
                   ".msh 直接输入时忽略")
         if config.lc is not None:

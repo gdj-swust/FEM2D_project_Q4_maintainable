@@ -73,7 +73,7 @@ def test_rect_holes_overlapping_rejected(tmp_path):
 
 def test_rect_multi_hole_valid(tmp_path):
     """多孔必须全部写入 .geo — 曾只断言文件存在, 第二个孔静默丢失也
-    通过 (审计 2026-08-03)."""
+    通过."""
     _, out = _generate(tmp_path, "类型 矩形板\n宽 6.0\n高 3.0\n"
                                  "内孔 圆 x=-1.0 y=0.5 r=0.4\n"
                                  "内孔 圆 x=1.2 y=0.2 r=0.5\n")
@@ -234,7 +234,7 @@ def test_parse_geo_fem_config_unknown_key_warns(capsys, tmp_path):
 
 def test_spec_nan_hole_params_rejected(tmp_path):
     """内孔 NaN 坐标/半径必须解析期拒绝 — 曾生成含字面 nan 的 .geo,
-    Gmsh 报错不可读 (审计 2026-08-03)."""
+    Gmsh 报错不可读."""
     for hole_line in ("内孔 圆 x=nan y=0.3 r=0.3\n",
                       "内孔 圆 x=0.8 y=nan r=0.3\n",
                       "内孔 圆 x=0.8 y=0.3 r=nan\n"):
@@ -246,7 +246,7 @@ def test_spec_nan_hole_params_rejected(tmp_path):
 
 
 def test_spec_nan_bc_value_rejected(tmp_path):
-    """边界数值 NaN/Inf 必须解析期拒绝 — 曾延迟到求解阶段 (审计 2026-08-03)."""
+    """边界数值 NaN/Inf 必须解析期拒绝 — 曾延迟到求解阶段."""
     for bc_line in ("边界 右 拉力 nan\n", "边界 右 压力 inf\n"):
         path = tmp_path / "nanbc.txt"
         path.write_text(f"类型 矩形板\n宽 3.0\n高 2.0\n网格 0.5\n{bc_line}",
@@ -256,7 +256,7 @@ def test_spec_nan_bc_value_rejected(tmp_path):
 
 
 def test_spec_nan_body_force_rejected(tmp_path):
-    """体力 NaN/Inf 必须解析期拒绝 — 曾延迟到求解阶段 (审计 2026-08-03)."""
+    """体力 NaN/Inf 必须解析期拒绝 — 曾延迟到求解阶段."""
     for body_line in ("体力 nan,0\n", "体力 0,inf\n"):
         path = tmp_path / "nanbody.txt"
         path.write_text(f"类型 矩形板\n宽 3.0\n高 2.0\n网格 0.5\n{body_line}",
@@ -266,7 +266,7 @@ def test_spec_nan_body_force_rejected(tmp_path):
 
 
 def test_spec_key_missing_value_rejected(tmp_path):
-    """合法键缺数值 (宽 单独一行) 必须报错 — 曾整行静默丢弃 (审计 2026-08-03)."""
+    """合法键缺数值 (宽 单独一行) 必须报错 — 曾整行静默丢弃."""
     path = tmp_path / "nokeyval.txt"
     path.write_text("类型 矩形板\n宽\n高 2.0\n网格 0.5\n", encoding="utf-8")
     with pytest.raises(ValueError, match="缺少"):
@@ -274,7 +274,7 @@ def test_spec_key_missing_value_rejected(tmp_path):
 
 
 def test_spec_extra_token_rejected(tmp_path):
-    """多余 token (宽 3 4) 必须报错 — 曾取 3 丢 4 静默 (审计 2026-08-03)."""
+    """多余 token (宽 3 4) 必须报错 — 曾取 3 丢 4 静默."""
     path = tmp_path / "extratok.txt"
     path.write_text("类型 矩形板\n宽 3.0 4.0\n高 2.0\n网格 0.5\n",
                     encoding="utf-8")
@@ -283,7 +283,7 @@ def test_spec_extra_token_rejected(tmp_path):
 
 
 def test_spec_bc_extra_token_rejected(tmp_path):
-    """边界多余 token (拉力 1e6 2e6) 必须报错 — 曾静默丢弃 (审计 2026-08-03)."""
+    """边界多余 token (拉力 1e6 2e6) 必须报错 — 曾静默丢弃."""
     path = tmp_path / "bcxtra.txt"
     path.write_text("类型 矩形板\n宽 3.0\n高 2.0\n网格 0.5\n"
                     "边界 右 拉力 1e6 2e6\n", encoding="utf-8")
@@ -292,7 +292,7 @@ def test_spec_bc_extra_token_rejected(tmp_path):
 
 
 def test_spec_fix_with_value_rejected(tmp_path):
-    """固定约束不接受数值 (固定 5) — 曾把值写进物理曲线名 (审计 2026-08-03)."""
+    """固定约束不接受数值 (固定 5) — 曾把值写进物理曲线名."""
     path = tmp_path / "fixval.txt"
     path.write_text("类型 矩形板\n宽 3.0\n高 2.0\n网格 0.5\n"
                     "边界 左 固定 5\n", encoding="utf-8")
@@ -301,7 +301,7 @@ def test_spec_fix_with_value_rejected(tmp_path):
 
 
 def test_circle_invalid_edge_name_rejected(tmp_path):
-    """圆板 左 固定 必须生成期拒绝 — 曾静默降级为极区小段弧 (审计 2026-08-03)."""
+    """圆板 左 固定 必须生成期拒绝 — 曾静默降级为极区小段弧."""
     spec_path = tmp_path / "c.txt"
     spec_path.write_text("类型 圆板\n外径 2.0\n网格 0.5\n"
                          "边界 左 固定\n", encoding="utf-8")
@@ -312,7 +312,7 @@ def test_circle_invalid_edge_name_rejected(tmp_path):
 
 def test_circle_holeN_edge_mappable(tmp_path):
     """圆板多孔 内孔2 必须生成期可映射 — 曾与矩形不一致, 求解期才 FATAL
-    (审计 2026-08-03)."""
+   ."""
     spec_path = tmp_path / "c2.txt"
     spec_path.write_text("类型 圆板\n外径 4.0\n网格 0.5\n"
                          "内孔 圆 x=-1.0 y=0 r=0.3\n"

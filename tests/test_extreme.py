@@ -171,7 +171,7 @@ def test_pure_dirichlet_with_body_force():
 def test_pressure_on_all_edges():
     """所有边施加压力 → 均匀压缩.
 
-    曾只断言 isfinite(u): 载荷静默丢弃 (u=0) 也通过 (审计 2026-08-03).
+    曾只断言 isfinite(u): 载荷静默丢弃 (u=0) 也通过.
     右边中点节点 1 必须向 -x 压缩 (压力指向域内).
     """
     from fem2d import Mesh, solve
@@ -189,7 +189,7 @@ def test_spatial_traction_function():
     """空间函数面力 sin(pi*x/2),0 — 右端面 x=1 → sin(pi/2)=1 → 等效
     恒力 1e6 → ΣFx = +10000 → ΣRx = -10000.
 
-    曾只断言 isfinite(u): 面力静默丢弃也通过 (审计 2026-08-03).
+    曾只断言 isfinite(u): 面力静默丢弃也通过.
     """
     import math
     from fem2d import Mesh, solve
@@ -205,7 +205,7 @@ def test_spatial_traction_function():
 def test_parabolic_traction_distribution():
     """抛物线面力分布 :p — 弧长中点系数 1.0, 两端系数 0.
 
-    曾声称测抛物线实际是常数面力 (审计 2026-08-03). 直接锁
+    曾声称测抛物线实际是常数面力. 直接锁
     make_edge_profile_func 的分布形状: f(arc) = 1-(2s-1)².
     """
     import numpy as np

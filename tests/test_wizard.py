@@ -158,11 +158,12 @@ def test_wizard_duplicate_edge_rejected(monkeypatch):
 # ═══════════════════════════════════════════════════════════════
 
 def test_wizard_eof_at_number_exits_cleanly(monkeypatch):
-    """无默认值数值处 EOF → SystemExit(0) (曾死循环, 审计 2026-08-03)."""
+    """无默认值数值处 EOF → CliError(0) (曾死循环; 库层不 SystemExit)."""
+    from fem2d.errors import CliError
     answers = ["1", "1"]   # 宽 处 EOF
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(CliError) as exc:
         _run(answers, monkeypatch)
-    assert exc.value.code == 0
+    assert exc.value.exit_code == 0
 
 
 def test_wizard_eof_at_edge_uses_defaults(monkeypatch):
@@ -237,11 +238,12 @@ def test_wizard_use_existing_file(tmp_path, monkeypatch):
 
 
 def test_wizard_existing_file_missing_fatal(tmp_path, monkeypatch):
-    """向导入口文件不存在 → SystemExit(1)."""
+    """向导入口文件不存在 → CliError(1) (库层不 SystemExit)."""
+    from fem2d.errors import CliError
     answers = ["2", str(tmp_path / "nope.geo")]
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(CliError) as exc:
         _run(answers, monkeypatch)
-    assert exc.value.code == 1
+    assert exc.value.exit_code == 1
 
 
 # ═══════════════════════════════════════════════════════════════

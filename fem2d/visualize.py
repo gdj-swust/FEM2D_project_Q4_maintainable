@@ -94,7 +94,7 @@ def _to_node(mesh, ev, integration_values=None, method="SPR"):
         # weighted / simple: 接受 (ne, ncomp) 或 (ne, nqp, ncomp);
         # 单元代表值: weighted 取 dA 加权平均 (与 solver 的 stress 一致),
         # simple 取算术平均 (曾对 simple 也做 dA 加权, 两种方法在歪扭
-        # 网格上无差别; 高强度审计 2026-08-02)。
+        # 网格上无差别)。
         if data.ndim == 3:
             if method == "simple":
                 data = data.mean(axis=1)
@@ -198,7 +198,7 @@ def _plot_loads(mesh, ax):
     # 自动缩放: 最大箭头 = 模型跨度的 8%
     span = (nodes[:,0].max()-nodes[:,0].min() + nodes[:,1].max()-nodes[:,1].min())/2
     # 仅零跨度退化模型才回退 — 曾 1e-15 下限使微尺度模型 (span 1e-16)
-    # 的箭头按 1.0 缩放, 画到模型外 (审计 2026-08-03)
+    # 的箭头按 1.0 缩放, 画到模型外
     if span == 0.0: span = 1.0
 
     # ── 1. 面力 (红色箭头, 沿边界边中点) ──
@@ -219,7 +219,7 @@ def _plot_loads(mesh, ax):
                 tx, ty = evaluate_vector_field(t, xm, ym)
             all_tx.append(abs(tx)); all_ty.append(abs(ty))
         # 1.0 下限曾使微尺度载荷 (t_max=1e-20) 的箭头缩放失真, 全部
-        # 变成 ~1e-17 不可见 (审计 2026-08-03)
+        # 变成 ~1e-17 不可见
         t_max = max(max(all_tx), max(all_ty), np.finfo(float).tiny)
         arrow_scale = span * 0.08 / t_max
 
@@ -240,7 +240,7 @@ def _plot_loads(mesh, ax):
                 tx, ty = evaluate_vector_field(t, xm, ym)
             dx, dy = tx * arrow_scale, ty * arrow_scale
             # 曾用 1e-15 绝对阈值: 微尺度模型的归一化箭头 (长度 ~8%·span)
-            # 全被跳过, 载荷不可见 (审计 2026-08-03)
+            # 全被跳过, 载荷不可见
             if abs(dx) + abs(dy) > 0.0:
                 ax.arrow(xm, ym, dx, dy, head_width=span*0.012,
                         head_length=span*0.015, fc='red', ec='red',
@@ -259,7 +259,7 @@ def _plot_loads(mesh, ax):
             bx, by = evaluate_vector_field(bf, xc, yc)
             bx_all.append(abs(bx)); by_all.append(abs(by))
         # 1.0 下限曾使微尺度/非 SI 单位体力 (f_max=7.86e-4) 箭头缩短
-        # 1/f_max 倍静默不可见 — 与面力分支 223 行统一 (审计 2026-08-03)
+        # 1/f_max 倍静默不可见 — 与面力分支 223 行统一
         b_max = max(max(bx_all), max(by_all), np.finfo(float).tiny)
         arrow_scale_b = span * 0.05 / b_max
 
@@ -268,7 +268,7 @@ def _plot_loads(mesh, ax):
             bx, by = evaluate_vector_field(bf, xc, yc)
             dx, dy = bx * arrow_scale_b, by * arrow_scale_b
             # 曾用 1e-15 绝对阈值: 微尺度模型的归一化箭头 (长度 ~8%·span)
-            # 全被跳过, 载荷不可见 (审计 2026-08-03)
+            # 全被跳过, 载荷不可见
             if abs(dx) + abs(dy) > 0.0:
                 ax.arrow(xc, yc, dx, dy, head_width=span*0.008,
                         head_length=span*0.01, fc='blue', ec='blue',
@@ -286,7 +286,7 @@ def _plot_loads(mesh, ax):
             x, y = nodes[nid]
             dx, dy = fx * arrow_scale_c, fy * arrow_scale_c
             # 曾用 1e-15 绝对阈值: 微尺度模型的归一化箭头 (长度 ~8%·span)
-            # 全被跳过, 载荷不可见 (审计 2026-08-03)
+            # 全被跳过, 载荷不可见
             if abs(dx) + abs(dy) > 0.0:
                 ax.arrow(x, y, dx, dy, head_width=span*0.015,
                         head_length=span*0.02, fc='green', ec='darkgreen',
@@ -354,7 +354,7 @@ def _style_colorbar(cbar, e_min, e_max, title=None, n_ticks=8):
         cbar.set_ticks(tick_vals)
         cbar.set_ticklabels([f'{t:.2f}e3' for t in np.round(tick_vals / 1e3, 2)])
     elif rng < 1e-3:
-        # 小值域: 统一科学计数显示 (曾 "0.01e-6" 可读性差; 审计 2026-08)
+        # 小值域: 统一科学计数显示 (曾 "0.01e-6" 可读性差)
         cbar.set_ticks(tick_vals)
         cbar.set_ticklabels([f'{t:.3g}' for t in tick_vals])
     else:
@@ -375,7 +375,7 @@ def _plot_scalar_jump_contour(ax, tri, display_parent, values, mesh, nd,
     """scalar_jump: 内部边按 |Δs|/σ_range 着色 (标量跳跃, 非牵引跳跃)."""
     sigma_range = e_max - e_min
     # 常场回退基于场尺度 — 曾 1e-30 绝对下限使微尺度场 (1e-40) 的
-    # 跳跃归一化失真 (审计 2026-08-03)
+    # 跳跃归一化失真
     if sigma_range <= 1e-14 * max(abs(e_max), abs(e_min),
                                   np.finfo(float).tiny):
         sigma_range = max(abs(e_max), abs(e_min), np.finfo(float).tiny)
@@ -448,7 +448,7 @@ def _plot_isoband_contour(ax, tri, display_parent, values, title,
     else:
         # 常应力保护: e_min≈e_max 时加 padding — 阈值和 padding 都须基于
         # 场本身尺度, 曾用 max(..., 1.0) 把微尺度场 (1e-12) 的色标抬到
-        # [~1e-12, 1.0] 云图塌缩为单色 (审计 2026-08-03)
+        # [~1e-12, 1.0] 云图塌缩为单色
         scl = max(abs(e_min), abs(e_max), np.finfo(float).tiny)
         if abs(e_max - e_min) <= 1e-14 * scl:
             pad = scl * 1e-6
@@ -513,7 +513,7 @@ def _plot_gouraud_contour(ax, tri, values, mesh, n, recovery):
                                   np.finfo(float).tiny):
         # 近常场 padding 基于场自身尺度 — 曾用绝对 1e-15 阈值 + 1.0 pad,
         # 微尺度场 (跨度 1e-16 绝对单位) 色标变 [1e-12, 1.0] 单色塌缩
-        # (审计 2026-08-03)
+        #
         pad = max(abs(vmin), abs(vmax), np.finfo(float).tiny) * 1e-6
         vmin -= pad
         vmax += pad
@@ -690,12 +690,12 @@ def plot_three(mesh, result, tag='vm', scale=100, save=None,
         plot_mesh(mesh, ax=axes[1], show_loads=True)
         axes[1].set_title('Mesh + BCs + Loads', fontsize=12)
         # 曾 axes[2] 也是 show_loads=True 的重复图 — 无载荷 vs 含载荷
-        # 两张对比已覆盖全部信息, 第三格置空 (审计 2026-08-03)
+        # 两张对比已覆盖全部信息, 第三格置空
         axes[2].axis('off')
     elif tag == "loads":
         plot_mesh(mesh, ax=axes[0], show_loads=True)
         axes[0].set_title('All loads', fontsize=12)
-        # 曾三张图内容完全相同, 仅标题不同 — 只留一张 (审计 2026-08-03)
+        # 曾三张图内容完全相同, 仅标题不同 — 只留一张
         axes[1].axis('off')
         axes[2].axis('off')
     else:
@@ -727,7 +727,7 @@ def plot_three(mesh, result, tag='vm', scale=100, save=None,
         fig.savefig(save, dpi=150, bbox_inches='tight')
         print(f'  → {save}')
         # 批量保存后主动关闭 — 曾长期不 close, 参数扫描逐次累积内存
-        # (审计 2026-08-03)
+        #
         plt.close(fig)
         return
     if plt.get_backend() != 'Agg':
@@ -756,7 +756,7 @@ def interactive_plot(mesh, result, scale=100, isoband_levels=None, isoband_tag=N
             tag = input("  > ").strip().lower()
         except KeyboardInterrupt:
             # Ctrl-C 曾裸 traceback (退出码非零), 与 EOF 分支不对称 —
-            # 求解已成功, 优雅退出 (审计 2026-08-03)
+            # 求解已成功, 优雅退出
             print("\n  [INFO] 已退出交互绘图 (Ctrl-C)")
             plt.close('all')
             return

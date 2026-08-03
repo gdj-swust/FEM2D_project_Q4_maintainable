@@ -111,7 +111,7 @@ def test_sliver_boundary_elements():
     assert np.all(np.isfinite(kappa)), "FAIL: curvature contains NaN/Inf"
 
     # 35° 阈值: 八边形内角 135° → 转角 45° → 应该检测到 8 个角
-    # (闭合重复点曾使首个角点静默跳过, 只检出 7 个 — 审计 2026-08-03)
+    # (闭合重复点曾使首个角点静默跳过, 只检出 7 个)
     corners = sharp_corner_indices(coords_noisy, angle_threshold_deg=35.0)
     print(f"  35° 阈值: {len(corners)} 个角点 (期望 8)")
 

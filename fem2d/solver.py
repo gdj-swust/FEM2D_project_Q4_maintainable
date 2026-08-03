@@ -148,7 +148,7 @@ def _solve_linear_system(K, F, free_dofs, fixed_dofs, prescribed,
     linear_solver_info = {"name": "none", "iterations": 0}
     _validate_system_inputs(K, F)
     # solver 名称在任何分支前校验 — 曾纯 Dirichlet 分支 (全约束) 在
-    # 名称检查前返回, linear_solver="bogus" 静默成功 (第三轮外部审查)
+    # 名称检查前返回, linear_solver="bogus" 静默成功
     solver_key = str(linear_solver).strip().lower()
     if solver_key == "cg-block":
         solver_key = "cg"
@@ -263,7 +263,7 @@ def _compute_residual(K, F, K_mod, F_mod, u, free_dofs,
             residual = r_inf / denom
         residual_abs = r_inf
         # 曾 denom<1e-15 绝对判据: 微尺度载荷的非平凡解 (max|u|=1.87e-9)
-        # 被误标 "trivial solution" (审计 2026-08-03)。"平凡解"标签只
+        # 被误标 "trivial solution"。"平凡解"标签只
         # 属于真正零解 (u≡0), 非平凡解一律走相对残差日志。
         if u_inf == 0.0:
             if residual_abs > 1e-10:
@@ -373,7 +373,7 @@ def _small_deformation_check(mesh, u):
     u2 = u.reshape(-1, 2)
     u_range = max(np.ptp(u2[:, 0]), np.ptp(u2[:, 1]))
     # 曾 model_span > 1e-30 绝对阈值: 跨度 1e-31 的模型位移比 20% 也不
-    # 告警 (外部审查复现, 2026-08-03)。判据相对化: span 仅需可表示
+    # 告警。判据相对化: span 仅需可表示
     # (> 0), 位移比为 0 时 (纯刚体平移) 无意义。
     span_pos = model_span > np.finfo(float).tiny
     ok = not (span_pos and u_range > 0.0
@@ -395,6 +395,158 @@ def _check_result_finite(stress, strain, vm):
             raise RuntimeError(
                 f"Result {name} contains NaN/Inf — 材料参数或载荷可能"
                 "超出数值范围 (极端 E/thickness/应力), 检查模型设置。")
+
+
+# ── solve 的其余独立阶段 (2026-08-03 拆分为纯编排层) ──
+
+def _partition_dofs(mesh, method, n_dof, log):
+    """自由/约束 DOF 划分; 纯 Dirichlet (全约束) 问题提示."""
+    fixed_dofs = mesh.fixed_dofs.astype(int)
+    prescribed = np.array(
+        [mesh.prescribed_vals.get(d, 0.0) for d in fixed_dofs])
+    free_dofs = np.setdiff1d(np.arange(n_dof), fixed_dofs)
+    log(f"[Solver] 约束: {len(fixed_dofs)} DOFs, {len(free_dofs)} free DOFs")
+    if method == "elimination" and len(free_dofs) == 0:
+        # 纯 Dirichlet 问题合法 — 组装 K 后直接算反力 (无需求解线性系统)
+        log(f"[Solver] 全部 {n_dof} DOF 给定位移 — 直接计算反力")
+    return fixed_dofs, prescribed, free_dofs
+
+
+def _check_rigid_body_constraints(mesh):
+    """逐连通分量刚体模态检查 (Bathe §4.2.2).
+
+    任何分量 rank < 3 都意味着存在未约束的刚体模态 → 系统奇异 → 禁止求解.
+    """
+    rb_issues = mesh.check_rigid_body_constraints()
+    if not rb_issues:
+        return
+    lines = ["Rigid-body modes are not fully constrained:"]
+    for iss in rb_issues:
+        nodes_str = (f"nodes {iss['nodes'][0]}~{iss['nodes'][-1]}"
+                     if len(iss['nodes']) > 3
+                     else f"nodes {iss['nodes']}")
+        lines.append(
+            f"  Component {iss['component']} ({nodes_str}): {iss['issue']}")
+    lines.append(
+        "Fix boundary conditions on all disconnected parts before solving.")
+    raise RuntimeError("\n".join(lines))
+
+
+def _q4r_aspect_ratio_warning(mesh):
+    """Q4R 稳定性预处理告警: 按单元长宽比而非沙漏能占比.
+
+    长宽比 ≥50 时过刚 (解只有解析值 ~2%), L/h≈10 少行时过柔 (~5倍),
+    且沙漏能占比在两种情况下都 >90% — 占比不是可靠性指标, 预处理
+    阶段按长宽比直接告警 (实测长宽比 12 的 8×2 网格已偏软 32%)。
+    """
+    if not hasattr(mesh.element_kernel, "hourglass_energy"):
+        return
+    q4r_coords = mesh.nodes[mesh.elements]
+    # 4 条局部边含闭合边 3→0 (漏算会低估长宽比告警)
+    q4r_edge = np.roll(q4r_coords, -1, axis=1) - q4r_coords
+    q4r_len = np.linalg.norm(q4r_edge, axis=2)
+    q4r_ar = q4r_len.max(axis=1) / np.maximum(
+        q4r_len.min(axis=1), np.finfo(float).tiny)
+    _q4r_ar = float(q4r_ar.max())
+    if _q4r_ar >= 50.0:
+        # 文档失效区 (q4r.py): 稳定刚度不随长宽比衰减, 过刚,
+        # 解可能只有解析值 ~2%
+        warnings.warn(
+            f"Q4R (CPS4R/CPE4R) 网格单元长宽比最大 {_q4r_ar:.0f} >= 50 "
+            "-- compact hourglass 稳定公式的文档失效区 (解可能只有 "
+            "解析值 ~2%, 偏硬)。强烈建议换用 Q4I (CPS4I/CPE4I) 或"
+            "细化网格。",
+            RuntimeWarning)
+    elif _q4r_ar > 10.0:
+        # 中等长宽比可能过柔也可能过刚 (尺度特性, 见 q4r.py)
+        warnings.warn(
+            f"Q4R (CPS4R/CPE4R) 网格单元长宽比最大 {_q4r_ar:.1f} > 10 "
+            "-- 减缩积分单元在薄板/少行网格上不稳定 (过刚或过柔, "
+            "沙漏能占比不可靠)。建议换用 Q4I (CPS4I/CPE4I) 或规则网格。",
+            RuntimeWarning)
+
+
+def _compute_element_response(mesh, u_e):
+    """积分点响应 → 单元平均应力/应变/von Mises + 原始积分点数据."""
+    stress_qp, strain_qp, dA_qp = (
+        mesh.element_kernel.response_at_quadrature(mesh, u_e))
+    area_qp = np.sum(dA_qp, axis=1)
+    if np.any(area_qp <= 0.0):
+        raise RuntimeError(
+            "Element response quadrature returned non-positive area weights.")
+    stress = np.sum(
+        stress_qp * dA_qp[:, :, None], axis=1) / area_qp[:, None]
+    strain = np.sum(
+        strain_qp * dA_qp[:, :, None], axis=1) / area_qp[:, None]
+    vm = von_mises(stress, mesh.plane_type, mesh.nu)
+    return stress, strain, vm, stress_qp, strain_qp, dA_qp
+
+
+def _hourglass_monitor(mesh, K, u, u_e, log):
+    """内能有限性检查 + Q4R 沙漏能分级监控.
+
+    沙漏能占比本身不是精度指标 (过刚/过柔都会 >90%) — 只作可靠性
+    提示; 长宽比警告由 _q4r_aspect_ratio_warning 在装配前给出.
+    """
+    hourglass_energy_elem = None
+    hourglass_energy = 0.0
+    internal_energy = float(0.5 * u @ K.dot(u))
+    if not np.isfinite(internal_energy):
+        # 极端但有限的载荷/材料下内能可能溢出 — 不返回"成功"的 inf 结果
+        raise RuntimeError(
+            f"Internal energy = {internal_energy:.3e} is not finite — "
+            "载荷或材料参数超出数值范围, 检查模型设置")
+    hourglass_energy_ratio = 0.0
+    if hasattr(mesh.element_kernel, "hourglass_energy"):
+        hourglass_energy_elem = np.asarray(
+            mesh.element_kernel.hourglass_energy(mesh, u_e), dtype=float)
+        hourglass_energy = float(np.sum(hourglass_energy_elem))
+        if internal_energy > np.finfo(float).tiny:
+            hourglass_energy_ratio = hourglass_energy / internal_energy
+        log(f"[Solver] Q4R hourglass energy = {hourglass_energy:.6e} "
+            f"({hourglass_energy_ratio:.2%} of internal energy)")
+        if hourglass_energy_ratio > 0.90:
+            # 沙漏能主导 — compact 公式已知失效区 (q4r.py 文档):
+            # 结果可能过柔或过刚, 沙漏能占比本身不是精度指标
+            warnings.warn(
+                f"Q4R hourglass energy ratio = {hourglass_energy_ratio:.0%} "
+                "(> 90%) — hourglass modes dominate; result is unreliable. "
+                "Verify with Q4I (CPS4I).",
+                RuntimeWarning, stacklevel=2)
+        elif hourglass_energy_ratio > 0.30:
+            # 高沙漏能对 Q4R compact 公式在薄板/少行网格上不可靠:
+            # 解可能显著过柔或过刚 (见 q4r.py 模块文档)。沙漏能占比
+            # 本身不是精度指标 — 建议改用 Q4I 交叉验证。
+            warnings.warn(
+                f"Q4R hourglass energy ratio is "
+                f"{hourglass_energy_ratio:.1%} (> 30%). "
+                "The compact Q4R stabilization is unreliable on thin/"
+                "few-row meshes (solution may be too soft or too stiff). "
+                "Refine the mesh, improve aspect ratio, or verify with "
+                "Q4I (CPS4I).",
+                RuntimeWarning, stacklevel=2)
+    return internal_energy, hourglass_energy_elem, \
+        hourglass_energy, hourglass_energy_ratio
+
+
+def _condition_report(K, free_dofs, check_condition, log):
+    """条件数估计 (Bathe §8.2.6) — 默认关闭; 返回 info 或 None."""
+    if not (check_condition and len(free_dofs) > 0):
+        return None
+    K_aa = K[free_dofs][:, free_dofs].tocsr()
+    if K_aa.shape[0] > 20000:
+        log(f"[Solver] cond(K_aa): {K_aa.shape[0]} DOF — "
+            f"稀疏特征值估计可能较慢, 请耐心等待 ...")
+    cond_info = estimate_condition(K_aa)
+    if cond_info["status"] == "SINGULAR?":
+        # condition_number=None — 格式化 :.2e 会二次崩溃 (曾静默)
+        log(f"[Solver] cond(K_aa): [SINGULAR?] 特征值求解失败 — "
+            f"刚度矩阵疑似奇异: {cond_info.get('error', '')}")
+    elif cond_info["status"] != "SKIP":
+        log(f"[Solver] cond(K_aa) = {cond_info['condition_number']:.2e} "
+            f"-> ~{cond_info['digits_lost']:.1f} digits lost "
+            f"[{cond_info['status']}]")
+    return cond_info
 
 
 def solve(
@@ -451,60 +603,15 @@ def solve(
         )
 
     # ── 2. 约束检查 (组装前, 避免无效 BC 导致无意义求解) ──
-    fixed_dofs = mesh.fixed_dofs.astype(int)
-    prescribed = np.array([mesh.prescribed_vals.get(d, 0.0) for d in fixed_dofs])
-    free_dofs = np.setdiff1d(np.arange(n_dof), fixed_dofs)
-
-    log(f"[Solver] 约束: {len(fixed_dofs)} DOFs, {len(free_dofs)} free DOFs")
-
-    # ── 2.5 预处理检查: 约束不足/空系统 ──
-    if method == "elimination" and len(free_dofs) == 0:
-        # 纯 Dirichlet 问题合法 — 组装 K 后直接算反力 (无需求解线性系统)
-        log(f"[Solver] 全部 {n_dof} DOF 给定位移 — 直接计算反力")
+    fixed_dofs, prescribed, free_dofs = _partition_dofs(
+        mesh, method, n_dof, log)
 
     # ── 逐连通分量刚体模态检查 (Bathe §4.2.2) ──
     # 任何分量 rank < 3 都意味着存在未约束的刚体模态 → 系统奇异 → 禁止求解
-    rb_issues = mesh.check_rigid_body_constraints()
-    if rb_issues:
-        lines = ["Rigid-body modes are not fully constrained:"]
-        for iss in rb_issues:
-            nodes_str = (f"nodes {iss['nodes'][0]}~{iss['nodes'][-1]}"
-                         if len(iss['nodes']) > 3
-                         else f"nodes {iss['nodes']}")
-            lines.append(
-                f"  Component {iss['component']} ({nodes_str}): {iss['issue']}")
-        lines.append(
-            "Fix boundary conditions on all disconnected parts before solving.")
-        raise RuntimeError("\n".join(lines))
+    _check_rigid_body_constraints(mesh)
 
     # ── Q4R 稳定性预处理告警: 按单元长宽比而非沙漏能占比 ──
-    # 长宽比 ≥50 时过刚 (解只有解析值 ~2%), L/h≈10 少行时过柔 (~5倍),
-    # 且沙漏能占比在两种情况下都 >90% — 占比不是可靠性指标, 预处理
-    # 阶段按长宽比直接告警 (实测长宽比 12 的 8×2 网格已偏软 32%)。
-    if hasattr(mesh.element_kernel, "hourglass_energy"):
-        q4r_coords = mesh.nodes[mesh.elements]
-        # 4 条局部边含闭合边 3→0 (漏算会低估长宽比告警)
-        q4r_edge = np.roll(q4r_coords, -1, axis=1) - q4r_coords
-        q4r_len = np.linalg.norm(q4r_edge, axis=2)
-        q4r_ar = q4r_len.max(axis=1) / np.maximum(
-            q4r_len.min(axis=1), np.finfo(float).tiny)
-        _q4r_ar = float(q4r_ar.max())
-        if _q4r_ar >= 50.0:
-            # 文档失效区 (q4r.py): 稳定刚度不随长宽比衰减, 过刚,
-            # 解可能只有解析值 ~2%
-            warnings.warn(
-                f"Q4R (CPS4R/CPE4R) 网格单元长宽比最大 {_q4r_ar:.0f} >= 50 "
-                "-- compact hourglass 稳定公式的文档失效区 (解可能只有 "
-                "解析值 ~2%, 偏硬)。强烈建议换用 Q4I (CPS4I/CPE4I) 或"
-                "细化网格。",
-                RuntimeWarning)
-        elif _q4r_ar > 10.0:
-            # 中等长宽比可能过柔也可能过刚 (尺度特性, 见 q4r.py)
-            warnings.warn(
-                f"Q4R (CPS4R/CPE4R) 网格单元长宽比最大 {_q4r_ar:.1f} > 10 "
-                "-- 减缩积分单元在薄板/少行网格上不稳定 (过刚或过柔, "
-                "沙漏能占比不可靠)。建议换用 Q4I (CPS4I/CPE4I) 或规则网格。",
-                RuntimeWarning)
+    _q4r_aspect_ratio_warning(mesh)
 
     # ── 3. 组装 (验证全部通过后才进行) ──
     log(f"[Solver] 组装总刚 K ({n_dof}×{n_dof}) ...")
@@ -527,59 +634,12 @@ def solve(
 
     # ── 5. 应力计算 ──
     u_e = u[mesh.element_dofs]
-    stress_qp, strain_qp, dA_qp = (
-        mesh.element_kernel.response_at_quadrature(
-            mesh, u_e))
-    area_qp = np.sum(dA_qp, axis=1)
-    if np.any(area_qp <= 0.0):
-        raise RuntimeError(
-            "Element response quadrature returned non-positive area weights.")
-    stress = np.sum(
-        stress_qp * dA_qp[:, :, None], axis=1) / area_qp[:, None]
-    strain = np.sum(
-        strain_qp * dA_qp[:, :, None], axis=1) / area_qp[:, None]
-    vm = von_mises(stress, mesh.plane_type, mesh.nu)
+    stress, strain, vm, stress_qp, strain_qp, dA_qp = (
+        _compute_element_response(mesh, u_e))
 
-    # ── Q4R 沙漏能量监控 ──
-    hourglass_energy_elem = None
-    hourglass_energy = 0.0
-    internal_energy = float(0.5 * u @ K.dot(u))
-    if not np.isfinite(internal_energy):
-        # 极端但有限的载荷/材料下内能可能溢出 — 不返回"成功"的 inf 结果
-        # (审计 2026-08)
-        raise RuntimeError(
-            f"Internal energy = {internal_energy:.3e} is not finite — "
-            "载荷或材料参数超出数值范围, 检查模型设置")
-    hourglass_energy_ratio = 0.0
-    if hasattr(mesh.element_kernel, "hourglass_energy"):
-        hourglass_energy_elem = np.asarray(
-            mesh.element_kernel.hourglass_energy(
-                mesh, u_e), dtype=float)
-        hourglass_energy = float(np.sum(hourglass_energy_elem))
-        if internal_energy > np.finfo(float).tiny:
-            hourglass_energy_ratio = hourglass_energy / internal_energy
-        log(f"[Solver] Q4R hourglass energy = {hourglass_energy:.6e} "
-            f"({hourglass_energy_ratio:.2%} of internal energy)")
-        if hourglass_energy_ratio > 0.90:
-            # 沙漏能主导 — compact 公式已知失效区 (q4r.py 文档):
-            # 结果可能过柔或过刚, 沙漏能占比本身不是精度指标
-            warnings.warn(
-                f"Q4R hourglass energy ratio = {hourglass_energy_ratio:.0%} "
-                "(> 90%) — hourglass modes dominate; result is unreliable. "
-                "Verify with Q4I (CPS4I).",
-                RuntimeWarning, stacklevel=2)
-        elif hourglass_energy_ratio > 0.30:
-            # 高沙漏能对 Q4R compact 公式在薄板/少行网格上不可靠:
-            # 解可能显著过柔或过刚 (见 q4r.py 模块文档)。沙漏能占比
-            # 本身不是精度指标 — 建议改用 Q4I 交叉验证。
-            warnings.warn(
-                f"Q4R hourglass energy ratio is "
-                f"{hourglass_energy_ratio:.1%} (> 30%). "
-                "The compact Q4R stabilization is unreliable on thin/"
-                "few-row meshes (solution may be too soft or too stiff). "
-                "Refine the mesh, improve aspect ratio, or verify with "
-                "Q4I (CPS4I).",
-                RuntimeWarning, stacklevel=2)
+    # ── Q4R 沙漏能量监控 (含内能有限性检查) ──
+    internal_energy, hourglass_energy_elem, hourglass_energy, \
+        hourglass_energy_ratio = _hourglass_monitor(mesh, K, u, u_e, log)
 
     # ── 5.5 全局力/力矩平衡检查 (Bathe §4.2.2) ──
     # 残差小只说明线性方程解得准, 不代表载荷方向/厚度/边界正确
@@ -621,20 +681,8 @@ def solve(
         log(f"[Solver] max|reaction| = {np.max(np.abs(reactions)):.6e}")
 
     # ── 6. 条件数估计 (默认关闭, Bathe §8.2.6) ──
-    if check_condition and len(free_dofs) > 0:
-        K_aa = K[free_dofs][:, free_dofs].tocsr()
-        if K_aa.shape[0] > 20000:
-            log(f"[Solver] cond(K_aa): {K_aa.shape[0]} DOF — "
-                f"稀疏特征值估计可能较慢, 请耐心等待 ...")
-        cond_info = estimate_condition(K_aa)
-        if cond_info["status"] == "SINGULAR?":
-            # condition_number=None — 格式化 :.2e 会二次崩溃 (曾静默)
-            log(f"[Solver] cond(K_aa): [SINGULAR?] 特征值求解失败 — "
-                f"刚度矩阵疑似奇异: {cond_info.get('error', '')}")
-        elif cond_info["status"] != "SKIP":
-            log(f"[Solver] cond(K_aa) = {cond_info['condition_number']:.2e} "
-                f"-> ~{cond_info['digits_lost']:.1f} digits lost "
-                f"[{cond_info['status']}]")
+    cond_info = _condition_report(K, free_dofs, check_condition, log)
+    if cond_info is not None:
         result["condition_info"] = cond_info
 
     return result

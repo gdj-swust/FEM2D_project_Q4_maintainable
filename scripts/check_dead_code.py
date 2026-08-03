@@ -38,7 +38,7 @@ def collect_files(roots):
             continue
         if not os.path.isdir(root):
             # 不存在的路径曾静默产出"0 候选", 用户以为检查通过
-            # (审计 2026-08-03)
+            #
             print(f"  [WARN] 目录不存在: '{root}' — 已跳过")
             continue
         for dirpath, dirnames, filenames in os.walk(root):
@@ -461,7 +461,7 @@ def analyze(path, src, name_uses, attr_calls, from_imports,
 
     # 2. 模块级函数/类零引用 (全项目 Name 计数 + 模块精确 from-import; 保护跳过)
     #    模块限定调用 (import M; M.foo()) 只产生 attr_calls 不产生 Name 读取 —
-    #    曾漏计导致已使用的模块级函数被误报死代码 (审计 2026-08-03)
+    #    曾漏计导致已使用的模块级函数被误报死代码
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
             if node.name.startswith("__"):

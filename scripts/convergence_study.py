@@ -111,7 +111,7 @@ def convergence_rate(h, values, finest_value=None):
 
     自参考误差有系统性高估: err(h) = |v(h)−v_f|/|v_f| 的局部斜率在
     h=2h_f 处 = 2k 而非 k, 拟合斜率虚高 (实测 k=1 报 1.40, k=2 报 2.20),
-    WARN 分支永不触发 (审计 2026-08-03)。改用 Richardson 真参考消除偏差:
+    WARN 分支永不触发。改用 Richardson 真参考消除偏差:
       1. 最后 3 层相邻差比估计阶 p = log2(|Δ_{i-1}|/|Δ_i|) (均匀加密 2×)
       2. v_ref = v_f + (v_f − v_2f)/(2^p − 1)   (Richardson 外推)
       3. 拟合 err(v_i, v_ref) ~ C·h^k

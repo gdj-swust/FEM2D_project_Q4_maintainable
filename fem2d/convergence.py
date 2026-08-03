@@ -72,7 +72,7 @@ def _parabolic_shear_traction(y, H, t, P):
     This is the exact traction distribution on the right end face for the
     Timoshenko-Goodier cantilever.  P > 0 = downward total shear
     (约定与 _timoshenko_tip_deflection 统一; 曾注释声称 P<0 为向下,
-    实际 FE 载荷被施加成向上 +10000 N, 与理论方向相反 — 审计 2026-08)。
+    实际 FE 载荷被施加成向上 +10000 N, 与理论方向相反)。
     """
     I = t * H**3 / 12.0
     return -P / (2.0 * I) * (H**2 / 4.0 - y**2)
@@ -202,7 +202,7 @@ def run_cantilever_convergence(
 
     # 使用 Richardson 外推值作参考 (不是最细网格自参考 — 那会让 e_N≡0)。
     # 分母 1e-30 绝对地板曾使微尺度误差序列失真 (与 error_est 同族,
-    # 审计 2026-08-03) — 参考值恒非零 (Richardson), tiny 仅防除零。
+    # 参考值恒非零 (Richardson), tiny 仅防除零。
     uy_err = np.abs(uy_tip - uy_richardson) / (
         np.abs(uy_richardson) + np.finfo(float).tiny)
     s_ref_actual = s_max[-1] + (s_max[-1] - s_max[-2]) / (r**1 - 1) if len(h) >= 2 else s_max[-1]
@@ -211,8 +211,7 @@ def run_cantilever_convergence(
 
     # Per-level local convergence rates。
     # 曾 1e-15 地板 + 1e-14 门槛: 精细层误差 (<1e-14) 的速率被截成 0,
-    # 收敛序列 [1e-3,1e-6,1e-10,1e-15,1e-16] 的最细层报 k=0.00 (审计
-    # 2026-08-03)。仅当下一层误差恰为 0 (机器精度收敛) 才跳过。
+    # 收敛序列 [1e-3,1e-6,1e-10,1e-15,1e-16] 的最细层报 k=0.00 。仅当下一层误差恰为 0 (机器精度收敛) 才跳过。
     per_level = []
     for i in range(len(h) - 1):
         r_local = np.log(h[i] / h[i+1])
@@ -243,7 +242,7 @@ def run_cantilever_convergence(
         s_err_fit = s_err[n_skip:]
         eta_fit = eta_vals[n_skip:]
         log_h = np.log(h_fit)
-        # 地板只防 log(0) — 曾 1e-15 截平真实速率 (审计 2026-08-03)
+        # 地板只防 log(0) — 曾 1e-15 截平真实速率
         uy_rate = np.polyfit(log_h, np.log(np.maximum(
             uy_err_fit, np.finfo(float).tiny)), 1)[0]
         s_rate = np.polyfit(log_h, np.log(np.maximum(
@@ -262,7 +261,7 @@ def run_cantilever_convergence(
         print("\n  Richardson-extrapolated FE reference:")
         print(f"    uy_tip ~ {uy_richardson:.6e} m")
         # 曾标 "self-referenced vs finest" — 实际误差基于 Richardson 参考
-        # (2026-08-03 去除自参考偏差后) (审计 2026-08-03)
+        # (2026-08-03 去除自参考偏差后)
         print("\n  Per-level convergence rates (Richardson ref):")
         for i in range(len(per_level)):
             ku, ks, ke = per_level[i]

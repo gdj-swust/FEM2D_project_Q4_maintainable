@@ -57,7 +57,7 @@ class AnalysisConfig:
     strict_boundary: bool = False
 
     # ── 诊断 ──
-    debug: bool = False                  # 顶层异常显示完整 traceback (审计 2026-08)
+    debug: bool = False                  # 顶层异常显示完整 traceback
 
     # ── 输出 ──
     no_plot: bool = False                # 抑制交互云图窗口
@@ -158,14 +158,14 @@ class AnalysisConfig:
                 f"--band-max - --band-min ({self.band_max - self.band_min:.3g})")
         # 预计层数上限: np.arange 曾无界分配 (step=1e-12 时万亿层
         # 耗尽内存 / 1e-320 时除出 inf 再 int() 抛 OverflowError;
-        # 审计 2026-08)。正常报告几十到几百层足够。
+        # )。正常报告几十到几百层足够。
         ratio = (self.band_max - self.band_min) / self.band_step
         if not np.isfinite(ratio) or ratio > 10000:
             raise ValueError(
                 f"--band-step ({self.band_step:.3g}) 产生超过 10000 个"
                 "应力带, 超过上限 — 请增大 step")
         # 区间必须能被 step 整除: runner 生成等距 levels, 非整除组合
-        # 会在求解成功后的绘图阶段才抛 ValueError, 白跑 (审计 2026-08-03)
+        # 会在求解成功后的绘图阶段才抛 ValueError, 白跑
         if abs(ratio - round(ratio)) > 1e-9 * max(ratio, 1.0):
             raise ValueError(
                 f"(--band-max - --band-min) / --band-step = {ratio:.6g} "
@@ -182,7 +182,7 @@ class AnalysisConfig:
         """从 dict 构建 — 与 to_dict 互逆.
 
         未知键打印 WARN — 曾静默忽略, 配置拼写错误悄悄用默认值
-        (外部审查, 2026-08-03)。保留前向兼容 (不拒绝)。
+       。保留前向兼容 (不拒绝)。
         """
         valid = {f.name for f in fields(cls) if not f.name.startswith("_")}
         unknown = sorted(set(data) - valid)

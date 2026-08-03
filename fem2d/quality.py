@@ -68,7 +68,7 @@ def _compute(mesh):
         "area_min": np.abs(area).min(), "area_max": np.abs(area).max(),
         "area_mean": float(np.abs(area).mean()),
         # 1e-30 绝对地板曾使面积 ~1e-32 的微尺度网格 CV 静默失真
-        # (真实 27.2% 报成 0.4%, 审计 2026-08-03)
+        # (真实 27.2% 报成 0.4%)
         "area_cv": float(np.abs(area).std()/(np.abs(area).mean()+np.finfo(float).tiny)),
         "ratio_max": ratio.max(), "ratio_ok": r_ok,
         "ratio_warn": r_warn, "ratio_bad": r_bad,

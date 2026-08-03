@@ -76,7 +76,7 @@ for i, s in enumerate(segs):
 if fixed_count == 0:
     # 曾 WARN 后继续求解: 欠约束模型要么奇异矩阵报错 (引向错误方向),
     # 要么部分约束时静默给出错误结果 — 演示脚本是新手入口, 必须响亮
-    # 失败 (审计 2026-08-03)
+    # 失败
     print("  [FATAL] 未找到左边/底部边界 — 约束未施加. 可用分段:")
     for i, s in enumerate(segs):
         print(f"    [{i+1}] {s['type']} | {s.get('label', '')}")
@@ -92,7 +92,7 @@ for s in segs:
         break
 else:
     # 曾 WARN 后继续: 顶部载荷静默缺失, 求解成功但工况不是文档声明的
-    # 工况 (审计 2026-08-03)
+    # 工况
     print("  [FATAL] 未找到顶部边 — 面力未施加. 可用分段:")
     for i, s in enumerate(segs):
         print(f"    [{i+1}] {s['type']} | {s.get('label', '')}")
@@ -109,7 +109,7 @@ for s in segs:
         print(f"  压力 椭圆孔: p=1e6 Pa, 法向 ({len(ns)} 节点)")
 if not pressure_found:
     # 标签生成变化曾导致孔压静默消失, 求解成功但工况不是文档声明的
-    # 工况 (第五轮外部审查)
+    # 工况
     print("  [FATAL] 未找到椭圆孔/内孔边界 — 孔压未施加. 可用分段:")
     for i, s in enumerate(segs):
         print(f"    [{i+1}] {s['type']} | {s.get('label', '')}")

@@ -33,7 +33,7 @@ def _triangle_mesh():
 
 def test_fixed_dofs_boolean_mask_rejected():
     """布尔掩码必须拒绝 — 曾 asarray(float) 变成 [0,0,1,1] unique 折叠
-    成 {0,1}, 用户想约束的 DOF 被静默换成节点 0 (审计 2026-08-03)."""
+    成 {0,1}, 用户想约束的 DOF 被静默换成节点 0."""
     from fem2d import Mesh
     mask = np.array([False, False, True, True,
                      False, False, False, False])
@@ -86,7 +86,7 @@ def test_zero_force_still_not_recorded():
 
 def test_cst_scalar_stiffness_nano_element():
     """边长 1e-15 的合法纳米 CST 标量刚度不得拒绝 — 曾绝对 1e-30 面积
-    阈值 (面积 5e-31) 误判退化, 批量路径却正常 (审计 2026-08-03)."""
+    阈值 (面积 5e-31) 误判退化, 批量路径却正常."""
     from fem2d import Mesh
     s = 1e-15
     m = Mesh(nodes=np.array([[0, 0], [s, 0], [0, s]], dtype=float),
@@ -109,7 +109,7 @@ def test_cst_scalar_stiffness_truly_degenerate_still_rejected():
 def test_cst_scalar_stiffness_far_from_origin():
     """远离原点的合法单元不得误判退化 — 面积判据曾用坐标绝对值作尺度,
     1e7 偏移的单位三角形 (面积 0.5 < 判据 1.42) 被拒; 批量路径却正常
-    (审计 2026-08-03)."""
+   ."""
     from fem2d import Mesh
     off = 1e7
     m = Mesh(nodes=np.array([[off, off], [off + 1, off], [off, off + 1]]),
@@ -206,7 +206,7 @@ def _cantilever_eta_jump(tau):
 
 def test_error_est_amplitude_invariance():
     """Z2 eta 与牵引跳跃必须与应力幅值无关 — 曾 1e-30 地板使 eta 从
-    65.7% 静默跌到 1.0%, jump_rel 从 1.61 跌到 0.15 (审计 2026-08-03)."""
+    65.7% 静默跌到 1.0%, jump_rel 从 1.61 跌到 0.15."""
     eta_big, jr_big = _cantilever_eta_jump(1e5)
     eta_tiny, jr_tiny = _cantilever_eta_jump(1e-32)
     assert abs(eta_big - eta_tiny) < 1e-6, \
@@ -233,7 +233,7 @@ def test_traction_jump_sigma_ref_nonpositive_rejected():
 
 def test_band_range_divisible_required():
     """(max-min)/step 非整数必须配置期拒绝 — 曾求解成功后在绘图阶段
-    抛 ValueError (审计 2026-08-03)."""
+    抛 ValueError."""
     from fem2d.config import AnalysisConfig
     with pytest.raises(ValueError, match="非整数"):
         AnalysisConfig(band_min=0, band_max=10, band_step=4)
@@ -272,7 +272,7 @@ def test_spec_unknown_key_warns():
 def test_spr_representative_path_linear_exact_on_distorted_quads():
     """SPR (ne,ncomp) 路径在扭曲四边形上必须线性精确 — 曾把代表应力
     挂在多边形质心 (与自然中心差 ~3.7% 边长), 线性场恢复误差 5e-3;
-    节点均值位置恢复误差 ~2e-16 (审计 2026-08-03)."""
+    节点均值位置恢复误差 ~2e-16."""
     from fem2d import Mesh
     from fem2d.spr import spr_recovery
     nodes = np.array([
@@ -298,7 +298,7 @@ def test_spr_representative_path_linear_exact_on_distorted_quads():
 
 def test_nodal_l2_projection_orphan_node_clean_error():
     """孤立节点 → L2 投影必须报网格诊断, 不得透传 splu
-    'Factor is exactly singular' 裸异常 (审计 2026-08-03)."""
+    'Factor is exactly singular' 裸异常."""
     from fem2d import Mesh
     from fem2d.stress import nodal_L2_projection
     nodes = np.array([[0, 0], [1, 0], [1, 1], [0, 1], [5, 5]], dtype=float)
@@ -311,7 +311,7 @@ def test_nodal_l2_projection_orphan_node_clean_error():
 
 def test_boundary_self_intersection_scale_invariant():
     """微尺度边界不得误报自交 — 曾 1.0 下限容差 + 接缝微小闭合边
-    使每条边界都被判自交拒绝 (审计 2026-08-03)."""
+    使每条边界都被判自交拒绝."""
     from fem2d.boundary.topology import has_boundary_self_intersection
     t = np.linspace(0, 2 * np.pi, 129)
     for s in (1.0, 1e-6, 1e-16):
@@ -326,7 +326,7 @@ def test_boundary_self_intersection_scale_invariant():
 
 def test_curvature_closing_seam_no_spurious_breakpoint():
     """闭合链接缝不得产生伪曲率断点 — 曾闭合重复点/微小闭合边使
-    segment_by_curvature 在接缝误报 (审计 2026-08-03)."""
+    segment_by_curvature 在接缝误报."""
     from fem2d.boundary.geometry import curvature, segment_by_curvature
     t = np.linspace(0, 2 * np.pi, 41)
     coords = np.column_stack([np.cos(t), np.sin(t)])
@@ -338,7 +338,7 @@ def test_curvature_closing_seam_no_spurious_breakpoint():
 
 def test_curvature_micro_scale_not_all_zero():
     """微尺度模型曲率不得全零 — 曾绝对 1e-15 零长判据使曲率分段
-    静默失效 (审计 2026-08-03)."""
+    静默失效."""
     from fem2d.boundary.geometry import curvature
     s = 1e-16
     t = np.linspace(0, 2 * np.pi, 41)
@@ -350,7 +350,7 @@ def test_curvature_micro_scale_not_all_zero():
 def test_gouraud_micro_field_range_not_collapsed():
     """微尺度近常场 (span 1e-16 绝对单位) 的 gouraud 色标必须保持场
     尺度 — 曾绝对 1e-15 阈值 + 1.0 pad, 色标变 [1e-12, 1.0] 单色塌缩
-    (审计 2026-08-03)."""
+   ."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt

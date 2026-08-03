@@ -52,6 +52,21 @@ def _distorted_mesh(nx=6, ny=4, elem_type="CPS4", seed=7):
     return mesh
 
 
+def test_reference_assemblies_not_reexported_at_top_level():
+    """验证性参考装配只从 fem2d.assembly 导入 — 顶层导出已收敛.
+
+    生产路径 (assemble_sparse/assemble_sparse_vectorized) 仍保留顶层;
+    lil_reference/expand 为验证冗余, 实现保留在 assembly 模块.
+    """
+    import fem2d
+    assert not hasattr(fem2d, "assemble_lil_reference")
+    assert not hasattr(fem2d, "assemble_expand")
+    assert hasattr(fem2d, "assemble_sparse")
+    assert hasattr(fem2d, "assemble_sparse_vectorized")
+    from fem2d.assembly import assemble_expand, assemble_lil_reference
+    assert callable(assemble_expand) and callable(assemble_lil_reference)
+
+
 def test_cached_pattern_matches_reference_assemblies():
     for elem_type in ("CPS3", "CPS4", "CPS4I", "CPS4R"):
         mesh = _distorted_mesh(elem_type=elem_type)

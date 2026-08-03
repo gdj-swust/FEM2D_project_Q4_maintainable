@@ -2,7 +2,7 @@
 
 曾为模块级执行脚本 (无 def test_*), pytest 无法逐项统计,
 缺 gmsh 包时模块级 raise 还是 collection error — 改为标准测试函数
-(第四轮外部审查)。
+。
 """
 import math
 import os

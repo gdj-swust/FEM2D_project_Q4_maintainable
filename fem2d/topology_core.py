@@ -293,7 +293,7 @@ class ElementLocator:
         coord_ulp = 64.0 * np.finfo(float).eps * float(
             np.max(np.abs(self.nodes)))
         # 每轴 ULP — 零跨度轴 (共线/退化网格) 的 extent 曾回落绝对 1.0,
-        # 微尺度退化网格分桶数随 1.0 发散 (审计 2026-08-03)
+        # 微尺度退化网格分桶数随 1.0 发散
         axis_ulp = 64.0 * np.finfo(float).eps * np.max(
             np.abs(self.nodes), axis=0)
         scale = float(max(span.max(), coord_ulp))

@@ -47,7 +47,7 @@ def test_stress_recovery_methods_agree():
     """三种应力恢复方法对均匀应力场必须精确恢复.
 
     曾只断言 s_simple≈s_weighted (rtol=0.05): 两个恢复函数同时返回全零
-    也通过 — 空断言 (审计 2026-08-03). 直接传均匀单元应力场, 恢复值
+    也通过 — 空断言. 直接传均匀单元应力场, 恢复值
     必须等于该值 (机器精度).
     """
     from fem2d import Mesh
@@ -110,7 +110,7 @@ def test_multiple_load_types():
 def test_pressure_and_traction_same_edge():
     """同一边上压力和面力叠加 — 反力 = 两者合力.
 
-    曾只断言 isfinite(u): 载荷静默丢弃也通过 (审计 2026-08-03).
+    曾只断言 isfinite(u): 载荷静默丢弃也通过.
     压力 1e6 法向 (压向域内, t=-p·n = -1e6 x) ×1m×0.01 = -10000 N,
     面力 (5e5,0) ×1m×0.01 = +5000 N → ΣFx = -5000 → ΣRx = +5000.
     """
@@ -199,7 +199,7 @@ def test_isoband_constant_stress_single_band(capsys):
 
 def test_isoband_user_levels_out_of_range_warns(capsys):
     """用户指定的 levels 范围不完全覆盖应力值时应打印 warning 而非静默
-    clip — 曾只测"不崩溃", 超界静默无提示 (审计 2026-08-03)."""
+    clip — 曾只测"不崩溃", 超界静默无提示."""
     from fem2d import Mesh, solve
     import matplotlib; matplotlib.use('Agg')
     from fem2d.visualize import plot_contour

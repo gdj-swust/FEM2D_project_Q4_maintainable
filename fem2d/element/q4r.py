@@ -15,7 +15,7 @@ stabilization the correct physical units without adding bulk locking.
 This is a compact affine-projector Q4R formulation; it is not intended to
 reproduce a vendor-specific hourglass algorithm coefficient-for-coefficient.
 
-⚠️ 措辞澄清 (2026-08-03 外部审查): 以下限制是**本实现所用 compact
+⚠️ 措辞澄清: 以下限制是**本实现所用 compact
 hourglass 稳定公式的理论/数值特性**, 不是编码错误, 也不能推广为
 "所有 Q4R 单元都必然如此"。商业软件采用更复杂的沙漏控制 (增强
 假设应变/自适应缩放) 后适用范围可能更宽。Q4 (全积分) 与 Q4I
@@ -92,7 +92,7 @@ def _affine_complement(coords):
 
 def validate_hourglass_coefficient(value):
     """Q4R 沙漏系数必须为正且有限 — 负系数会生成负刚度/负稳定能,
-    曾只在标量路径校验, 批量路径 (生产路径) 静默接受 (审计 2026-08)."""
+    曾只在标量路径校验, 批量路径 (生产路径) 静默接受."""
     if not np.isfinite(value) or value <= 0.0:
         raise ValueError(
             f"Q4R hourglass coefficient must be positive and finite, "
@@ -258,7 +258,7 @@ class Q4RElement(Q4Element):
         )
         # K_hourglass is positive semidefinite by construction.  Remove only
         # signed round-off at its exact affine nullspace (e.g. -1e-29 J).
-        # 显著负能量 = 负系数或实现错误 — 曾无条件截零掩盖问题 (审计 2026-08)。
+        # 显著负能量 = 负系数或实现错误 — 曾无条件截零掩盖问题。
         neg_mask = energy < -1e-12 * max(
             float(np.max(np.abs(energy))), 1.0)
         if np.any(neg_mask):

@@ -178,7 +178,7 @@ for f in files:
                     f"from {target} import {a.name} (目标模块无此顶层定义)")
         elif isinstance(node, ast.Import):
             # 普通 import 曾完全不检查 — `import fem2d.xx` 断裂静默通过
-            # (审计 2026-08-03)
+            #
             for a in node.names:
                 target = a.name
                 if not target.startswith(("fem2d", "scripts")):

@@ -8,7 +8,7 @@ and Fast Robust Geometric Predicates" (1997)
   2. 若 |结果| > 误差界 → 符号可靠, 直接返回
   3. 否则用 float.as_integer_ratio 的任意精度整数运算精确判定符号
 
-历史 (高强度审计 2026-08-02):
+历史:
   - Dekker-Veltkamp expansion 需要 (2^27+1)·a 精确计算, IEEE 754
     double 下不满足 → 分裂只有 ε 级精度, 近共线输入符号错误率 ~11%
   - Windows math.fma 是软件模拟 (double-rounding), 同样不精确
@@ -17,7 +17,7 @@ and Fast Robust Geometric Predicates" (1997)
 
 返回值契约: Step B 返回 精确符号 × 浮点 det 量级 (det=0 时 ±_TINY)。
 调用方 (turning_angles 等) 用 atan2(cross, dot) 依赖量级 — 返回 ±1.0
-会把近共线的 0 转向角放大成 ±45° 误判尖角 (高强度审计 2026-08-02)。
+会把近共线的 0 转向角放大成 ±45° 误判尖角。
 """
 import math
 

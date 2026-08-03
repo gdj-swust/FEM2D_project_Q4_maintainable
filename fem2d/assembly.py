@@ -14,7 +14,7 @@ ASSEMBLY_BATCH_ELEMENTS = 50000
 
 def _check_local_symmetry(Ke, kernel_name):
     """scatter 前批量检查单元刚度对称性 — 全局 _check_symmetry 只抽样
-    256 行, 未抽中位置的非对称项会漏检 (第五轮外部审查: 构造 1000×1000
+    256 行, 未抽中位置的非对称项会漏检: 构造 1000×1000
     仅未抽中位置非对称的矩阵被放行)。Ke 是小型密集矩阵, 全量检查成本
     可忽略; 第三方非对称内核在这里被拒绝, 全局抽样检查保留兜底。
     """
@@ -35,14 +35,13 @@ def _check_symmetry(K):
     抽样核对若干行 — 组装错位 (索引 bug) 破坏所有行, 抽样足以捕获;
     全量 K−K.T 转置+相减的峰值内存翻倍在 10 万 DOF 级不可接受,
     0.5*(K+K.T) 对称化同样复制整个矩阵。Ke 级对称性由
-    _check_local_symmetry 在 scatter 前全量承担 (第五轮外部审查:
-    抽样会漏掉未抽中位置的非对称项), 此处保留为全局兜底。
+    _check_local_symmetry 在 scatter 前全量承担: 抽样会漏掉未抽中位置的非对称项), 此处保留为全局兜底。
     """
     n = K.shape[0]
     if K.nnz and not np.all(np.isfinite(K.data)):
         # 装配溢出 (微尺度几何 BᵀDB ~ E/L² 中间量 Inf) 曾透传到 splu,
         # 误报 "Factor is exactly singular"; NaN > tolerance 恒 False,
-        # 对称检查也放行 — 显式拒绝 (外部审查, 2026-08-03)
+        # 对称检查也放行 — 显式拒绝
         n_bad = int(np.count_nonzero(~np.isfinite(K.data)))
         raise ValueError(
             f"Assembled stiffness contains {n_bad} NaN/Inf entries — "
@@ -141,7 +140,7 @@ def assemble_sparse_vectorized(
 def assemble_lil_reference(mesh):
     """Teaching/reference assembly using scalar LIL accumulation.
 
-    ⚠️ 参考实现 (验证性冗余, 外部审查 2026-08-03): LIL 逐单元组装,
+    ⚠️ 参考实现 (验证性冗余): LIL 逐单元组装,
     O(n_elem × nldof²) 时间、逐单元 Python 循环 — 仅用于与稀疏/向量化
     路径交叉验证, 生产用 assemble_sparse / assemble_sparse_vectorized。
     保留在 fem2d 内供 tests/benchmark 直接 import (公共导出契约)。

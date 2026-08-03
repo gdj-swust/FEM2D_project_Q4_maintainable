@@ -1,8 +1,6 @@
 """FEM2D — extensible 2-D displacement finite-element solver."""
 
 from .assembly import (
-    assemble_expand,
-    assemble_lil_reference,
     assemble_sparse,
     assemble_sparse_vectorized,
 )
@@ -116,8 +114,6 @@ __all__ = [
     "SurfaceRegion",
     "apply_elimination",
     "apply_penalty",
-    "assemble_expand",
-    "assemble_lil_reference",
     "assemble_loads",
     "assemble_sparse",
     "assemble_sparse_vectorized",

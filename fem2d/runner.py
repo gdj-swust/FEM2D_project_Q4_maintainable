@@ -56,8 +56,9 @@ def _ensure_patch_test(elem_type="CPS3", plane="stress"):
     print(f"{'='*55}")
     r = run_patch_test(verbose=True, plane=plane, elem_type=elem_type)
     if not r["all_passed"]:
-        print("\n[FATAL] Patch test failed! Fix element code before solving.")
-        sys.exit(1)
+        raise CliError(
+            "[FATAL] Patch test failed! Fix element code before solving.",
+            exit_code=1)
 
 
 def _standalone_self_test() -> int:
@@ -117,7 +118,7 @@ def _build_mesh(config, resolved, coords, elems, mesh_elem_type,
     if config.elem_type:
         # --elem-type 覆写内核 (CST/Q4/Q4R/Q4I) 平面无关 — 曾按网格原码
         # 做冲突检查: CPS4 网格 + --elem-type Q4R --plane strain 误报
-        # "cannot use --plane strain" (审计 2026-08-03)
+        # "cannot use --plane strain"
         config.plane = _resolve_plane_type(mesh_elem_type, None)
         if requested_plane is not None:
             config.plane = requested_plane
@@ -132,11 +133,11 @@ def _build_mesh(config, resolved, coords, elems, mesh_elem_type,
         from .element import get_element_kernel
         expected_npe = get_element_kernel(config.elem_type).nodes_per_element
         if elems.shape[1] != expected_npe:
-            print(
+            raise CliError(
                 f"  [FATAL] --elem-type {config.elem_type} 需要 "
                 f"{expected_npe} 节点/单元, 但当前网格是 {elems.shape[1]} "
-                f"节点/单元 ({mesh_elem_type}) — 单元类型与网格拓扑不兼容。")
-            sys.exit(1)
+                f"节点/单元 ({mesh_elem_type}) — 单元类型与网格拓扑不兼容。",
+                exit_code=1)
         print(f"  [elem] override: {mesh_elem_type} → {config.elem_type}  "
               f"({len(coords)} nodes, {len(elems)} elems)")
 
@@ -193,8 +194,7 @@ def _build_boundary(mesh, config, region_registry, edge_labels, geo_path):
             strict=config.strict_boundary,
         )
     except ValueError as error:
-        print(f"  [FATAL] {error}")
-        sys.exit(1)
+        raise CliError(f"  [FATAL] {error}", exit_code=1) from error
     print_segments(segs)
 
     for issue in boundary_diagnostics.issues:
@@ -219,27 +219,27 @@ def _build_boundary(mesh, config, region_registry, edge_labels, geo_path):
                 "  [WARN] 未恢复任何 Physical Curve；当前仅使用网格"
                 "拓扑/几何识别。")
         if config.require_physical_groups:
-            print(
+            raise CliError(
                 "  [FATAL] --require-physical-groups 已启用，但没有可用的 "
-                "Physical Curve 语义。")
-            sys.exit(1)
+                "Physical Curve 语义。",
+                exit_code=1)
     if (
             config.require_physical_groups
             and boundary_diagnostics.dropped_physical_names):
         dropped = ", ".join(
             boundary_diagnostics.dropped_physical_names)
-        print(
+        raise CliError(
             "  [FATAL] --require-physical-groups 已启用，但以下 "
-            f"Physical Curve 未映射到外边界: {dropped}")
-        sys.exit(1)
+            f"Physical Curve 未映射到外边界: {dropped}",
+            exit_code=1)
     if config.require_physical_groups and boundary_diagnostics.errors:
         codes = ", ".join(sorted({
             issue.code for issue in boundary_diagnostics.errors
         }))
-        print(
+        raise CliError(
             "  [FATAL] --require-physical-groups 已启用，但边界语义存在"
-            f"不可安全使用的问题: {codes}")
-        sys.exit(1)
+            f"不可安全使用的问题: {codes}",
+            exit_code=1)
     return segs, boundary_diagnostics
 
 
@@ -261,7 +261,7 @@ def _print_boundaries(config, mesh, segs):
         print(f"  {i+1:<8} {s['type']:<8} {n_nodes:<6} {label:<20} {dim}")
     # 曾用 config.mesh: 交互选文件路径时 config.mesh 为 None →
     # os.path.basename(None) TypeError, 边界已列出却报错退出码 2
-    # (审计 2026-08-03)
+    #
     demo_fp = config.mesh or "模型文件"
     print("\n  用法示例:")
     print(f"    python run.py {os.path.basename(demo_fp)} --fix left --body 0,-78000")
@@ -284,8 +284,9 @@ def _run_solve_time_self_test(mesh, plane):
     vp_pass, vp_fail = run_plane_verification()
     print(f"  → {vp_pass} PASS, {vp_fail} FAIL")
     if vp_fail > 0:
-        print("[FATAL] Plane stress/strain verification failed!")
-        sys.exit(1)
+        raise CliError(
+            "[FATAL] Plane stress/strain verification failed!",
+            exit_code=1)
 
 
 def _analyze(mesh, config):
@@ -326,8 +327,7 @@ def _plot(config, mesh, result, scale):
     if all(specified):
         # config.validate 已保证 (max-min)/step 在 1e-9 相对容差内整除 —
         # 但浮点除法 (如 0.3/0.1=2.9999999999999996) 常落在整数下方,
-        # floor 截断会少一个带、末带静默加宽一倍 (审计 2026-08-03:
-        # 0..0.3@0.1 曾生成 [0, 0.1, 0.3], 末带宽 0.2)。
+        # floor 截断会少一个带、末带静默加宽一倍 (0..0.3@0.1 曾生成 [0, 0.1, 0.3], 末带宽 0.2)。
         ratio = (config.band_max - config.band_min) / config.band_step
         n_bands = int(round(ratio))
         isoband_levels = (
@@ -339,7 +339,7 @@ def _plot(config, mesh, result, scale):
         if (config.band_tag is not None
                 and config.band_tag != "vm"):
             # levels 只应用于匹配 band_tag 的图; 初始/保存图恒为 vm —
-            # 曾日志宣称生效而图中未应用 (审计 2026-08-03)
+            # 曾日志宣称生效而图中未应用
             print(f"  [WARN] --band-tag {config.band_tag} ≠ vm — "
                   "初始/保存图为 vm, 固定带宽不应用; "
                   "交互模式下切换到对应 tag 后才生效")
@@ -349,14 +349,14 @@ def _plot(config, mesh, result, scale):
     sigma_ref = config.jump_ref
     # 曾内联重写批处理判定 (漏 save/no_plot): 交互终端 + CLI BC 参数时,
     # 输入提示已跳过 (is_batch_mode=True) 但 interactive_plot 仍在
-    # input() 阻塞挂起 — 统一用唯一批处理判定 (审计 2026-08-03)
+    # input() 阻塞挂起 — 统一用唯一批处理判定
     batch_mode = is_batch_mode(config) or bool(config.save) or config.no_plot
     plot_three(mesh, result, tag='vm', scale=scale,
                save=config.save if config.save else None,
                isoband_levels=isoband_levels, isoband_tag=isoband_tag,
                sigma_ref=sigma_ref)
     # 成功文案在绘图之后打印 — 曾先打印"云图已生成"再实际绘制,
-    # --save 失败时输出"成功后再失败"的矛盾信息 (审计 2026-08-03)
+    # --save 失败时输出"成功后再失败"的矛盾信息
     print("\n  [Plot] 云图已生成 — 可用按键:")
     for key, (_, label) in sorted(PLOTS.items(), key=lambda x: int(x[0])):
         print(f"     [{key:>2}] {label}")
@@ -368,7 +368,7 @@ def _plot(config, mesh, result, scale):
                              sigma_ref=sigma_ref)
         except EOFError:
             # 终端关闭 stdin 时 input() 抛 EOFError — 求解已成功, 曾报
-            # [ERROR] 退出码 2 误导脚本调用 (run_demo 已优雅处理) (审计 2026-08-03)
+            # [ERROR] 退出码 2 误导脚本调用 (run_demo 已优雅处理)
             print("\n[INFO] 非交互环境 (stdin 不可用), 跳过交互绘图")
 
 
@@ -498,7 +498,7 @@ def main(argv=None) -> int:
     # ── 独立自检: Patch Test + plane stress/strain 材料验证 ──
     if config.self_test and not config.mesh:
         # 曾静默吞掉非法 BC 参数 (--force garbage!! 与 --self-test 组合
-        # 退出 0, 载荷从未生效也无提示) — 审计 2026-08-03
+        # 退出 0, 载荷从未生效也无提示)
         for _key, _val in (("--fix", config.fix), ("--fix-ux", config.fix_ux),
                            ("--fix-uy", config.fix_uy),
                            ("--traction", config.traction),
@@ -522,7 +522,7 @@ def main(argv=None) -> int:
     except Exception as error:
         # 输入解析阶段的任意异常 (含 gmsh 依赖缺失时的 ImportError/OSError
         # 与 Gmsh API 抛出的裸 Exception) — 友好报错而非整段 traceback;
-        # --debug 恢复完整 traceback (审计 2026-08)。
+        # --debug 恢复完整 traceback。
         if getattr(config, "debug", False):
             raise
         print(f"[ERROR] {error}")
@@ -548,7 +548,7 @@ def main(argv=None) -> int:
         print(error)
         return error.exit_code
     except Exception as error:
-        # 顶层异常边界 (审计 2026-08): 求解/模型/绘图阶段的任意领域异常
+        # 顶层异常边界: 求解/模型/绘图阶段的任意领域异常
         # (含 Gmsh 依赖缺失时的 ImportError/OSError) 输出错误摘要而非整段
         # Python traceback; --debug 恢复完整 traceback 便于诊断。
         if getattr(config, "debug", False):

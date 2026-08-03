@@ -100,7 +100,7 @@ def test_z2_s_scale_includes_quadrature_stress():
 def test_bc_rejects_nan_stiffness():
     """K 含 NaN/Inf 必须显式拒绝 — 曾: 全约束分支返回 NaN 反力;
     有自由 DOF 时透传到 SuperLU 报误导性 'Factor is exactly
-    singular' (第四轮外部审查)."""
+    singular'."""
     from fem2d.bc import apply_elimination, apply_penalty
     K_nan = csr_matrix(np.array([[np.nan, 0.0], [0.0, 1.0]]))
     F = np.zeros(2)
@@ -114,7 +114,7 @@ def test_bc_rejects_nan_stiffness():
 
 def test_solve_all_fixed_nan_stiffness_rejected():
     """全约束 + K 含 NaN 必须拒绝 — 曾 dirichlet_only 分支直接
-    K·u−F 算反力, K 含 NaN 时静默返回 NaN 反力 (第四轮外部审查)."""
+    K·u−F 算反力, K 含 NaN 时静默返回 NaN 反力."""
     from fem2d.solver import _solve_linear_system
     K = csr_matrix(np.eye(8))
     K[0, 0] = np.nan
@@ -127,7 +127,7 @@ def test_solve_all_fixed_nan_stiffness_rejected():
 
 def test_apply_penalty_rejects_nan_force():
     """apply_penalty 必须拒绝含 NaN 的 F — 曾接受并返回 NaN 载荷
-    (第四轮外部审查)."""
+   ."""
     from fem2d.bc import apply_penalty
     K = csr_matrix(np.eye(6) * 1e6)
     with pytest.raises(ValueError, match="NaN/Inf"):
@@ -137,7 +137,7 @@ def test_apply_penalty_rejects_nan_force():
 def test_penalty_strength_minimum_1e4():
     """显式 penalty 必须 ≥ 1e4·max|K_ii| — 曾只要求 ≥ max|K_ii|:
     实测 K=1e12, penalty=1e12 时 u=0.5 (约束误差 50%) 被接受
-    (第四轮外部审查). 1e4 倍时约束误差 < 0.01%."""
+   . 1e4 倍时约束误差 < 0.01%."""
     from fem2d.bc import apply_penalty
     from scipy.sparse.linalg import spsolve
     K = csr_matrix(np.eye(6) * 1e12)

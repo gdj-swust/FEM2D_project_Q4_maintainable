@@ -312,7 +312,7 @@ def _traction_jump_arrays(mesh, elem_stress, sigma_ref=None):
         stress[:, 0]**2 + stress[:, 1]**2 + 2.0 * stress[:, 2]**2)
     if sigma_ref is not None:
         # 显式参考应力必须正且有限 — 曾 max(...,1e-30) 覆盖用户传入的
-        # 微尺度参考值, jump_rel 随应力幅值静默衰减 (审计 2026-08-03)
+        # 微尺度参考值, jump_rel 随应力幅值静默衰减
         if not (np.isfinite(sigma_ref) and sigma_ref > 0.0):
             raise ValueError(
                 f"sigma_ref must be finite and positive, got {sigma_ref!r}")
@@ -368,7 +368,7 @@ def _estimate_stress_jumps(mesh, result):
         return {"avg_jump": 0.0, "rms_jump": 0.0, "max_jump": 0.0, "n_jumps": 0}
 
     # 边长加权 RMS — 网格加密后边长变化时比普通平均更公平
-    # 分母 1e-30 绝对地板与 eta/contrib 同族 (审计 2026-08-03 已清除)
+    # 分母 1e-30 绝对地板与 eta/contrib 同族 (已清除)
     # — 改为仅防零总长除零
     j_rms = np.sqrt(
         np.sum(edge_lengths_arr * jump_vals**2)
@@ -480,7 +480,7 @@ def element_refinement_indicator(mesh, result):
         edge_vec = nodes[nj] - nodes[ni]
         h_e = float(np.linalg.norm(edge_vec))
         # 退化边判据与 loads_core 的坐标 ULP 相对判据统一 —
-        # 绝对 1e-30 与文件内已确立的约定不一致 (审计 2026-08-03)
+        # 绝对 1e-30 与文件内已确立的约定不一致
         if h_e <= 64.0 * np.finfo(float).eps * max(
                 float(np.max(np.abs(nodes))), np.finfo(float).tiny):
             continue
@@ -540,7 +540,7 @@ def element_refinement_indicator(mesh, result):
         edge_vec = nodes[b] - nodes[a]
         h_e = float(np.linalg.norm(edge_vec))
         # 退化边判据与 loads_core 的坐标 ULP 相对判据统一 —
-        # 绝对 1e-30 与文件内已确立的约定不一致 (审计 2026-08-03)
+        # 绝对 1e-30 与文件内已确立的约定不一致
         if h_e <= 64.0 * np.finfo(float).eps * max(
                 float(np.max(np.abs(nodes))), np.finfo(float).tiny):
             continue

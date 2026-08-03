@@ -35,14 +35,14 @@ FEM2D_project_Q4_maintainable/
 │   ├── runner.py             # 主流程编排（5 阶段）
 │   ├── wizard.py / errors.py # 交互向导 / 领域异常（CliError）
 ├── scripts/                  # geo_spec / gmsh_runner / convergence 等工具
-├── tests/                    # 45 测试文件 + conftest.py，504 测试
+├── tests/                    # 48 测试文件 + conftest.py，569 测试
 ├── models/                   # 算例库（21 .geo + 7 .spec + 5 .txt）
 └── tools/                    # gmsh-4.15.2 Windows 可执行文件（打包内含，GPL v2+）
 ```
 
 ## 当前状态
 
-- **测试**：`python -m pytest` = **504 collected → 502 passed + 2 skipped**（本机实测，2026-08-03；2 skip = 缺捆绑 gmsh 可执行文件，PATH 仅 .bat 包装被拒）；无 Gmsh 依赖环境 = **483 collected → 474 passed + 13 skipped**（4 个模块级 skip 不计入 collected，0 error）
+- **测试**：`python -m pytest` 本机实测 **569 collected → 0 失败**（2026-08-03 包 5 后；无 Gmsh 依赖环境的 collected/skip 数会减少，以 `pytest --collect-only` 实测为准）
 - **静态**：ruff（E/F）干净、mypy 48 文件干净、死代码 0 候选
 - **数值验证**：四单元族 patch test 机器精度、Kirsch K_t≈3.04、Cook 膜收敛、悬臂梁 vs Timoshenko、微尺度全链路
 - **版本**：9.17.0；文档：README / CHANGELOG / NEXT_SESSION_HANDOFF.md（含历轮修复记录）
@@ -53,8 +53,8 @@ FEM2D_project_Q4_maintainable/
 1. Q4R 为专用单元：沙漏稳定公式在长宽比 ≥50 / 单排细长网格不可靠（已警告 + 文档化）
 2. 真实 Gmsh 端到端 CI 未搭建（本机已覆盖真实链路）
 3. mypy 仅基础检查（--strict 有 1215 存量，缺类型标注为主）；ruff 只开 E/F
-4. 高复杂度函数尚存（如 `_point_in_loop` 27 / `solver.solve` 22），是下一轮重构重点
-5. 2026-08-03 起有 git 基线（此前无历史）；历史注释含"审计/审查"叙事（最终版将清理）
+4. 高复杂度函数已拆分（`_point_in_loop` 27→11 / `solver.solve` 22→5，包 5 完成，行为锁定测试在场）
+5. 2026-08-03 起有 git 基线（此前无历史）；历史注释的"审计/审查"叙事已清理（包 5），迁移至 CHANGELOG
 
 ## 上手
 

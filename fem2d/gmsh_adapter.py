@@ -58,7 +58,7 @@ def _safe_geo_source(geo_path):
     """Strip standalone scripted Save + Mesh commands in a copy.
 
     消毒规则唯一实现在 scripts.gmsh_runner.sanitize_geo_source —
-    曾双实现分叉 (审计 2026-08-03)。延迟 import: 避免包初始化顺序
+    曾双实现分叉。延迟 import: 避免包初始化顺序
     依赖项目根在 sys.path。
     """
     from scripts.gmsh_runner import sanitize_geo_source
@@ -262,7 +262,7 @@ def _extract_regions(
             if not node_ids and coords is not None and entity_tags:
                 # 域内 Point 的构造节点被 _extract_mesh 剔除 (不在任何 2D
                 # 单元内, 如孔心) — node_ids 曾恒空且无提示, 与边界点
-                # 行为不一致; 回退最近位移节点并警告 (审计 2026-08-03)。
+                # 行为不一致; 回退最近位移节点并警告。
                 # 域外 Physical Point 曾同样回退到最近节点, 集中力施加到
                 # 完全错误的位置 — 域外必须拒绝 (node_ids 留空, 下游报错)
                 try:
@@ -409,10 +409,10 @@ def _extract_regions(
         ))
 
     # 物理组/CAD 成功提取才宣称边界完整 — 曾无条件 True, MSH 2.x / 裸
-    # 网格输入下完整性校验误判为覆盖完整, 掩盖静默降级 (审计 2026-08-03)。
+    # 网格输入下完整性校验误判为覆盖完整, 掩盖静默降级。
     # 只用 registry.curves 会把"只有 Physical Surface、无 Physical Curve
     # 组"的常见用法静默降级: cad_curves 已由 getEntities(2)+getBoundary
-    # 完整枚举, 完整性校验却被关掉 (审计 2026-08-03 补)
+    # 完整枚举, 完整性校验却被关掉 
     registry.cad_boundary_complete = bool(
         registry.curves or registry.cad_curves)
     return registry
@@ -424,7 +424,7 @@ def normalize_element_orientation(nodes, elements):
     Gmsh 单元方向跟随 Curve Loop 方向 — 顺时针几何 (cook_membrane /
     curved_beam 等随包 demo) 产出全部 CW 单元, 被校验误报"退化"、
     求解误报"inverted"。边界映射用无序边键, 节点顺序反转不影响
-    (高强度审计 2026-08-02)。三角/四边均用前 3 节点有向面积判向
+   。三角/四边均用前 3 节点有向面积判向
     (凸四边形两三角同号)。返回新数组, 不原地修改。
     """
     elements = np.asarray(elements)
@@ -530,7 +530,7 @@ def _extract_mesh(gmsh_module, require_quads=False, plane_type="stress"):
     # Z 检查: 仅验证活动2D节点的z坐标, 而非所有构造节点
     # 容差 = 相对模型跨度 ×1e-8 + 坐标 ULP 兜底 — 固定 1.0 下限在微米/纳米
     # 模型 (跨度 1e-9) 下放大到 1e-8, 翘曲 5 倍于模型的非平面网格被
-    # 静默投影 (审计 2026-08)。
+    # 静默投影。
     if z_vals is not None and len(active_old_indices) > 0:
         active_z = z_vals[active_old_indices]
         z_range = float(np.ptp(active_z))
@@ -601,7 +601,7 @@ def import_msh(msh_path, *, require_quads=False, plane_type="stress"):
             # MSH 2.x 的 $Elements physical 字段与 $PhysicalNames 标签自相
             # 矛盾, 4.1 缺 $Entities 段同样使 gmsh 读回后物理组为空 —
             # 文件里声明的边名 (bottom/左端 等) 全部不可用, 曾静默丢失
-            # (审计 2026-08-03)
+            #
             print(
                 "  [WARN] .msh 声明了 $PhysicalNames 但 gmsh 未能恢复物理组 — "
                 "边名 BC (--fix 左端 / --traction bottom:...) 将不可用。"

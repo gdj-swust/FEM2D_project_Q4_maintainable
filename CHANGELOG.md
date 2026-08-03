@@ -3,6 +3,55 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
+## 包 5 — 架构与可维护性 (2026-08-03, 未发布, 版本号未变)
+
+### 1. 库层 sys.exit() 迁移 (完成)
+
+fem2d/ 包内最后的进程退出全部收敛为领域异常, CLI 层统一转换退出码:
+
+- `runner.py` 7 处 → `CliError(exit_code=1)`: patch test 失败 /
+  `--elem-type` 与网格不兼容 / 边界构建 ValueError /
+  `--require-physical-groups` 三处 (无语义 / 未映射 / 存在错误) /
+  平面材料验证失败。原 `[FATAL]` 文案进异常消息, main 捕获后输出不变。
+- `wizard.py` 5 处 → `CliError`: EOF 干净退出 ×2 与取消建模 →
+  `exit_code=0` (优雅中止非错误); 文件不存在 / 几何生成失败 → `exit_code=1`。
+- `verification.py` 的 `__main__` 守卫保留 — 脚本独立运行语义, 与
+  `scripts/` 工具一致。
+- **退出码矩阵 (正常 0 / 用户错误 1 / 内部错误 2) 逐场景锁定**:
+  `tests/test_exit_code_matrix.py` (10 场景) 在迁移前以 SystemExit 形态
+  验证通过, 迁移后以 CliError→int 形态验证通过 — 进程退出码逐位不变。
+- 嵌入方 (Jupyter/测试) 现在得到可捕获的 `CliError` 而非进程自杀。
+
+### 2. 高复杂度函数重构 (行为逐字节锁定)
+
+- `boundary/topology._point_in_loop` 环复杂度 **27 → 11**:
+  拆为 5 个纯函数 (顶点去重 / 环边构建 / 边界命中 / 一般位置射线奇偶计数 /
+  半开穿越兜底)。锁定测试含冻结的旧实现快照 + 固定/随机输入电池
+  (`tests/test_refactor_point_in_loop_lock.py`), 覆盖边界/顶点/退化/
+  微尺度 1e-150 / 大坐标 1e12。
+- `solver.solve` 环复杂度 **22 → 5**: 拆出 6 个阶段函数
+  (`_partition_dofs` / `_check_rigid_body_constraints` /
+  `_q4r_aspect_ratio_warning` / `_compute_element_response` /
+  `_hourglass_monitor` / `_condition_report`), solve 成为纯编排。
+  锁定测试: 9 模型 (CST/Q4/Q4R × 消去/罚函数/CG/条件数 × 微尺度 1e-150 ×
+  大坐标 1e12 × 纯 Dirichlet) 的 stdout 日志序列 + 完整 result dict
+  逐值金标准 (`tests/test_solve_refactor_lock.py`) — 重构后逐位复现。
+
+### 3. 参考装配导出收敛
+
+`assemble_lil_reference` / `assemble_expand` (验证性冗余, 实现保留)
+从 `fem2d/__init__` 顶层导出移除, 改从 `fem2d.assembly` 导入; 顶层保留
+生产路径 `assemble_sparse` / `assemble_sparse_vectorized`。全项目引用
+(含测试) 已核对, `test_assembly_recovery_solver.py` 新增
+`test_reference_assemblies_not_reexported_at_top_level` 判别性测试。
+
+### 4. 历史审计注释清理
+
+~130 处 "审计 2026-08-03" / "第X轮外部审查" / "高强度审计 2026-08-02"
+类叙事标记从代码注释与 docstring 移除 (对应修复历史均已在 9.17.0 小节),
+注释只保留"为什么这样写"。逐文件 AST 逻辑签名校验 (注释/docstring 外
+任何节点变化即拒绝), 未改任何逻辑; 全量测试 569 全绿。
+
 ## 包 6 — 测试与文档 (2026-08-03, 未发布, 版本号未变)
 
 - **测试数实测修正**: 504 collected → 502 passed + 2 skipped (本机); 无 Gmsh
