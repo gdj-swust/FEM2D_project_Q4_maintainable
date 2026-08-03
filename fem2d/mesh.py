@@ -6,6 +6,7 @@
   DOF 编号:  节点 i → [2i (x), 2i+1 (y)]  (Bathe Eq 4.18)
 """
 import copy
+import numbers
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -504,17 +505,10 @@ class Mesh:
                 raise ValueError(
                     f"concentrated_forces[{i}] is missing key(s) "
                     f"{sorted(missing)} — full record: {cf!r}")
-            # 构造函数直传的载荷不走 add_* API — 节点号必须整数。
-            # 整数值浮点 (2.0) 规范化**写回** — 曾只转局部变量验证,
-            # 原始记录仍是 2.0, 组装时 IndexError
-            nid = cf["node"]
-            if isinstance(nid, bool) or not isinstance(nid, (int, np.integer)):
-                if isinstance(nid, float) and float(nid).is_integer():
-                    nid = int(nid)
-                else:
-                    raise TypeError(
-                        f"concentrated force node must be an integer, "
-                        f"got {nid!r}")
+            # 构造函数直传的载荷不走 add_* API — 节点号校验收敛到
+            # _validate_node_id (整数值浮点 2.0 规范化**写回** — 曾只转
+            # 局部变量验证, 原始记录仍是 2.0, 组装时 IndexError)
+            nid = self._validate_node_id(cf["node"])
             if not (0 <= nid < self._nodes.shape[0]):
                 raise ValueError(
                     f"concentrated force node {nid} out of range "
@@ -545,15 +539,8 @@ class Mesh:
                     f"surface_tractions[{i}]['nodes'] must be exactly a "
                     f"node pair (ni, nj), got: {nodes_pair!r}")
             ni, nj = nodes_pair
-            for n in (ni, nj):
-                if isinstance(n, bool) or not isinstance(n, (int, np.integer)):
-                    if isinstance(n, float) and float(n).is_integer():
-                        n = int(n)
-                    else:
-                        raise TypeError(
-                            f"surface traction node must be an integer, "
-                            f"got {n!r}")
-            ni, nj = int(ni), int(nj)
+            ni = self._validate_node_id(ni)
+            nj = self._validate_node_id(nj)
             if not (0 <= ni < self._nodes.shape[0]
                     and 0 <= nj < self._nodes.shape[0]):
                 raise ValueError(
@@ -727,6 +714,11 @@ class Mesh:
 
         Bathe Eq 4.43: 非零位移 U_b 需修正右端项 R_a' = R_a - K_ab·U_b
         """
+        if isinstance(node_list, (int, np.integer)):
+            # 单个节点号曾 for-in 迭代裸 TypeError — 明示期望列表
+            raise ValueError(
+                f"fix_nodes_func: node_list 必须是节点索引列表, "
+                f"got 单个节点 {node_list!r}")
         for nid in node_list:
             nid = self._validate_node_id(nid)
             # 范围检查先于索引 — 越界曾裸 IndexError (与 fix_node 一致)
@@ -737,9 +729,22 @@ class Mesh:
             x, y = self.nodes[nid]
             if callable(func):
                 result = func(x, y)
-                if isinstance(result, (int, float)):
+                if isinstance(result, numbers.Real):
                     ux = uy = result
                 else:
+                    try:
+                        result = tuple(result)
+                    except TypeError:
+                        raise TypeError(
+                            f"fix_nodes_func: func({x:.4g},{y:.4g}) 返回值"
+                            f"类型非法: {result!r} — 需要 (ux, uy) 二元组"
+                            "或标量") from None
+                    if len(result) != 2:
+                        # 多余分量曾静默忽略 — 载荷静默错误
+                        raise ValueError(
+                            f"fix_nodes_func: func({x:.4g},{y:.4g}) 返回 "
+                            f"{len(result)} 个分量 — 需要 (ux, uy) "
+                            "恰好 2 个")
                     ux, uy = result[0], result[1]
             else:
                 ux = uy = func
