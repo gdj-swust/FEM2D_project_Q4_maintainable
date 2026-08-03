@@ -12,6 +12,8 @@ from .geometry import (
     piecewise_smooth_breakpoints,
     segment_by_curvature,
     sharp_corner_indices,
+    _axis_ratio,
+    _semi_axis_label,
 )
 from .predicates import orient2d
 from .segment_utils import mesh_scale
@@ -208,7 +210,6 @@ def _closed_conic_segment(nodes, loop, loop_id):
     }
     # 轴比/标签判据统一到 geometry._axis_ratio (曾复制旧 1e-30 分母逻辑,
     # 微尺度椭圆误判整圆)
-    from .geometry import _axis_ratio, _semi_axis_label
     _ratio, is_circle = _axis_ratio(semi_major, semi_minor)
     if is_circle:
         radius = 0.5 * (semi_major + semi_minor)

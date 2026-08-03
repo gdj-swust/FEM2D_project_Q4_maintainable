@@ -91,8 +91,9 @@ class PhysicalEdgeMapper:
         if not geo_path:
             return aliases
 
-        # Local import avoids coupling preprocess module initialization to the
-        # boundary package.
+        # 保持局部 import: build_boundary_segments 的 geo 别名解析是测试
+        # patch 点 (patch("fem2d.preprocess.read_geo_groups") 注入) —
+        # 模块级直接名绑定会复制旧函数引用, 使 patch 失效
         from ..preprocess import read_geo_groups
 
         for name, entity_ids in (

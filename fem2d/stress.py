@@ -6,6 +6,8 @@ utilities use generic connectivity and kernel-provided integration rules.
 import numpy as np
 from scipy.sparse import coo_matrix
 
+from .spr import spr_recovery
+
 
 def compute_stresses(mesh, u):
     """Return representative element stress, strain and von Mises arrays."""
@@ -284,7 +286,6 @@ def stress_at_point(mesh, result, x, y, mode="element"):
     conn = mesh.elements[eid]
     if mode == "recovered":
         if "_spr_cache" not in result:
-            from .spr import spr_recovery
             result["_spr_cache"] = spr_recovery(
                 mesh, result.get("stress_qp", result["stress"]))
         shape = mesh.element_kernel.shape_values_at(

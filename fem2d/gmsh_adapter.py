@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import importlib
 import os
+import sys
 import tempfile
 from dataclasses import dataclass
 
 import numpy as np
 
+from .mesh import Mesh
 from .regions import (
     CadCurveRegion,
     CurveRegion,
@@ -22,6 +24,7 @@ from .regions import (
     SurfaceRegion,
     canonical_edge,
 )
+from .stress import point_in_element
 
 
 class GmshUnavailableError(RuntimeError):
@@ -123,7 +126,6 @@ def read_geo_curve_groups(geo_path, *, gmsh_module=None):
             for name, entities in groups.items()
         }
     except Exception as error:
-        import sys
         print(
             f"[Gmsh] CAD group read failed ({type(error).__name__}: {error}); "
             "falling back to .geo regex parser.", file=sys.stderr)
@@ -296,8 +298,6 @@ def _extract_regions(
                         # 缺口点在 AABB 内但不属于任何单元 — 曾回退到
                         # 最近节点, 集中力施加到材料域外位置 (静默错)
                         if elements is not None:
-                            from .mesh import Mesh
-                            from .stress import point_in_element
                             tmp = Mesh(
                                 coords_arr, elements, elem_type=elem_type)
                             if point_in_element(

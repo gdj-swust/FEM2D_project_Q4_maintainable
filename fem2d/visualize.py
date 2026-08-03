@@ -7,7 +7,10 @@ from matplotlib.collections import LineCollection, PolyCollection
 from matplotlib.colors import BoundaryNorm, LinearSegmentedColormap, ListedColormap, Normalize
 
 from .element import evaluate_vector_field
-from .error_est import compute_traction_jumps  # 唯一公式, 供 visualize 和 error_est 共用
+from .error_est import (  # 唯一公式, 供 visualize 和 error_est 共用
+    compute_traction_jumps,
+    element_refinement_indicator,
+)
 from .material import von_mises
 from .spr import spr_recovery
 from .stress import nodal_L2_projection, nodal_simple, nodal_weighted, principal_stresses
@@ -715,7 +718,6 @@ def plot_three(mesh, result, tag='vm', scale=100, save=None,
                           sigma_ref=sigma_ref)
         axes[1,0].set_title('Interelement Traction Jump\n(full stress tensor)', fontsize=10)
 
-        from .error_est import element_refinement_indicator
         eta_K = element_refinement_indicator(mesh, result)
         plot_contour(mesh, eta_K, r'$\eta_K$ (residual-based estimator) [Pa·m]',
                     ax=axes[1,1], shading='flat', location='element')

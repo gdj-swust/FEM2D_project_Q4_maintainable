@@ -17,6 +17,7 @@ from typing import Optional
 
 import numpy as np
 
+from .cli import is_batch_mode
 from .config import AnalysisConfig
 from .errors import CliError
 
@@ -298,7 +299,6 @@ def _resolve_geo_lc(fp, config, ask):
     """
     with open(fp, 'r', encoding='utf-8', errors='ignore') as f:
         geo_text = f.read()
-    from .cli import is_batch_mode
     batch = is_batch_mode(config)
     m = re.search(_LC_PATTERN, geo_text, re.MULTILINE)
     if m is None:

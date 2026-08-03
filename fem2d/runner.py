@@ -27,14 +27,17 @@ from .boundary import (
 )
 from .cli import _resolve_plane_type, ask, is_batch_mode, parse_args
 from .config import AnalysisConfig
+from .element import get_element_kernel
 from .errors import CliError
 from .input_source import resolve_input_file
 from .preprocess import merge_geo_fem_config, parse_geo_fem_config, validate_mesh
+from .quality import report as report_mesh_quality
 from .reporting import (
     bending_heuristics,
     displacement_scale,
     print_result_summary,
 )
+from .wizard import run_wizard
 
 # ── 分片检验 (每个 Python 进程跑一次) ──
 _patch_checked = set()
@@ -130,7 +133,6 @@ def _build_mesh(config, resolved, coords, elems, mesh_elem_type,
     # ── 单元类型覆盖预检 (在 Mesh 构造器抛裸 ValueError 前给友好信息) ──
     elem_type = config.elem_type if config.elem_type else mesh_elem_type
     if config.elem_type:
-        from .element import get_element_kernel
         expected_npe = get_element_kernel(config.elem_type).nodes_per_element
         if elems.shape[1] != expected_npe:
             raise CliError(
@@ -291,7 +293,6 @@ def _run_solve_time_self_test(mesh, plane):
 
 def _analyze(mesh, config):
     """网格质量 → 求解 → 误差估计. 返回 ``(result, z2, q)``."""
-    from .quality import report as report_mesh_quality
     q = report_mesh_quality(mesh)
     result = solve(
         mesh,
@@ -344,6 +345,7 @@ def _plot(config, mesh, result, scale):
                   "初始/保存图为 vm, 固定带宽不应用; "
                   "交互模式下切换到对应 tag 后才生效")
 
+    # matplotlib 导入成本 ~1-2s — --no-plot 路径不付此成本, 保持局部
     from .visualize import PLOTS, interactive_plot, plot_three
     isoband_tag = config.band_tag if config.band_tag else 'vm'
     sigma_ref = config.jump_ref
@@ -400,7 +402,6 @@ def _resolve_input(config):
     fp = config.mesh
     if not fp:
         if config.wizard or sys.stdin.isatty():
-            from .wizard import run_wizard
             fp = run_wizard(config)
         else:
             fp = ask("  输入文件 (.geo / .txt / .msh / .spec): ")

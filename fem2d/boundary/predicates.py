@@ -20,6 +20,7 @@ and Fast Robust Geometric Predicates" (1997)
 会把近共线的 0 转向角放大成 ±45° 误判尖角。
 """
 import math
+import warnings
 
 _TINY = 5e-324  # float64 最小次正规 — 精确 det≠0 但浮点 det=0 时的量级占位
 
@@ -39,7 +40,6 @@ def orient2d(ax, ay, bx, by, cx, cy):
     """
     # Step A: 普通浮点估算 + 误差界 (极端尺度乘积上溢/下溢产生
     # inf/NaN 是预期的 — NaN 比较为 False, 自动落入 Step B 精确路径)
-    import warnings
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         det = (ax - cx) * (by - cy) - (ay - cy) * (bx - cx)

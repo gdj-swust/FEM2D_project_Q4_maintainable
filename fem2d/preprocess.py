@@ -4,6 +4,9 @@ import re
 
 import numpy as np
 
+from .element import get_element_kernel
+from .gmsh_adapter import read_geo_curve_groups
+
 
 def read_geo_groups(geo_path, *, gmsh_module=None):
     """从 Gmsh .geo 文件提取 Physical Curve 名称和最终 entity ID.
@@ -15,7 +18,6 @@ def read_geo_groups(geo_path, *, gmsh_module=None):
     """
     if not os.path.isfile(geo_path):
         return None
-    from .gmsh_adapter import read_geo_curve_groups
     api_groups = read_geo_curve_groups(
         geo_path, gmsh_module=gmsh_module)
     if api_groups:
@@ -223,7 +225,6 @@ def _coordinate_ulp(nodes):
 def _validate_element_type(elements, elem_type):
     """elem_type 声明的节点数与网格拓扑一致, 不一致则致命."""
     if elem_type is not None:
-        from .element import get_element_kernel
         expected = get_element_kernel(elem_type).nodes_per_element
         if elements.shape[1] != expected:
             raise MeshValidationError(

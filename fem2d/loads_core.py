@@ -12,6 +12,9 @@ Bathe Eq 4.17: R = R_c + R_s + R_b
     CST/Q4 形函数沿直边为线性，面力常数/线性时 2 点即可精确;
     保留 3 点为兼容将来二次面力分布 (如流体压力沿高度线性变化)。
 """
+import ast
+import math as _m
+
 import numpy as np
 
 from .element import evaluate_vector_field
@@ -259,9 +262,6 @@ def _compile_expr(expr: str):
     仅允许: 变量 x/y, 数字, 算术运算, sin/cos/exp/sqrt/log/abs/tan/pi.
     禁止属性访问、下标、lambda、列表推导、任意函数调用。
     """
-    import ast
-    import math as _m
-
     _FUNCS = {
         'sin': _m.sin, 'cos': _m.cos, 'tan': _m.tan,
         'exp': _m.exp, 'sqrt': _m.sqrt, 'log': _m.log,
