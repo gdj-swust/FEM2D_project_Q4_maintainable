@@ -15,9 +15,13 @@ tools/
 # 运行产物
 models/tmp*
 models/*.msh
+scripts/convergence/*.msh
 
 # 派发任务文件 (任务完成后是派发记录, 不入库)
 PROMPT*.md
 
 # 分包 worktree (git 已管理, 避免 add -A 误跟踪)
 wt_*/
+
+# 生成 PDF (tex 源已在库)
+architecture.pdf
