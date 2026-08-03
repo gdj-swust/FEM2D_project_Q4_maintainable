@@ -3,6 +3,31 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
+## 9.19.0 (2026-08-03) — API 契约清账 + 复查轮 + 终轮回归对照
+
+### 契约清账 (3 轮)
+- **docs/api_contract.md**: 全部公共 API 的契约表 (误用清单 → 应有错误行为 → 状态),
+  69+ 项 ✅ 全部带判别性测试锁定; 0.5 验收回填 + M 节复查记录 + M2 测试映射表
+- **校验收敛**: 节点索引/DOF/载荷形状/标量有限性收敛为共享 helper
+  (fem2d/loads_schema.py 纯搬移, bc_apply 直引), 错误消息统一
+  "函数名: 参数名=值 — 原因, 期望"
+- **import 去环**: 11 处函数内 import 提升到模块顶 (5 处保留并记录原因)
+- **四入口端到端测试**: .txt/.geo/.spec/.msh 各覆盖 (spec 回归教训落地)
+- **fuzz**: 单 API 1000 轮 + 组合 60 组, 抓到 estimate_condition 拼错 method
+  静默降级 (修: 白名单 ValueError) 等真缺口
+
+### 终轮数值漂移对照
+- **10 组合 (5 模型 × 消去/罚函数) 早期 baseline vs main 逐位一致 (相对差 0.0)** —
+  全部修复未引入任何数值漂移 (docs/regression_comparison.md)
+- 教学用户 8 场景报错质量评分, 修 .txt BC 误写键 (响亮错误 + 边键写法提示)
+
+### 修复汇总 (本版本)
+estimate_condition 静默降级/K 非数组 / element_refinement_indicator 缺键 KeyError /
+assemble_loads n_dof 裸 IndexError / .txt BC 误写键 / .spec 扩展名重算回归 (9.18.1)
+
+### 测试
+569 → **676 passed** (+107 判别性测试, 0 失败)。全量 pytest + 双冒烟 + ruff + 死代码全绿。
+
 ## 9.18.0 (2026-08-03) — 第十轮外部审查修复
 
 ### P1
