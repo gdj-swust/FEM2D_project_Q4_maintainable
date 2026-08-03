@@ -26,7 +26,6 @@ from fem2d.stress import (
     nodal_L2_projection,
     nodal_average,
     nodal_simple,
-    nodal_weighted,
     point_in_element,
     principal_stresses,
     stress_at_point,
