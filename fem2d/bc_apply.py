@@ -13,6 +13,7 @@ from .cli import ask, is_batch_mode
 from .errors import CliError
 from .input_source import physical_point_from_geo
 from .loads import make_edge_profile_func, parse_traction, parse_vec2
+from .mesh import _check_load_pair
 from .regions import canonical_edge, ordered_edge_chains
 
 
@@ -340,7 +341,10 @@ def _apply_body_force(config, mesh, batch_mode):
         body_input = ""  # 批处理: 无体力
     else:
         body_input = ask("  bx,by (回车跳过): ")
-    if body_input and body_input != '0':
+    # 跳过判据只对字符串做真值/等值判断 — ndarray/tuple 的 bool() 或
+    # 与 '0' 比较会抛裸 ValueError (ambiguous truth value)
+    zero_str = isinstance(body_input, str) and body_input.strip() in ("", "0")
+    if body_input is not None and not zero_str:
         if callable(body_input):
             # 整体 callable: 契约 body(x, y) → (bx, by), 与 mesh.body_force
             # 的 callable 语义一致, 直接透传。不在此预调用 — 节点形心对
@@ -353,10 +357,11 @@ def _apply_body_force(config, mesh, batch_mode):
             # 分量独立求值, callable 时打印层显示 f(x,y)
             return (lambda x, y: body_input(x, y)[0],
                     lambda x, y: body_input(x, y)[1])
-        if isinstance(body_input, (tuple, list)):
+        if isinstance(body_input, (tuple, list, np.ndarray)):
             # 程序化配置 (AnalysisConfig(body=(bx, by))) — 字段声明为
-            # object, 曾仅按字符串处理而抛 TypeError
-            bfx, bfy = body_input[0], body_input[1]
+            # object, 曾仅按字符串处理而抛 TypeError; 形状校验收敛到
+            # 载荷 schema (mesh._check_load_pair) — 1/3 分量、NaN 带字段名
+            bfx, bfy = _check_load_pair(body_input, "body")
         else:
             # 单个数字补逗号 (如 "0" "78000" 等交互快捷输入)
             if ',' not in body_input:
