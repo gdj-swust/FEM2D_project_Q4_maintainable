@@ -64,6 +64,8 @@ class AnalysisConfig:
     # ── 输出 ──
     no_plot: bool = False                # 抑制交互云图窗口
     save: str = ""                       # 保存云图到文件
+    output_dir: str = ""                 # 生成物输出目录 (.msh/临时文件);
+                                         # 空 = 输入文件同目录 (默认行为)
     list_boundaries: bool = False        # 仅列出边界后退出
     band_min: float = None               # Isoband 固定带宽下限
     band_max: float = None               # Isoband 固定带宽上限
@@ -101,6 +103,10 @@ class AnalysisConfig:
         if self.plane not in (None, "stress", "strain"):
             raise ValueError(
                 f"plane='{self.plane}' — 仅支持 stress 或 strain")
+        if not isinstance(self.output_dir, str):
+            # from_dict 可注入任意类型 — 非字符串路径在 os.path 处裸抛
+            raise ValueError(
+                f"output_dir={self.output_dir!r} — 必须为目录路径字符串")
 
     def _validate_body(self):
         if self.body is None or isinstance(self.body, str) \

@@ -173,6 +173,35 @@ CW 单元拒绝（方向校验）、Jacobian 质量检查、L2/SPR/Z2、
 - `--self-test`：不带网格时运行四单元 patch test + 平面应力/应变解析对照。
 - `--list-boundaries`：仅列出边界分段后退出。
 
+## 输出位置 (--output-dir)
+
+默认情况下，`.geo`/`.txt` 生成的 `.msh` 与临时文件都写在**输入文件同目录**。
+把模型放在 U 盘、共享目录或只读示例目录时，写入会失败。此时用
+`--output-dir` 把生成物（`.msh`、临时几何/网格文件）指到可写目录：
+
+```bash
+python run.py models/plate_q4.geo --fix left --traction right:1e6,0 \
+  --output-dir ./work
+# .msh 写入 ./work/plate_q4.msh; 源 .geo 不被修改, 输入目录无残留
+```
+
+规则：
+
+- `--output-dir` 不存在时自动创建；创建/写入失败（只读目录、权限拒绝）
+  会给出清晰错误 "输出目录不可写 — 请用 --output-dir 指定可写位置"，
+  不会以裸 traceback 结尾。
+- `.txt` 输入的生成 `.geo` 也写入输出目录（与 `.msh` 同 basename）；
+  `@FEM` 注解与源 `.geo` 路径语义不变。
+- `.spec` 中可用 `output_dir = <路径>` 键（相对路径以 `.spec` 所在目录
+  为基准）；CLI `--output-dir` 显式参数优先。
+- 只对 `.geo`/`.txt` 网格生成生效；直接输入 `.msh` 时忽略并 WARN。
+- 含相对 `Include` 的 `.geo`，其临时几何副本必须留在源目录（相对引用
+  以所在目录解析），`--output-dir` 此时只作用于 `.msh` 输出并给出提示。
+
+**同名 .msh 覆盖保护**：目标 `.msh` 已存在时，本程序生成的（带内部
+标记）照常覆盖；无法确认来源的（手写/其他工具产物）不会覆盖 —
+WARN 提示后改写到临时文件，原文件保留，需要时用 `--output-dir` 换目录。
+
 ## Boundary detection policy
 
 从 `.geo` 运行时，CLI 主路径是**原生 Gmsh 可执行文件**（子进程方式，

@@ -40,6 +40,83 @@ class ResolvedInput:
     geo_config_applied: bool = False     # @FEM 配置是否已在输入解析阶段合并
 
 
+# ═══════════════════════════════════════════════════════════
+# 输出位置策略 (--output-dir): 生成物 (.msh/临时文件) 写入处
+# ═══════════════════════════════════════════════════════════
+
+def artifact_dir(source_path, output_dir):
+    """生成物目录: --output-dir 指定时 = 该目录 (不存在则创建); 否则 =
+    输入文件所在目录 (默认行为不变)."""
+    if output_dir:
+        return os.path.abspath(output_dir)
+    return os.path.dirname(os.path.abspath(source_path))
+
+
+def _artifact_path(source_path, output_dir, extension):
+    """生成物路径: 与输入同 basename, 换扩展名 — 无 --output-dir 时位于
+    输入同目录 (历史行为); 指定时位于输出目录."""
+    stem = os.path.splitext(os.path.basename(source_path))[0]
+    if output_dir:
+        return os.path.join(os.path.abspath(output_dir), stem + extension)
+    return os.path.splitext(os.path.abspath(source_path))[0] + extension
+
+
+def ensure_artifact_dir_writable(artifact_dir):
+    """写入前预检: 目录可创建且可写.
+
+    只读输入/输出目录 (U 盘/共享示例/已安装数据目录) 在 gmsh 子进程
+    启动前给出清晰错误 — 曾 PermissionError 冒泡成裸异常, 用户看不出
+    是输出位置问题. 探测文件立即删除, 不留残留.
+    """
+    try:
+        os.makedirs(artifact_dir, exist_ok=True)
+    except OSError as error:
+        raise CliError(
+            f"[ERROR] 输出目录不可写: {artifact_dir} — 请用 --output-dir "
+            "指定可写位置", exit_code=1) from error
+    probe = os.path.join(
+        artifact_dir, f".fem2d-write-probe-{os.getpid()}")
+    try:
+        with open(probe, "w", encoding="utf-8") as stream:
+            stream.write("")
+        os.unlink(probe)
+    except OSError as error:
+        try:
+            os.unlink(probe)
+        except OSError:
+            pass
+        raise CliError(
+            f"[ERROR] 输出目录不可写: {artifact_dir} — 请用 --output-dir "
+            "指定可写位置", exit_code=1) from error
+
+
+def _protect_foreign_msh(final_path):
+    """同名 .msh 已存在时的覆盖保护.
+
+    本程序生成物 (带 $Comments 标记) → 覆盖 (当前行为); 来源不明 →
+    WARN + 改写到临时副本, 原文件不碰 — 与 resolve_txt 的手写 .geo
+    保护同模式 (曾静默覆盖未知来源 .msh 导致用户产物丢失). 返回实际
+    发布路径.
+    """
+    if not os.path.isfile(final_path):
+        return final_path
+    from scripts.gmsh_runner import is_program_generated_msh
+    if is_program_generated_msh(final_path):
+        return final_path
+    fd, tmp = tempfile.mkstemp(
+        prefix=".fem2d-msh-", suffix=".msh",
+        dir=os.path.dirname(final_path))
+    os.close(fd)
+    print(
+        f"  [WARN] {final_path} 已存在且不是本程序生成的 .msh — 不覆盖; "
+        f"本次网格写入 {tmp}")
+    print(
+        "        该 .msh 若是手写/其他工具产物请保留; 如需覆盖请手动"
+        "处理或改用 --output-dir")
+    atexit.register(lambda p=tmp: os.path.isfile(p) and os.unlink(p))
+    return tmp
+
+
 def generate_geo_with_topology(
         geo_path, *, quad=False, output_path=None, plane_type="stress"):
     """Mesh one ``.geo`` file with the native Gmsh executable.
@@ -88,7 +165,15 @@ def generate_geo_with_topology(
         final_path = os.path.abspath(
             output_path or os.path.splitext(os.path.abspath(geo_path))[0]
             + ".msh")
-        os.replace(generated, final_path)
+        final_path = _protect_foreign_msh(final_path)
+        try:
+            os.replace(generated, final_path)
+        except OSError as error:
+            # 只读目录/目标文件被占用 — 预检探测不到"目标文件只读"这一
+            # Windows 场景, 发布时刻再转换一次 (裸 OSError 会掩盖根因)
+            raise CliError(
+                f"[ERROR] 输出目录不可写: {os.path.dirname(final_path)} — "
+                "请用 --output-dir 指定可写位置", exit_code=1) from error
         print(f"[Gmsh] published -> {final_path}")
         return final_path, gmsh_import
     raise last_error  # 理论不可达 (循环内已 raise)
@@ -205,6 +290,7 @@ _SPEC_FIELD_MAP = {
     "fix_ux": "fix_ux", "fix_uy": "fix_uy",
     "traction": "traction", "force": "force",
     "save": "save", "no_plot": "no_plot",
+    "output_dir": "output_dir",
 }
 _SPEC_FLOAT_FIELDS = {"lc", "E", "nu", "t"}
 
@@ -262,6 +348,14 @@ def resolve_spec_overrides(fp, config):
                 raise ValueError(
                     f".spec 键 '{spec_key}' 值 {value!r} 无法解析为数值 — "
                     f"期望十进制数字 (如 2.1e11), 不能用逗号作小数分隔符") from None
+        elif field == "output_dir":
+            # 相对路径以 .spec 所在目录为基准 (与 mesh 键一致) — 否则
+            # 依赖进程 CWD, 同一 .spec 不同目录运行行为不同
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    f".spec 键 'output_dir' 值 {value!r} — 必须为非空目录路径")
+            if not os.path.isabs(value):
+                value = os.path.join(spec_dir, value)
         setattr(config, field, value)
 
     for spec_key in spec:
@@ -290,12 +384,14 @@ _LC_PATTERN = r'^\s*lc\s*=\s*([\d.eE+\-]+)'
 _LC_SUB_PATTERN = r'^\s*lc\s*=\s*[\d.eE+\-]+'
 
 
-def _resolve_geo_lc(fp, config, ask):
+def _resolve_geo_lc(fp, config, ask, temp_dir=None):
     """.geo 网格密度: CLI --lc > 交互输入 > .geo 当前值.
 
     修改 lc 时创建临时副本 (不碰原始 .geo), 退出时自动清理。
     找不到 lc 变量时明确警告 (曾静默无效); 替换未生效时不创建副本。
     返回 (实际使用的 .geo 路径, 临时副本路径或 None)。
+    ``temp_dir`` (--output-dir): 临时副本位置 — 含相对 Include 的 .geo
+    由 temp_copy_dir 强制留在源目录。
     """
     with open(fp, 'r', encoding='utf-8', errors='ignore') as f:
         geo_text = f.read()
@@ -336,10 +432,19 @@ def _resolve_geo_lc(fp, config, ask):
     if new_text == geo_text:
         # 理论上不可达 (模式已匹配), 防御: 不创建无意义的副本
         return fp, None
-    orig_dir = os.path.dirname(os.path.abspath(fp))
-    tmp = tempfile.NamedTemporaryFile(
-        mode='w', suffix='.geo', delete=False,
-        encoding='utf-8', dir=orig_dir)
+    from scripts.gmsh_runner import temp_copy_dir
+    copy_dir = temp_copy_dir(fp, temp_dir)
+    try:
+        tmp = tempfile.NamedTemporaryFile(
+            mode='w', suffix='.geo', delete=False,
+            encoding='utf-8', dir=copy_dir)
+    except OSError as error:
+        # 含相对 Include 的 .geo 临时副本必须留在源目录 — 只读源目录
+        # 下无法创建时给针对性提示 (泛化"输出目录不可写"会误导)
+        raise CliError(
+            f"[ERROR] 无法在 {copy_dir} 创建 lc 临时副本: {error} — "
+            "含相对 Include 的 .geo 临时副本必须留在源目录; 请改用 "
+            "绝对 Include 路径", exit_code=1) from error
     tmp.write(new_text)
     tmp.close()
     atexit.register(lambda p=tmp.name: os.path.isfile(p) and os.unlink(p))
@@ -357,6 +462,11 @@ def resolve_geo(fp, config, ask=None):
         ask = default_ask
     source_geo_path = os.path.abspath(fp)
 
+    # 输出位置预检: 只读输入/输出目录在 gmsh 子进程启动前给出清晰错误
+    # (裸 PermissionError 曾冒泡, 用户看不出是输出位置问题)
+    out_dir = artifact_dir(fp, config.output_dir)
+    ensure_artifact_dir_writable(out_dir)
+
     # 先解析 @FEM: 注解 — 合并逻辑与 runner._apply_geo_fem_config 共用
     # (CLI 显式参数 > 配置; 配置内部 traction+pressure 可并存)。
     # 在此一次性合并并打印 [auto]; runner 对 .geo/.txt 输入不再二次解析
@@ -364,8 +474,8 @@ def resolve_geo(fp, config, ask=None):
     from fem2d.preprocess import merge_geo_fem_config, parse_geo_fem_config
     merge_geo_fem_config(parse_geo_fem_config(fp), config, verbose=True)
 
-    gmsh_geo, temp_geo = _resolve_geo_lc(fp, config, ask)
-    target_msh = os.path.splitext(os.path.abspath(fp))[0] + '.msh'
+    gmsh_geo, temp_geo = _resolve_geo_lc(fp, config, ask, temp_dir=out_dir)
+    target_msh = _artifact_path(fp, config.output_dir, '.msh')
     msh = None
     try:
         msh, gmsh_import = generate_geo_with_topology(
@@ -388,9 +498,15 @@ def resolve_geo(fp, config, ask=None):
 
 
 def resolve_txt(fp, config):
-    """.txt 中文描述 → .geo → Gmsh 生成 .msh. 返回 (msh, gmsh_import, geo 路径)."""
+    """.txt 中文描述 → .geo → Gmsh 生成 .msh. 返回 (msh, gmsh_import, geo 路径).
+
+    --output-dir 指定时 .geo/.msh 与临时文件全部写入该目录 (只读输入
+    目录可完整工作); 未指定时保持历史行为 (输入同目录).
+    """
     from scripts.geo_spec import generate_geo, parse_spec
-    geo_p = os.path.splitext(fp)[0] + '.geo'
+    out_dir = artifact_dir(fp, config.output_dir)
+    ensure_artifact_dir_writable(out_dir)
+    geo_p = _artifact_path(fp, config.output_dir, '.geo')
     if os.path.isfile(geo_p):
         is_generated = False
         try:
@@ -426,7 +542,7 @@ def resolve_txt(fp, config):
     msh, gmsh_import = generate_geo_with_topology(
         geo_p,
         quad=config.quad,
-        output_path=os.path.splitext(os.path.abspath(fp))[0] + '.msh',
+        output_path=_artifact_path(fp, config.output_dir, '.msh'),
         plane_type=config.plane or 'stress',
     )
     if not msh:
@@ -488,6 +604,9 @@ def resolve_input_file(fp, config, ask=None):
             # 重组只在 .geo/.txt 生成阶段生效, 直接输入 .msh 时静默
             # 忽略会误导用户
             print("  [WARN] --quad 只对 .geo/.txt 网格生成生效, "
+                  ".msh 直接输入时忽略")
+        if config.output_dir:
+            print("  [WARN] --output-dir 只对 .geo/.txt 网格生成生效, "
                   ".msh 直接输入时忽略")
         if config.lc is not None:
             print("  [WARN] --lc 只对 .geo 输入生效, .msh 直接输入时忽略 "
