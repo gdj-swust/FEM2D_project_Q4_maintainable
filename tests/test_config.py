@@ -458,3 +458,34 @@ def test_resolve_txt_preserves_handwritten_geo(tmp_path, monkeypatch):
     tmp_text = (tmp_path / tmp_geos[0]).read_text(encoding="utf-8")
     assert "@FEM:fix=" in tmp_text, "临时副本缺 @FEM 注解"
     shutil.rmtree(tmp_path)
+
+
+# ── 6. .spec 端到端解析 (扩展名重算) ──
+
+def test_spec_input_end_to_end_resolve(tmp_path, monkeypatch):
+    """.spec → .geo 解析后扩展名必须重算 — 曾沿用 .spec 导致全部
+    .spec 输入落入"不支持的输入" (扩展名大小写重构引入, 现有测试只
+    覆盖 resolve_spec_overrides 未捕获)."""
+    import contextlib
+    import io
+
+    from fem2d.input_source import resolve_input_file
+    geo = tmp_path / "m.geo"
+    geo.write_text("lc = 0.1;\n", encoding="utf-8")
+    spec = tmp_path / "m.spec"
+    spec.write_text(f"mesh = {geo.name}\n", encoding="utf-8")
+
+    called = {}
+
+    def fake_resolve_geo(fp, config, ask=None):
+        called["fp"] = fp
+        return str(tmp_path / "m.msh"), None, None
+
+    monkeypatch.setattr("fem2d.input_source.resolve_geo", fake_resolve_geo)
+    config = AnalysisConfig()
+    with contextlib.redirect_stdout(io.StringIO()):
+        resolved = resolve_input_file(str(spec), config)
+    # 关键: .spec 解析后的路径必须进入 .geo 分支 (曾 ext 未重算 → else)
+    assert called.get("fp", "").endswith(".geo"), \
+        f".spec 解析后未进入 .geo 分支: {called.get('fp')!r}"
+    assert str(resolved.fp).endswith("m.msh")

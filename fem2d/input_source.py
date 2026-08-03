@@ -451,6 +451,9 @@ def resolve_input_file(fp, config, ask=None):
     # .spec → 解析后取 mesh 路径 (相对路径以 .spec 所在目录为基准)
     if ext == '.spec':
         fp = resolve_spec_overrides(fp, config)
+        # 重新计算扩展名 — 曾沿用 .spec, 后续分支全部失配落入
+        # "不支持的输入" (所有 .spec 输入失效, 集成测试缺失未捕获)
+        ext = os.path.splitext(fp)[1].lower()
 
     # .inp (Abaqus) 输入口已移除 (2026-08) — 网格唯一来源为 .geo/.txt/.msh
     if ext == '.inp':
