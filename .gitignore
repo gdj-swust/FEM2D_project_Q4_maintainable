@@ -11,3 +11,6 @@ tools/
 
 # 运行产物
 models/tmp*
+
+# 分包 worktree (git 已管理, 避免 add -A 误跟踪)
+wt_*/
