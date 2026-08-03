@@ -59,6 +59,30 @@ def test_von_mises_nan_rejected():
         von_mises(np.array([[np.nan, 1.0, 0.0]]))
 
 
+def test_refinement_indicator_missing_key_has_context():
+    # 复查轮审计发现: element_refinement_indicator 缺 'stress' 键曾冒裸 KeyError
+    from fem2d.error_est import element_refinement_indicator
+    m = _mesh()
+    with pytest.raises(ValueError, match="'stress'"):
+        element_refinement_indicator(m, {"u": np.zeros(8)})
+    with pytest.raises(ValueError, match="result"):
+        element_refinement_indicator(m, None)
+
+
+def test_assemble_loads_wrong_ndof_has_context():
+    # 复查轮审计: n_dof 不匹配曾裸 IndexError (集中力越界写)
+    from fem2d import assemble_loads
+    m = _mesh()
+    m.add_force(2, 1.0, 0.0)
+    with pytest.raises(ValueError, match="n_dof=3"):
+        assemble_loads(m, 3)
+    with pytest.raises(ValueError, match="n_dof=16"):
+        assemble_loads(m, 16)
+    # 正确 n_dof 不受影响
+    f = assemble_loads(m, 8)
+    assert f[2 * 2] == 1.0
+
+
 # ── K4: estimate_error result 契约 ──
 
 def test_estimate_missing_key_has_context():

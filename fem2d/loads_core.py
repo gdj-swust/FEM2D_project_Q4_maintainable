@@ -45,6 +45,11 @@ def assemble(mesh, n_dof):
     F : (n_dof,) ndarray — 等效节点力向量
     """
     mesh.build_connectivity()
+    if n_dof != 2 * mesh.n_nodes:
+        # 独立调用传错 n_dof 曾裸 IndexError (集中力越界写) — 契约前置
+        raise ValueError(
+            f"assemble_loads: n_dof={n_dof} 必须等于 2×节点数 "
+            f"({2 * mesh.n_nodes})")
     F = np.zeros(n_dof)
 
     # (1) 集中力

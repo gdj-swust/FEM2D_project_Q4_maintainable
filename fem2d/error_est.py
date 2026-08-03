@@ -417,6 +417,11 @@ def element_refinement_indicator(mesh, result):
     (项丢失); 对数空间两项均不发生, 最终开方乘回。
     """
     mesh.build_connectivity()
+    if not isinstance(result, dict) or "stress" not in result:
+        # 与 estimate 同契约 — 非 solve() 输出曾冒裸 KeyError
+        raise ValueError(
+            "element_refinement_indicator: result 必须是 solve() 的返回 "
+            f"dict 且含 'stress' 键, got {type(result).__name__}")
     stress = result["stress"]
     n_elem = mesh.n_elements
     nodes = mesh.nodes
