@@ -16,7 +16,6 @@ from .checks import (
     require_dof_index_array,
     require_finite_positive,
     require_finite_scalar,
-    require_nu_valid,
 )
 # 载荷 schema (形状/分量校验) 唯一实现在 loads_schema.py — 契约清账阶段 3
 # 从本模块纯搬移 (行为不变), bc_apply 等调用方直接引用该模块
