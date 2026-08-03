@@ -89,18 +89,20 @@ FEM2D_project_Q4/
 │   ├── geo_spec.py        # 中文文本描述 → .geo 生成
 │   ├── check_dead_code.py / check_imports_deep.py   # 自制静态检查器
 │   └── convergence_study.py / test_complex.py / make_test_spec.sh
-├── tests/                 # 44 个文件, 496 测试 (2026-08-03 全绿)
+├── tests/                 # 45 个测试文件 + conftest.py, 504 测试
+│                         #   (本机 502 passed + 2 skipped / 无 Gmsh 474 + 13)
 ├── models/                # 算例库: 21 .geo + 7 .spec + 5 .txt
 └── tools/gmsh-4.15.2-Windows64/gmsh.exe   # Gmsh 可执行文件 (捆绑)
 ```
 
-> 打包规则: 分发包**捆绑** `tools/gmsh-4.15.2-Windows64/gmsh.exe` (Windows
-> 64 位; 约 86 MB)。Gmsh 4.15.2 以 GPL v2+ (https://gmsh.info) 分发 —
-> 重新分发时请保留其许可证与版权声明; 其余平台可删该目录并自行放置
-> gmsh 或设 `GMSH_PATH`。SHA256:
-> `317c43391e5b1fab3a1dd80dc5245dad6e2d087910f4b8ebc234bd6d4b8f41a1`。
-> 不含缓存/测试产物/`*.egg-info`。`pip install -e .[dev]` 后 `fem2d`
-> console script 可用。
+> 打包惯例 (用户约定): `FEM2D_project_Q4_YYYYMMDD_HHMMSS_maintainable.zip`
+> 放 Downloads, **不含 `tools/`** (gmsh 可执行文件另行分发)、缓存、测试
+> 产物与 `*.egg-info`。若分发包选择捆绑
+> `tools/gmsh-4.15.2-Windows64/gmsh.exe` (Windows 64 位; 约 86 MB), 须
+> 保留其 GPL v2+ 许可证与版权声明 (https://gmsh.info); 其余平台可删该
+> 目录并自行放置 gmsh 或设 `GMSH_PATH` (SHA256:
+> `317c43391e5b1fab3a1dd80dc5245dad6e2d087910f4b8ebc234bd6d4b8f41a1`)。
+> `pip install -e .[dev]` 后 `fem2d` console script 可用。
 
 ## Implementation map
 

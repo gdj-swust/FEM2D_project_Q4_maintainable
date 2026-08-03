@@ -2,7 +2,9 @@
 
 > 前一个会话 (2026-08-03 凌晨) 因 token 预算中断; 本会话按待办 P0-0~P0-3 + 输入端整改 +
 > 两轮 8 agent 全链路复扫 + 第三轮真实路径验证 完成整修。
-> **验收第一件事**: 跑 `python -m pytest` (应 **496 passed**) → 跑 `python run.py models/test_spec.txt --no-plot` 冒烟
+> **验收第一件事**: 跑 `python -m pytest` (本机实测 **504 collected → 502 passed + 2 skipped**;
+> 缺捆绑 gmsh 的环境 **483 collected → 474 passed + 13 skipped** — 以 `pytest --collect-only` 实测为准)
+> → 跑 `python run.py models/test_spec.txt --no-plot` 冒烟
 > → 试交互向导: `python run.py` (终端)。
 
 ---
@@ -10,8 +12,9 @@
 ## 一、项目概况
 
 - **路径**: `C:\Users\35666\Downloads\FEM2D_project_Q4_maintainable\FEM2D_project_Q4_maintainable\`
-- **性质**: 2D 有限元教学求解器 (CST/Q4/Q4R/Q4I)，~5.5 万行 Python，无 git
-- **测试**: `python -m pytest` = **496 passed**（本会话 374 → 496）；Ruff/Mypy 全干净
+- **性质**: 2D 有限元教学求解器 (CST/Q4/Q4R/Q4I)，~5.5 万行 Python，2026-08-03 起有 git 基线（主会话 init，含 @FEM 严格解析 / Physical Point 域外拒绝 / elem_type 只读 3 项已修）
+- **测试**: `python -m pytest` = **504 collected → 502 passed + 2 skipped**（本会话 374 → 496 → 包6 502+2）；
+  无 Gmsh 环境 483 collected → 474 passed + 13 skipped；Ruff/Mypy 全干净
 - **版本**: 9.16.0 → **9.17.0** (pyproject.toml)
 - **输入链**: .txt 中文描述 → scripts/geo_spec.py → .geo → gmsh → .msh → gmsh_adapter.py → Mesh
 

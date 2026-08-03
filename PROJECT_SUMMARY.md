@@ -2,7 +2,7 @@
 
 ## 是什么
 
-二维线弹性有限元教学求解器（CST / Q4 / Q4R / Q4I 四种单元族），约 5.5 万行 Python，无 git。
+二维线弹性有限元教学求解器（CST / Q4 / Q4R / Q4I 四种单元族），约 5.5 万行 Python。2026-08-03 起有 git 基线（主会话 init，含 @FEM 严格解析 / Physical Point 域外拒绝 / elem_type 只读 3 项已修）。
 定位：教学与工程教学场景，非商业生产。
 
 ## 输入输出
@@ -35,18 +35,18 @@ FEM2D_project_Q4_maintainable/
 │   ├── runner.py             # 主流程编排（5 阶段）
 │   ├── wizard.py / errors.py # 交互向导 / 领域异常（CliError）
 ├── scripts/                  # geo_spec / gmsh_runner / convergence 等工具
-├── tests/                    # 44 文件，496 测试
+├── tests/                    # 45 测试文件 + conftest.py，504 测试
 ├── models/                   # 算例库（21 .geo + 7 .spec + 5 .txt）
 └── tools/                    # gmsh-4.15.2 Windows 可执行文件（打包内含，GPL v2+）
 ```
 
 ## 当前状态
 
-- **测试**：`python -m pytest` = **496 passed**（本机）；无 Gmsh 依赖环境 = 468 passed + 11 skipped（0 error）
+- **测试**：`python -m pytest` = **504 collected → 502 passed + 2 skipped**（本机实测，2026-08-03；2 skip = 缺捆绑 gmsh 可执行文件，PATH 仅 .bat 包装被拒）；无 Gmsh 依赖环境 = **483 collected → 474 passed + 13 skipped**（4 个模块级 skip 不计入 collected，0 error）
 - **静态**：ruff（E/F）干净、mypy 48 文件干净、死代码 0 候选
 - **数值验证**：四单元族 patch test 机器精度、Kirsch K_t≈3.04、Cook 膜收敛、悬臂梁 vs Timoshenko、微尺度全链路
 - **版本**：9.17.0；文档：README / CHANGELOG / NEXT_SESSION_HANDOFF.md（含历轮修复记录）
-- **打包**：`FEM2D_project_Q4_20260803_final_maintainable.zip`（165 文件 39.5 MB，含 Windows gmsh.exe + LICENSE 说明）
+- **打包**（用户惯例）：`FEM2D_project_Q4_YYYYMMDD_HHMMSS_maintainable.zip` 放 Downloads，不含 `tools/`、缓存、`*.egg-info`（gmsh 可执行文件另行分发，分发时保留其 GPL v2+ 声明）
 
 ## 已知边界（诚实清单）
 
@@ -54,7 +54,7 @@ FEM2D_project_Q4_maintainable/
 2. 真实 Gmsh 端到端 CI 未搭建（本机已覆盖真实链路）
 3. mypy 仅基础检查（--strict 有 1215 存量，缺类型标注为主）；ruff 只开 E/F
 4. 高复杂度函数尚存（如 `_point_in_loop` 27 / `solver.solve` 22），是下一轮重构重点
-5. 无 git 历史；历史注释含"审计/审查"叙事（最终版将清理）
+5. 2026-08-03 起有 git 基线（此前无历史）；历史注释含"审计/审查"叙事（最终版将清理）
 
 ## 上手
 

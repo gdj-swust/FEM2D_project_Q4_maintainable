@@ -571,6 +571,61 @@ def test_plane_verification_runs():
     assert f == 0, f"平面验证 {p} PASS, {f} FAIL"
 
 
+def test_cylinder_constraint_leaves_inner_radial_free():
+    """厚壁圆筒验证的最小约束必须不钉死内边界节点的径向位移 (包 6).
+
+    判别性: 旧版 fix_node(0, "both") 把内边界 θ=0 节点 ux=uy=0, 该点
+    径向位移被强制为零, 与 Lame 自由膨胀 u_r(a)≈9.08e-6 m 冲突 (相对
+    误差 100% 必失败); 修复后三个约束全部沿切向, 节点 0 可自由径向
+    运动, FE u_x 应接近 Lame 解。
+    """
+    import numpy as np
+    from fem2d import Mesh, solve
+
+    a, b_out, p, E, nu = 1.0, 2.0, 1e6, 2.1e11, 0.3
+    nr, nth = 16, 72
+    nodes = []
+    for i in range(nth):
+        ang = 2 * np.pi * i / nth
+        ca, sa = np.cos(ang), np.sin(ang)
+        for j in range(nr + 1):
+            r = a + (b_out - a) * j / nr
+            nodes.append([r * ca, r * sa])
+    nodes = np.array(nodes)
+    elems = []
+    for i in range(nth):
+        i_next = (i + 1) % nth
+        for j in range(nr):
+            n0 = i * (nr + 1) + j
+            n2 = i_next * (nr + 1) + j + 1
+            n3 = i_next * (nr + 1) + j
+            elems.append([n0, n0 + 1, n2])
+            elems.append([n0, n2, n3])
+    elems = np.array(elems, dtype=int)
+
+    m = Mesh(nodes=nodes, elements=elems, E=E, nu=nu, thickness=1.0,
+             plane_type="strain", elem_type="CST")
+    # 与 verification.py 同步的切向最小约束 (θ=0 处 uy 切向、θ=π/2 处 ux 切向)
+    m.fix_node(0, "y")
+    m.fix_node(nr, "y")
+    m.fix_node((nth // 4) * (nr + 1), "x")
+    m.build_connectivity()
+    for ea, eb in m.boundary_edges:
+        ra = np.linalg.norm(nodes[ea])
+        rb = np.linalg.norm(nodes[eb])
+        if abs(ra - a) < 0.06 and abs(rb - a) < 0.06:
+            m.add_pressure(int(ea), int(eb), p)
+    r = solve(m, verbose=False)
+
+    # Lame (plane strain): u_r(a) = (1+ν)a²p/(E(b²−a²))·[(1−2ν)a + b²/a]
+    u_r_lame = ((1 + nu) * a**2 * p / (E * (b_out**2 - a**2))
+                * ((1 - 2 * nu) * a + b_out**2 / a))
+    assert abs(r["u"][0]) > 0.5 * u_r_lame, \
+        "内边界节点 0 径向位移被约束钉死 (旧约束回归)"
+    rel = abs(r["u"][0] - u_r_lame) / u_r_lame
+    assert rel < 0.10, f"u_x(node0) 偏离 Lame {rel*100:.1f}%"
+
+
 def test_balance_failure_message_renders():
     """失衡报错消息必须能渲染 — 判据与消息共享同一分母.
 

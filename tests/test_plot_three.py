@@ -58,6 +58,19 @@ def test_plot_three_displacement_draws_content():
     plt.close('all')
 
 
+def test_font_warning_filter_registered(pytestconfig):
+    """无 CJK 字体机器上的 Glyph 缺字警告必须被 filterwarnings 收敛.
+
+    绘图测试经 plot_three 渲染中文标签 (磨平/面力); 字体缺失环境的
+    "Glyph ... missing from font(s)" 是渲染噪音 (测试只断言图内容,
+    不检查字形)。收敛过滤在 tests/conftest.py 注册 — 若被移除,
+    无字体环境 pytest 汇总会重新出现警告噪音 (包 6).
+    """
+    filters = pytestconfig.getini("filterwarnings")
+    assert any("Glyph" in f and "missing from font" in f for f in filters), \
+        "conftest 的中文字体警告收敛过滤缺失"
+
+
 def test_isoband_tag_scoping(capsys):
     """Fixed isoband levels should only apply when tag matches isoband_tag.
 
