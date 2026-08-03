@@ -18,6 +18,7 @@ Bathe §8.2.6 Eq (8.65): 相对误差 ≈ cond(K) × ε_machine
 import warnings
 
 import numpy as np
+from scipy.sparse import issparse
 from scipy.sparse.linalg import MatrixRankWarning, eigsh, spsolve
 
 from .assembly import assemble_sparse
@@ -47,7 +48,22 @@ def estimate_condition(K, method="auto"):
     ----
     dict: {cond, digits_lost, status}
     """
+    if not issparse(K):
+        K = np.asarray(K)
+    if K.ndim != 2 or K.shape[0] != K.shape[1]:
+        # tuple/list/标量/非方阵曾冒裸 AttributeError ('.shape') —
+        # 契约: 形状错误带上下文
+        raise ValueError(
+            f"estimate_condition: K 必须为方阵 (n×n), "
+            f"got {getattr(K, 'shape', type(K).__name__)}")
     n = K.shape[0]
+    method = str(method).strip().lower()
+    if method not in ("auto", "dense", "sparse"):
+        # 非法 method 曾静默降级到 sparse 路径并成功返回 (拼错无察觉) —
+        # 契约: 用户可控字符串非法值必须响亮失败
+        raise ValueError(
+            f"estimate_condition: 未知 method {method!r} — "
+            "仅支持 auto/dense/sparse")
 
     # Bathe §8.2.6: λ_min 和 λ_max 的最可靠估计来自刚度矩阵本身
     # 对于 SPD 矩阵, cond(K) = λ_max/λ_min
