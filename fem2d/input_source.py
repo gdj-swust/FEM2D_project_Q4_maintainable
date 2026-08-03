@@ -149,38 +149,9 @@ def physical_point_from_geo(geo_path, name, mesh):
                     found.append(np.asarray(coords[:2], dtype=float))
                 except Exception:  # nosec B112 — 坏实体坐标读取失败, 跳过 (循环继续)
                     continue
-        if len(found) != 1:
-            return None, None, None, (
-                "not_found" if not found else "ambiguous")
-        nodes = np.asarray(mesh.nodes, dtype=float)
-        # 一级过滤: AABB 包围盒 (快筛, 拒掉明显域外点)
-        span = max(
-            float(np.ptp(nodes[:, 0])), float(np.ptp(nodes[:, 1])),
-            np.finfo(float).tiny)
-        slack = span * 1e-6
-        inside = (
-            nodes[:, 0].min() - slack <= found[0][0] <= nodes[:, 0].max() + slack
-            and nodes[:, 1].min() - slack <= found[0][1] <= nodes[:, 1].max() + slack)
-        if not inside:
-            return None, None, None, "outside_domain"
-        # 二级过滤: 真实域包含 — 点必须落在某个单元内。凹域/孔洞内但
-        # 不属于实体的 construction point 会在 AABB 内却不属于任何单元,
-        # 旧实现会把它施加到任意最近节点。
-        from fem2d.stress import point_in_element
-        if point_in_element(mesh, found[0][0], found[0][1]) < 0:
-            return None, None, None, "outside_domain"
-        dist = np.linalg.norm(nodes - found[0], axis=1)
-        nid = int(np.argmin(dist))
-        # 三级过滤: 距离阈值与局部单元尺寸关联 — 边中点 Physical Point
-        # 偏差可达 ~1 单元尺寸, 3 倍为安全裕量; 超过则拒绝报错。
-        # 特征尺寸 = 每单元 x/y 跨度的最大值的中位数 (axis=1 沿节点轴,
-        # axis=2 会得到 |x−y| 而非跨度, 旋转细长单元上被严重低估)
-        elem_span = np.ptp(nodes[mesh.elements], axis=1)   # (n_elem, 2)
-        h_char = float(np.median(np.max(elem_span, axis=1)))
-        if dist[nid] > max(3.0 * h_char, np.finfo(float).tiny):
-            return None, None, None, "too_far"
-        return nid, f"Physical Point '{name}'", float(dist[nid]), None
     except Exception:
+        # 仅 gmsh 会话/读取失败 → gmsh_unavailable (曾包住下方内部逻辑,
+        # 算法错误被误报为 "Gmsh 不可用", 错误归因误导排查)
         return None, None, None, "gmsh_unavailable"
     finally:
         if owns_session:
@@ -190,6 +161,39 @@ def physical_point_from_geo(geo_path, name, mesh):
                 os.unlink(temporary_geo)
             except OSError:
                 pass
+
+    # ── 纯 Python 内部逻辑: 异常响亮冒出 (不归因为 gmsh 问题) ──
+    if len(found) != 1:
+        return None, None, None, (
+            "not_found" if not found else "ambiguous")
+    nodes = np.asarray(mesh.nodes, dtype=float)
+    # 一级过滤: AABB 包围盒 (快筛, 拒掉明显域外点)
+    span = max(
+        float(np.ptp(nodes[:, 0])), float(np.ptp(nodes[:, 1])),
+        np.finfo(float).tiny)
+    slack = span * 1e-6
+    inside = (
+        nodes[:, 0].min() - slack <= found[0][0] <= nodes[:, 0].max() + slack
+        and nodes[:, 1].min() - slack <= found[0][1] <= nodes[:, 1].max() + slack)
+    if not inside:
+        return None, None, None, "outside_domain"
+    # 二级过滤: 真实域包含 — 点必须落在某个单元内。凹域/孔洞内但
+    # 不属于实体的 construction point 会在 AABB 内却不属于任何单元,
+    # 旧实现会把它施加到任意最近节点。
+    from fem2d.stress import point_in_element
+    if point_in_element(mesh, found[0][0], found[0][1]) < 0:
+        return None, None, None, "outside_domain"
+    dist = np.linalg.norm(nodes - found[0], axis=1)
+    nid = int(np.argmin(dist))
+    # 三级过滤: 距离阈值与局部单元尺寸关联 — 边中点 Physical Point
+    # 偏差可达 ~1 单元尺寸, 3 倍为安全裕量; 超过则拒绝报错。
+    # 特征尺寸 = 每单元 x/y 跨度的最大值的中位数 (axis=1 沿节点轴,
+    # axis=2 会得到 |x−y| 而非跨度, 旋转细长单元上被严重低估)
+    elem_span = np.ptp(nodes[mesh.elements], axis=1)   # (n_elem, 2)
+    h_char = float(np.median(np.max(elem_span, axis=1)))
+    if dist[nid] > max(3.0 * h_char, np.finfo(float).tiny):
+        return None, None, None, "too_far"
+    return nid, f"Physical Point '{name}'", float(dist[nid]), None
 
 
 # .spec 键 → AnalysisConfig 字段映射 (单一映射表 — 新增字段只需加一行).
@@ -441,12 +445,15 @@ def resolve_input_file(fp, config, ask=None):
         from fem2d.cli import ask as default_ask
         ask = default_ask
 
+    # 扩展名大小写不敏感 (Windows 上 .MSH/.GEO 曾直接被拒)
+    ext = os.path.splitext(fp)[1].lower()
+
     # .spec → 解析后取 mesh 路径 (相对路径以 .spec 所在目录为基准)
-    if fp.endswith('.spec'):
+    if ext == '.spec':
         fp = resolve_spec_overrides(fp, config)
 
     # .inp (Abaqus) 输入口已移除 (2026-08) — 网格唯一来源为 .geo/.txt/.msh
-    if fp.endswith('.inp'):
+    if ext == '.inp':
         raise CliError(
             '[ERROR] Abaqus .inp 输入已移除 — 请提供 .geo (Gmsh 几何)、'
             '.msh (Gmsh 网格) 或 .spec。',
@@ -457,11 +464,11 @@ def resolve_input_file(fp, config, ask=None):
     gmsh_import = None
     source_geo_path = None
     geo_config_applied = False
-    if fp.endswith('.geo'):
+    if ext == '.geo':
         fp, gmsh_import, source_geo_path = resolve_geo(fp, config, ask=ask)
         quad_applied = config.quad
         geo_config_applied = True  # @FEM 已在 resolve_geo 内合并
-    elif fp.endswith('.txt'):
+    elif ext == '.txt':
         fp, gmsh_import, source_geo_path = resolve_txt(fp, config)
         quad_applied = config.quad
         # .txt 生成的 .geo 含 @FEM 注解 — 由 runner._apply_geo_fem_config 合并
@@ -470,7 +477,7 @@ def resolve_input_file(fp, config, ask=None):
             # 忽略, 用户以为加密了实际没有
             print("  [WARN] --lc 只对 .geo 输入生效 — .txt 用自身的"
                   " '网格' 行, --lc 已忽略 (请在 .txt 中修改 网格 值)")
-    elif fp.endswith('.msh'):
+    elif ext == '.msh':
         # 已生成的 Gmsh 网格直接导入 — 无需重新网格化 (评审建议)
         # 必须传 plane_type: .msh 不含平面态信息, 默认 stress 会让
         # --plane strain 的 CPE 判型与导入的 CPS 类型冲突 (评审发现)
@@ -495,7 +502,8 @@ def resolve_input_file(fp, config, ask=None):
             f'[ERROR] 不支持的输入: {fp} — 仅支持 .spec/.geo/.txt/.msh',
             exit_code=2)
 
-    if not fp.endswith('.msh'):
+    # 检查 resolve 后的 fp (已生成/转换), 非输入扩展名 — 大小写不敏感
+    if os.path.splitext(fp)[1].lower() != '.msh':
         raise CliError(
             f'[ERROR] 最终需要 .msh 文件, 得到: {fp}',
             exit_code=1)

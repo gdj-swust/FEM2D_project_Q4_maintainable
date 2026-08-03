@@ -508,8 +508,11 @@ def main(argv=None) -> int:
                 print(f"  [WARN] {_key} 在独立自检模式下不生效 — "
                       "已忽略 (自检只跑单元数学验证)")
         if config.list_boundaries:
+            # 曾声称"自检不执行, 仅列出边界"但随后仍执行自检 — 文案撒谎
+            # 行为: 自检照常, list-boundaries 无输入文件无从列出
             print("  [WARN] --self-test 与 --list-boundaries 组合: "
-                  "自检不执行, 仅列出边界")
+                  "--list-boundaries 需要输入文件, 独立自检模式下不生效 — "
+                  "自检照常执行")
         return _standalone_self_test()
 
     try:

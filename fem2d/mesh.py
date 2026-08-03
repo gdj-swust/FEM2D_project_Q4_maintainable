@@ -153,7 +153,8 @@ class Mesh:
     body_force: object = None   # tuple | callable | None
     surface_tractions: list = field(default_factory=list)
     concentrated_forces: list = field(default_factory=list)
-    elem_type: str = "CPS3"   # 只读 (property) — 构造后赋值须重建 Mesh
+    # elem_type 是只读 property (构造后赋值须重建 Mesh) — 不做 dataclass
+    # 字段声明, 避免与 property 同名触发 F811
 
     # ── 预计算拓扑 (Bathe §4.3.6: 应力恢复需要邻接关系) ──
     node_to_elems: list = field(default=None, repr=False)
@@ -241,6 +242,13 @@ class Mesh:
         nodes = np.asarray(self.nodes, dtype=float)
         elems_raw = np.asarray(self.elements)
 
+        # 标量/非数组输入曾裸 IndexError (0 维数组 shape[0] 越界) — 先验维度
+        if nodes.ndim == 0:
+            raise ValueError(
+                f"nodes must be a 2-D array, got scalar {self.nodes!r}")
+        if elems_raw.ndim == 0:
+            raise ValueError(
+                f"elements must be a 2-D array, got scalar {self.elements!r}")
         if nodes.shape[0] == 0:
             raise ValueError("Mesh must contain at least one node")
         if elems_raw.shape[0] == 0:
@@ -748,6 +756,11 @@ class Mesh:
         """
         for nid in node_list:
             nid = self._validate_node_id(nid)
+            # 范围检查先于索引 — 越界曾裸 IndexError (与 fix_node 一致)
+            if not (0 <= nid < self.n_nodes):
+                raise ValueError(
+                    f"fix_nodes_func: nid={nid} out of range "
+                    f"[0, {self.n_nodes-1}]")
             x, y = self.nodes[nid]
             if callable(func):
                 result = func(x, y)

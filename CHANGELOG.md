@@ -3,6 +3,36 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
+## 9.18.0 (2026-08-03) — 第十轮外部审查修复
+
+### P1
+- **Physical Point 统一严格判域**: gmsh_adapter 回退路径曾只做 AABB 检查 —
+  孔心/凹域缺口点 (AABB 内但不在任何单元内) 回退到最近节点, 集中力静默
+  施加到材料域外。现在与 input_source 一致, 回退前用 point_in_element
+  判域, 域外拒绝 + 提示改用边界曲线 (孔心判别性测试, occ 内核构造)
+- **error_est math.exp OverflowError** (包 3 引入回归): 全有限输入
+  (E=1e-150/t=1e150/σ=1e308) 时 log 和 > log(float_max), math.exp 抛异常
+  (不受 np.errstate 控制) → 显式 log 阈值分支, 超出双精度诚实返回 0/inf
+
+### P2
+- **mesh 构造器裸 IndexError**: nodes/elements 传标量时 0 维数组
+  shape[0] 越界 → 先验维度, ValueError 带上下文
+- **fix_nodes_func 裸 IndexError**: 越界/负 nid 先索引后校验 →
+  范围检查前移 (负 nid 曾静默约束最后一个节点)
+
+### P3
+- `.geo/.msh/.spec/.txt` 扩展名判断大小写不敏感 (Windows .MSH 曾被拒;
+  注意"最终需 .msh"检查对象是 resolve 后的路径, 非输入扩展名)
+- `--self-test --list-boundaries` 文案诚实化 (曾声称"自检不执行"但照常执行)
+- `physical_point_from_geo` 大 except 收窄: 内部逻辑错误不再误报
+  "Gmsh 不可用" (仅 gmsh 会话失败归因 gmsh_unavailable)
+- ruff F811: elem_type dataclass 字段声明与只读 property 同名冲突 → 移除
+  字段声明 (构造参数在自定义 __init__)
+
+### 测试
++7 判别性测试 (error_est 溢出 / mesh 标量 ×2 / fix_nodes_func ×3 /
+孔心拒绝)。全量 pytest 0 失败。
+
 ## 包 5 — 架构与可维护性 (2026-08-03, 未发布, 版本号未变)
 
 ### 1. 库层 sys.exit() 迁移 (完成)

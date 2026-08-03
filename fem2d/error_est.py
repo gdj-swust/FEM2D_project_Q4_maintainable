@@ -202,10 +202,17 @@ def estimate(mesh, result, method="SPR", verbose=True):
     if use_scale:
         # 乘回物理尺度 (报告用): s_scale·sqrt(d_scale)·sqrt(|t|·maxw)。
         # 三因子跨度可达 ±300 阶, 连乘必存在一种先溢出/下溢的顺序 —
-        # 对数空间求和: 可表示时精确, 超出双精度时诚实 0/inf
-        with np.errstate(divide="ignore", invalid="ignore"):
-            factor = math.exp(
-                np.log(s_scale) + np.log(vol_sqrt) + 0.5 * np.log(d_scale))
+        # 对数空间求和: 可表示时精确, 超出双精度时诚实 0/inf。
+        # math.exp 在 log 和 > log(float_max) 时抛 OverflowError (全有限
+        # 输入崩溃, E=1e-150/t=1e150/σ=1e308 复现) — 显式分支代替
+        log_factor = (np.log(s_scale) + np.log(vol_sqrt)
+                      + 0.5 * np.log(d_scale))
+        if log_factor > np.log(np.finfo(float).max):
+            factor = np.inf
+        elif log_factor < np.log(np.finfo(float).tiny):
+            factor = 0.0
+        else:
+            factor = float(np.exp(log_factor))
         with np.errstate(invalid="ignore", over="ignore"):
             elem_err = elem_err * factor
             elem_err = np.where(elem_err_sq > 0.0, elem_err, 0.0)

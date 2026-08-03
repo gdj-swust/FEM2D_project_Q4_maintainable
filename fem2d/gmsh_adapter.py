@@ -234,7 +234,8 @@ def _surface_elements_for_entity(
 
 
 def _extract_regions(
-        gmsh_module, node_tag_to_index, element_tag_to_index, coords=None):
+        gmsh_module, node_tag_to_index, element_tag_to_index, coords=None,
+        elements=None, elem_type=None):
     model = gmsh_module.model
     mesh_api = model.mesh
     registry = RegionRegistry(cad_boundary_complete=True)
@@ -291,6 +292,22 @@ def _extract_regions(
                                 f"{point_xy[1]:.6g}) — 拒绝映射, 施加该点"
                                 f"集中力将报错")
                             continue
+                        # 单元级判域 (与 input_source 一致): 孔心/凹域
+                        # 缺口点在 AABB 内但不属于任何单元 — 曾回退到
+                        # 最近节点, 集中力施加到材料域外位置 (静默错)
+                        if elements is not None:
+                            from .mesh import Mesh
+                            from .stress import point_in_element
+                            tmp = Mesh(
+                                coords_arr, elements, elem_type=elem_type)
+                            if point_in_element(
+                                    tmp, point_xy[0], point_xy[1]) < 0:
+                                print(
+                                    f"  [WARN] Physical Point '{name}' 不在"
+                                    f"材料域内 ({point_xy[0]:.6g}, "
+                                    f"{point_xy[1]:.6g}) — 拒绝映射, 施加该"
+                                    f"点集中力将报错 (如需载荷请选边界曲线)")
+                                continue
                         dist2 = np.sum(
                             (coords_arr - point_xy) ** 2, axis=1)
                         fallback.append(int(np.argmin(dist2)))
@@ -549,7 +566,8 @@ def _extract_mesh(gmsh_module, require_quads=False, plane_type="stress"):
     prefix = "CPE" if str(plane_type).lower() == "strain" else "CPS"
     elem_type = f"{prefix}{node_count}"
     regions = _extract_regions(
-        gmsh_module, node_tag_to_index, element_tag_to_index, coords=nodes)
+        gmsh_module, node_tag_to_index, element_tag_to_index, coords=nodes,
+        elements=elements, elem_type=elem_type)
     regions.validate_indices(len(nodes), len(elements))
     return GmshImportResult(
         nodes=nodes,

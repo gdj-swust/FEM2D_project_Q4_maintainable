@@ -83,6 +83,25 @@ def test_eta_worst_contrib_invariant_to_material_geometry_scale():
         assert np.all(np.isfinite(z["elem_contrib"])), label
 
 
+def test_extreme_finite_inputs_no_overflow():
+    """全有限极端输入必须返回有限/诚实 inf, 不崩溃 — 审查复现:
+    E=1e-150, t=1e150, stress=1e308 曾 math.exp(log 和≈1054) 抛
+    OverflowError: math range error (包3 引入, math.exp 不受 errstate 控制)."""
+    nodes = np.array([[0., 0.], [1., 0.], [1., 1.], [0., 1.]])
+    elems = np.array([[0, 1, 2, 3]])
+    m = Mesh(nodes=nodes, elements=elems, E=1e-150, nu=0.3,
+             thickness=1e150, elem_type="CPS4")
+    stress = np.full((1, 3), 1e308)
+    z = estimate(m, {"stress": stress, "u": np.zeros(8)},
+                 method="weighted", verbose=False)
+    # 归一化空间的量必须有限
+    assert np.isfinite(z["eta"]), f"eta 非有限: {z['eta']}"
+    assert np.all(np.isfinite(z["elem_error"])), "elem_error 非有限"
+    # 乘回物理尺度的绝对量: 诚实 inf (超出双精度) 或有限, 不允许 NaN
+    assert not np.isnan(z["total_error"]), "total_error NaN (应 inf/有限)"
+    assert not np.isnan(z["energy_norm"]), "energy_norm NaN (应 inf/有限)"
+
+
 def test_scale_invariance_all_recovery_methods():
     """L2 / weighted 走同一归一化路径, 极端尺度下同样不变."""
     ref_mesh, result = _reference()

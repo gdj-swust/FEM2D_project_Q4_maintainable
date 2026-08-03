@@ -176,6 +176,40 @@ def test_physical_point_domain_node_fallback(tmp_path, capsys):
     assert all(0 <= n < len(g.nodes) for n in pts["loadA"])
 
 
+def test_physical_point_inside_hole_rejected(tmp_path, capsys):
+    """孔心点 (材料域外但 AABB 内) 必须拒绝 — 曾回退到孔边最近节点,
+    集中力施加到材料域外位置, 静默错结果 (外部审查复现).
+    注: 用 OpenCASCADE 内核 (geo 内核两段圆弧拼接的 1D 网格自交,
+    实测 gmsh 递归分裂不收敛)."""
+    import gmsh
+    from fem2d.gmsh_adapter import import_msh
+    path = str(tmp_path / "hole.msh")
+    gmsh.initialize()
+    gmsh.option.setNumber("General.Terminal", 0)
+    gmsh.model.add("t")
+    rect = gmsh.model.occ.addRectangle(0, 0, 0, 3, 2)
+    circle = gmsh.model.occ.addCircle(1.5, 1.0, 0, 0.5)
+    hole_center = gmsh.model.occ.addPoint(1.5, 1.0, 0, 0.5)
+    gmsh.model.occ.synchronize()
+    gmsh.model.occ.fragment([(2, rect)], [(1, circle)])
+    gmsh.model.occ.synchronize()
+    gmsh.model.addPhysicalGroup(0, [hole_center], 400)
+    gmsh.model.setPhysicalName(0, 400, "holeCenter")
+    gmsh.model.addPhysicalGroup(2, [rect], 200)
+    gmsh.model.setPhysicalName(2, 200, "domain")
+    gmsh.model.mesh.generate(2)
+    gmsh.write(path)
+    gmsh.finalize()
+
+    g = import_msh(path, plane_type="stress")
+    pts = {p.name: p.node_ids for p in g.regions.points}
+    assert "holeCenter" in pts, f"孔心物理点丢失: {pts}"
+    assert not pts["holeCenter"], \
+        f"孔心点被映射到节点 (静默施加到材料域外): {pts['holeCenter']}"
+    out = capsys.readouterr().out
+    assert "不在材料域内" in out, f"孔心点未警告: {out!r}"
+
+
 def test_physical_point_outside_domain_rejected(tmp_path, capsys):
     """域外 Physical Point 必须拒绝映射 — 曾回退到最近节点, 集中力
     施加到完全错误的位置 (审查复现: 方形域外 (10,10) 被映射到 (1,1))."""
