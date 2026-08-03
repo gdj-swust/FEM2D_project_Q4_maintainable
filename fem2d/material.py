@@ -50,6 +50,15 @@ def von_mises(stress, plane_type="stress", nu=0.3):
     inf−inf → NaN。先按最大|分量|缩放为无量纲量, 再乘回尺度。
     """
     stress = np.asarray(stress)
+    if stress.ndim < 2 or stress.shape[-1] != 3:
+        # 标量/1-D/末维≠3 曾冒裸 IndexError (fuzz 2026-08-03)
+        raise ValueError(
+            f"von_mises: stress 必须为 (..., 3) 数组 [σx, σy, τxy], "
+            f"got {stress.shape}")
+    if not np.all(np.isfinite(stress)):
+        raise ValueError(
+            "von_mises: stress contains NaN/Inf — 对非法输入静默返回 "
+            "NaN 曾掩盖上游错误")
     scale = np.maximum(
         np.max(np.abs(stress), axis=-1), np.finfo(float).tiny)
     sx = stress[..., 0] / scale

@@ -42,6 +42,23 @@ def test_principal_stresses_valid_shape_ok():
     assert np.isfinite(s1) and np.isfinite(s2) and np.isfinite(radius)
 
 
+def test_von_mises_wrong_shape_has_context():
+    # fuzz 发现: 标量/1-D/末维≠3 曾冒裸 IndexError
+    from fem2d import von_mises
+    with pytest.raises(ValueError, match=r"\(\.\.\., 3\)"):
+        von_mises(5.0)
+    with pytest.raises(ValueError, match=r"\(\.\.\., 3\)"):
+        von_mises(np.ones(3))
+    with pytest.raises(ValueError, match=r"\(\.\.\., 3\)"):
+        von_mises(np.ones((2, 2)))
+
+
+def test_von_mises_nan_rejected():
+    from fem2d import von_mises
+    with pytest.raises(ValueError, match="NaN/Inf"):
+        von_mises(np.array([[np.nan, 1.0, 0.0]]))
+
+
 # ── K4: estimate_error result 契约 ──
 
 def test_estimate_missing_key_has_context():

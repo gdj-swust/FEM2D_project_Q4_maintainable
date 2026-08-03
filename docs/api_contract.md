@@ -1,6 +1,7 @@
 # FEM2D API 契约表
 
-> 版本: 9.18.1+ (2026-08-03, 契约清账阶段 1 交付物)
+> 版本: 9.18.1+ (2026-08-03, 契约清账阶段 1 交付物; 阶段 2/3 完成后已更新:
+> K1-K11 全部修复并带判别性测试, 见第 K 节状态列)
 > 范围: fem2d/ 全部顶层导出 (`fem2d/__init__.py` `__all__` + 惰性导出) +
 > Mesh 全部公共方法 + 输入端入口 (input_source / gmsh_adapter / bc_apply)。
 > 单元内核公式 (element/)、solver 数值逻辑、error_est 公式为行为冻结区,
@@ -45,7 +46,7 @@
 | API | 签名 | 误用清单 → 应有错误 | 现状 |
 |-----|------|---------------------|------|
 | fix_node | (nid, dof="both", value=0.0) | nid 非整数/布尔 → TypeError; 越界/负 → ValueError; dof ∉ {x,y,both} → ValueError; value NaN/Inf → ValueError; 非数值 value (str) → np.isfinite 裸 TypeError | ⚠️ value 非数值类型冒裸 TypeError |
-| fix_nodes_func | (node_list, func) | 单个节点数传入 (node_list=5) → 裸 TypeError(int not iterable); 越界 → ValueError(范围先于索引); func 非 callable 非数值 → 下游 TypeError; func 返回 3+ 分量 → 多余分量静默忽略; func 返回 NaN → fix_node ValueError | ⚠️ node_list 标量裸 TypeError; func 多余分量静默忽略 |
+| fix_nodes_func | (node_list, func) | 单个节点数传入 (node_list=5) → ValueError(明示需列表); 越界 → ValueError(范围先于索引); func 非 callable 非数值 → 下游 TypeError/ValueError; func 返回 3+ 分量 → ValueError(明示); func 返回 NaN → ValueError; func 返回不可迭代对象 → TypeError(带坐标上下文) | ✅ (K2, 含 np 标量返回值支持) |
 | add_force | (nid, fx=0.0, fy=0.0) | nid 非法/越界 → TypeError/ValueError; fx/fy NaN/Inf → ValueError; 非数值 → np.isfinite 裸 TypeError | ⚠️ 非数值分量冒裸 TypeError |
 | add_traction | (ni, nj, tx, ty) | 同上; 内部边 → ValueError; 零长边 → ValueError(ULP 相对判据) | ⚠️ 同上 (非数值分量) |
 | add_pressure | (ni, nj, p) | 同上; p NaN/Inf → ValueError; 非数值 p → 裸 TypeError | ⚠️ 同上 |
@@ -120,7 +121,7 @@
 | physical_point_from_geo | (geo_path, name, mesh) | geo_path: .geo 或 None; name: str | 无源 .geo → reason="no_geo_source"; gmsh 不可用 → "gmsh_unavailable"; 未找到/歧义/域外/超距 → 区分 reason; 成功 → (nid, label, dist, None) | ✅ |
 | generate_geo_with_topology | (geo_path, *, quad=False, output_path=None, plane_type="stress") | geo_path: 存在 .geo | gmsh 缺失/失败 → (None, None) 契约; 拓扑验证失败 → 抛异常 (调用方须双处理); quad 混合网格 → GmshTopologyError | ✅ |
 | generate_from_geo | (geo_path, *, quad=False, output_path=None, plane_type="stress", gmsh_module=None) | geo_path: 存在 | 文件不存在 → FileNotFoundError(明示); gmsh 不可用 → GmshUnavailableError; 无单元 → GmshTopologyError; 混合拓扑 → GmshTopologyError; 非平面 z → GmshTopologyError | ✅ |
-| import_msh | (msh_path, *, require_quads=False, plane_type="stress") | msh_path: 存在 .msh | 文件不存在 → gmsh 运行时异常冒泡 (带路径上下文) → ⚠️ 建议前置 FileNotFoundError; 无 $PhysicalNames 恢复 → WARN; 2-D 单元缺失 → GmshTopologyError | ⚠️ 文件不存在未前置检查 (gmsh RuntimeError 冒泡, 有上下文) |
+| import_msh | (msh_path, *, require_quads=False, plane_type="stress") | msh_path: 存在 .msh | 文件不存在 → FileNotFoundError(前置, 与 generate_from_geo 一致); 无 $PhysicalNames 恢复 → WARN; 2-D 单元缺失 → GmshTopologyError | ✅ (K7) |
 | read_geo_groups | (geo_path, *, gmsh_module=None) | geo_path: .geo 或 None | 文件不存在 → None (设计); API 失败 → 文本解析回退 | ✅ |
 | parse_spec_config | (filepath) | 存在 .spec | 缺 = → ValueError(行号); 空值 → ValueError(行号); BOM → 自动剥离 | ✅ |
 | parse_geo_fem_config | (geo_path) | .geo 或 None | 空值/字段数错 → ValueError(文件名+行号+原文); 未知键 → WARN | ✅ |
@@ -133,7 +134,7 @@
 | API | 签名 | 参数合法形状 | 误用清单 → 应有错误 | 现状 |
 |-----|------|-------------|---------------------|------|
 | D_matrix | (E, nu, plane_type="stress") | E>0 有限; nu∈(-1,0.5); plane ∈ {stress,strain} | E≤0/NaN → ValueError; nu 越界 → ValueError; plane 非法 → ValueError; 非数值 → np.isfinite TypeError | ⚠️ 非数值类型裸 TypeError (同 A 组, 共享标量 helper 收敛) |
-| von_mises | (stress, plane_type="stress", nu=0.3) | (..., 3) 有限数组 | plane 非法 → ValueError; 形状缺 3 分量 → IndexError (广播在 axis=-1, 静默错); NaN → NaN 输出 | ⚠️ 末维 ≠ 3 未校验; NaN 未校验 |
+| von_mises | (stress, plane_type="stress", nu=0.3) | (..., 3) 有限数组 | plane 非法 → ValueError; 标量/1-D/末维≠3 → ValueError(形状); NaN → ValueError | ✅ (K12, fuzz 发现后修复) |
 | get_element_kernel | (elem_type: str) | 注册过的类型/别名 | 未注册 → ValueError(带注册表列表); None → ValueError | ✅ |
 | register_element | (kernel: ElementKernel) | ElementKernel 实例 | 非实例 → TypeError; 空名 → ValueError; 重复键不同内核 → ValueError(明示) | ✅ |
 | registered_element_types | () | — | — | ✅ |
@@ -185,22 +186,49 @@
 
 ---
 
-## K. 缺口汇总 (阶段 2 修复队列)
+## K. 缺口清单 (阶段 2 修复队列 — 状态列 = 修复 commit)
 
-| # | 缺口 | 位置 | 修复类别 |
-|---|------|------|----------|
-| K1 | 标量有限性检查对**非数值类型** (str/complex/容器) 冒裸 TypeError: `np.isfinite("a")` | mesh.fix_node / add_force / add_traction / add_pressure / __init__ 材料 / D_matrix / config | 共享 `_require_finite_scalar` helper |
-| K2 | `fix_nodes_func(node_list, func)`: node_list 传标量 → 裸 TypeError (int not iterable); func 返回多余分量静默忽略 | mesh.py:757 | 节点列表校验 + 返回分量数校验 |
-| K3 | `principal_stresses`: 形状 (n,3) 未校验 → 裸 IndexError; NaN/Inf 静默传播 | stress.py:20 | 形状 + 有限性校验 |
-| K4 | `estimate_error`/`stress_at_point`/`element_refinement_indicator`: result 缺键 → 裸 KeyError; stress 形状与 n_elem 不符 → 下游 IndexError | error_est.py:170, stress.py:256 | result 契约前置校验 |
-| K5 | `solve(mesh, ...)`: mesh 非 Mesh → 裸 AttributeError | solver.py:584 | mesh 类型/协议校验 |
-| K6 | `parse_vec2`/`parse_traction`: 非 str 输入 → 裸 AttributeError | loads_core.py:325/158 | 类型校验 |
-| K7 | `import_msh`: 文件不存在 → gmsh 异常冒泡 (有上下文, 低风险) | gmsh_adapter.py:597 | 前置 FileNotFoundError |
-| K8 | `compute_stresses`/`spr_recovery`/`nodal_*`: 输入数组 NaN → 静默 NaN 输出 | stress.py/spr.py | 有限性前置校验 (低优先: 输入来自 solve 已查) |
-| K9 | DOF 数组校验三处重复 (mesh._validate_bc_state / bc._reject_duplicate_fixed_dofs / bc._validate_dof_partition) | mesh.py:481, bc.py:329/288 | 收敛共享 DOF helper |
-| K10 | 载荷记录节点整数校验与 _validate_node_id 重复 | mesh.py:536/574 | 改调共享 helper |
-| K11 | 材料参数校验重复 (__post_init__ vs _validate_material_and_mesh) | mesh.py:317/460 | 收敛共享标量 helper |
+| # | 缺口 | 位置 | 状态 (修复 commit) |
+|---|------|------|--------------------|
+| K1 | 标量有限性检查对**非数值类型** (str/complex/容器) 冒裸 TypeError: `np.isfinite("a")` | mesh.fix_node / add_force / add_traction / add_pressure / __init__ 材料 / D_matrix / config | ✅ 已修 — `fem2d/checks.py` `require_finite_scalar/_positive/_nu_valid` (c3d14c5) |
+| K2 | `fix_nodes_func(node_list, func)`: node_list 传标量 → 裸 TypeError; func 返回多余分量静默忽略 | mesh.py | ✅ 已修 (e367b19) |
+| K3 | `principal_stresses`: 形状 (n,3) 未校验 → 裸 IndexError; NaN/Inf 静默传播 | stress.py | ✅ 已修 (f3d75b5) |
+| K4 | `estimate_error`/`stress_at_point`: result 缺键 → 裸 KeyError | error_est.py, stress.py | ✅ 已修 (f3d75b5) |
+| K5 | `solve(mesh, ...)`: mesh 非 Mesh → 裸 AttributeError | solver.py | ✅ 已修 (f3d75b5) |
+| K6 | `parse_vec2`/`parse_traction`: 非 str 输入 → 裸 AttributeError/TypeError | loads_core.py | ✅ 已修 (f3d75b5) |
+| K7 | `import_msh`: 文件不存在 → gmsh 异常冒泡 | gmsh_adapter.py | ✅ 已修 — 前置 FileNotFoundError (f3d75b5) |
+| K8 | `compute_stresses`/`spr_recovery`/`nodal_*`: 输入数组 NaN → 静默 NaN 输出 | stress.py/spr.py | ✅ 已修 (c3d14c5) |
+| K9 | DOF 数组校验三处重复 | mesh.py, bc.py | ✅ 已修 — `checks.require_dof_index_array` (mesh→TypeError / bc→ValueError 按既有锁定分流) (75bc6e5) |
+| K10 | 载荷记录节点整数校验与 _validate_node_id 重复 | mesh.py | ✅ 已修 — 改调 _validate_node_id (e367b19) |
+| K11 | 材料参数校验重复 (__post_init__ vs _validate_material_and_mesh) | mesh.py | ✅ 已修 — 共享标量 helper, 消息保留历史格式 (c3d14c5) |
+| K12 | `von_mises`: 标量/1-D/末维≠3 → 裸 IndexError; NaN 静默 (fuzz 发现) | material.py | ✅ 已修 (自查轮, 判别性测试在场) |
+| K13 | `bc_apply._apply_body_force`: 元组/ndarray 解包绕开 schema; ndarray 真值判据裸 ValueError | bc_apply.py | ✅ 已修 (23af2f1) |
 
-> 阶段 2 实施时, K 列表每一项 = 一个独立 commit, 每项附判别性测试
-> (放回旧实现必须失败), 每 commit 前全量 pytest 0 失败。
-> 行为冻结区 (element/ 内核公式、solver/error_est 数值逻辑) 不在此列。
+## L. 阶段 3 架构决策记录
+
+### L1. import 去环 (commit 059da97)
+
+提升 11 处函数内 import 到模块顶部: predicates.warnings / topology.geometry 别名 /
+gmsh_adapter.sys+Mesh+point_in_element / input_source.cli.is_batch_mode /
+loads_core.ast+math / mesh.topology_core×2+warnings / preprocess.gmsh_adapter+element /
+stress.spr / visualize.error_est / runner.element+quality+wizard / physical_mapping.preprocess
+(后经测试发现是 patch 注入点, 已回退, 见下)。
+
+**保留局部 import 及原因**:
+| 位置 | 原因 |
+|------|------|
+| mesh.py `from .element import get_element_kernel` | 真环: element/base.py 局部 `from ..mesh import Mesh` — 提升任何一边都成环 |
+| element/base.py `from ..mesh import Mesh` | 同上 (环的另一端) |
+| runner.py `from .visualize import ...` | matplotlib 导入成本 ~1-2s, `--no-plot` 路径不付 (代价评估后保留) |
+| physical_mapping.py `from ..preprocess import read_geo_groups` | 测试 patch 注入点: `patch("fem2d.preprocess.read_geo_groups")` 依赖调用时模块属性查找 — 直接名绑定复制旧引用使 patch 失效 (既有判别性测试锁定) |
+| __init__.py `from .convergence import run_cantilever_convergence` | PEP 562 惰性导出 (避免 `python -m fem2d.convergence` runpy 警告, 注释在案) |
+
+### L2. loads_schema.py 拆分 (commit 0b8985b)
+
+`_load_component_ok` / `_check_load_pair` / `_check_load_scalar` 从 mesh.py 纯搬移到
+`fem2d/loads_schema.py` (行为不变), mesh.py 引用, bc_apply 直接引用。
+载荷形状校验 (体力 2 / 面力 2 / 压力 1 / 集中力 2) 收敛到一处。
+
+> 行为冻结区 (element/ 内核公式、solver/error_est 数值逻辑) 全程未触碰。
+> 阶段 2 每类校验 = 一个独立 commit, 每项附判别性测试 (放回旧实现必须失败),
+> 每个 commit 前全量 pytest 0 失败 — 全程无红测试提交。
