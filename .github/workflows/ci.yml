@@ -1,0 +1,37 @@
+# FEM2D CI — 依赖/语法升级的回归保障 (2026-08-02 补充).
+# 矩阵: Python 3.9/3.11/3.13 × numpy 1.24/最新 — 覆盖 requires-python
+# 声明与最新栈。Linux 缺 libGLU 时 gmsh 相关测试自动跳过 (测试自带条件)。
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.13"]
+        numpy-version: ["1.24", "latest"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install "numpy==${{ matrix.numpy-version }}" \
+            scipy matplotlib gmsh pytest ruff mypy
+      - name: Compile check
+        run: python -m compileall -q fem2d scripts tests run.py run_demo.py
+      - name: ruff
+        run: ruff check fem2d/ scripts/ tests/ run.py run_demo.py
+      - name: mypy
+        run: mypy fem2d/ --ignore-missing-imports
+      - name: pytest
+        run: python -m pytest tests/ -q
+      - name: Self-test
+        run: python run.py --self-test

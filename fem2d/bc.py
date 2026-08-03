@@ -1,0 +1,371 @@
+"""位移边界条件施加 — Bathe §4.2.2
+
+提供两种方法:
+  1. 消去法 (elimination) — Bathe Eq 4.42-4.45, 精确, 默认推荐
+  2. 乘大数法 (penalty)    — Bathe §4.2.2 p.190, 简单快速
+
+Bathe §4.2.2 Eq 4.42-4.45 (消去法):
+  将 DOF 分为自由 (a) 和约束 (b):
+    K_aa · U_a = R_a - K_ab · U_b   → 求解 U_a
+    R_b = K_ba · U_a + K_bb · U_b   → 计算支反力
+
+Bathe §4.2.2 p.190 (乘大数法 / 罚函数法):
+  K_ii += k_penalty;  F_i += k_penalty · d_i  (加法式, 避免刚度量纲平方)
+  其中 k_penalty = max(|K_ii|) × 10⁸  (确保约束残差 < 10⁻⁸ 量级)
+"""
+import numpy as np
+from scipy.sparse import diags
+from scipy.sparse.linalg import LinearOperator, cg, spilu, splu
+
+# ═══════════════════════════════════════════════════════════════
+# 1. 消去法 — Bathe §4.2.2 Eq 4.42-4.45 (推荐)
+# ═══════════════════════════════════════════════════════════════
+
+def apply_elimination(
+        K, F, free_dofs, fixed_dofs, prescribed_vals,
+        linear_solver="direct", cg_rtol=1e-10, cg_maxiter=None,
+        return_info=False, *, _system_validated=False):
+    # cg_rtol 必须保持 1e-10: 实测 1e-8 时 CG 残差污染固定 DOF 反力
+    # (~4.3e-3 N @ 29 万单元), 与平衡检查 tol_rel=1e-8·|F| 同量级,
+    # 合法大模型被 ΣF 检查误杀 (审计 2026-08-03 性能优化试验后回退)
+    """用消去法施加位移约束 (Bathe §4.2.2 Eq 4.42-4.45)
+
+    将 DOF 划分为自由 (a) 和约束 (b) 两组，仅求解自由 DOF，
+    然后计算支反力。不引入任何数值近似，是"精确"的约束施加法。
+
+    参数
+    ----
+    K : csr_matrix (n_dof, n_dof)
+        全局刚度矩阵 (稀疏 CSR)
+    F : (n_dof,) ndarray
+        等效节点力向量 (包含体力和面力)
+    free_dofs : (n_free,) ndarray of int
+        自由 DOF 索引 (已排序)
+    fixed_dofs : (n_fixed,) ndarray of int
+        约束 DOF 索引
+    prescribed_vals : (n_fixed,) ndarray
+        指定位移值 U_b
+
+    返回
+    ----
+    u : (n_dof,) ndarray — 全位移向量
+    reactions : (n_fixed,) ndarray — 支反力 (Bathe Eq 4.45)
+    """
+    n_dof = K.shape[0]
+    free_dofs, fixed_dofs, prescribed_vals = _validate_elimination_inputs(
+        K, F, free_dofs, fixed_dofs, prescribed_vals,
+        system_validated=_system_validated)
+
+    # solver 名称在任何分支前校验 — 曾纯 Dirichlet 分支在名称检查前
+    # 返回, linear_solver="bogus" 静默成功 (外部审查, 2026-08-03)
+    solver_key = str(linear_solver).strip().lower()
+    if solver_key == "cg-block":
+        solver_key = "cg"
+    if solver_key not in {"direct", "cg", "ilu"}:
+        raise ValueError(
+            f"Unknown linear_solver '{linear_solver}'; "
+            "expected direct, cg, cg-block or ilu.")
+
+    # 纯 Dirichlet 问题: K_aa 是 0×0, splu 不支持空矩阵。
+    # solve() 在上游拦截该情形, 但 apply_elimination 是公开 API —
+    # 直接调用时空自由度集必须可正常工作 (Bathe Eq 4.45)。
+    if len(free_dofs) == 0:
+        u = np.zeros(n_dof)
+        u[fixed_dofs] = prescribed_vals
+        reactions = (K.dot(u) - F)[fixed_dofs]
+        if return_info:
+            return u, reactions, {"name": "direct", "iterations": 0}
+        return u, reactions
+
+    # (1) 提取子矩阵: K_aa, K_ab
+    K_aa = K[free_dofs][:, free_dofs].tocsr()
+    # (2) 修正右端项: R_a' = R_a - K_ab · U_b  (Bathe Eq 4.43)
+    rhs = F[free_dofs].copy()
+    if len(fixed_dofs) and np.any(prescribed_vals != 0.0):
+        K_ab = K[free_dofs][:, fixed_dofs].tocsr()
+        rhs -= K_ab.dot(prescribed_vals)
+
+    # (3) 求解: K_aa · U_a = R_a'
+    if solver_key == "direct":
+        # SuperLU: 稳健的默认路径, 适合中小规模模型。
+        lu = splu(K_aa.tocsc())
+        U_a = lu.solve(rhs)
+        solver_info = {"name": "direct", "iterations": 1}
+    elif solver_key in {"cg", "ilu"}:
+        # PCG: K_aa 对线弹性充分约束问题为 SPD。Jacobi 是低内存默认
+        # 预条件器；显式 ``ilu`` 使用 SuperLU 的不完全 LU 因子。
+        diagonal = K_aa.diagonal()
+        if (
+                not np.all(np.isfinite(diagonal))
+                or np.any(diagonal <= 0.0)):
+            raise RuntimeError(
+                "CG requires a positive finite stiffness diagonal. "
+                "Check element Jacobians and boundary constraints.")
+        if solver_key == "ilu":
+            # ⚠️ 数值方法风险 (外部审查, 2026-08-03): CG 理论上要求预条件器
+            # 对称正定, 而 SuperLU 的 ILU 不保证 SPD — 病态网格/畸形单元下
+            # 可能异常停滞 (rho 崩溃, 已有下游检查)。工程上 ILU-PCG 是常见
+            # 近似, 本项目限定: ILU 仅作显式选择, 默认 auto 走 Jacobi (SPD);
+            # 若 CG 收敛失败 (info != 0) 下游会给出明确错误建议 direct。
+            try:
+                # drop_tol=1e-4 的 ILU 因子对中等网格可能非正定 (预条件
+                # CG 的 rho 崩溃为 0, 与 maxiter 无关地永不收敛) —
+                # 实测 306 DOF 悬臂即复现, 1e-6 收敛。保持更精确的因子。
+                ilu = spilu(
+                    K_aa.tocsc(),
+                    drop_tol=1.0e-6,
+                    fill_factor=10.0,
+                    permc_spec="MMD_AT_PLUS_A",
+                    diag_pivot_thresh=0.0,
+                )
+            except RuntimeError as error:
+                raise RuntimeError(
+                    "ILU preconditioner factorization failed. "
+                    "Try linear_solver='direct' or 'cg', improve mesh "
+                    "quality, or check boundary constraints."
+                ) from error
+            preconditioner = LinearOperator(
+                K_aa.shape, matvec=ilu.solve, dtype=K_aa.dtype)
+            preconditioner_name = "ilu"
+        else:
+            preconditioner = diags(
+                1.0 / diagonal, offsets=0, shape=K_aa.shape, format="csr")
+            preconditioner_name = "jacobi"
+        if cg_maxiter is None:
+            cg_maxiter = min(
+                20000,
+                max(1000, int(20.0 * np.sqrt(K_aa.shape[0]))),
+            )
+        iterations = [0]
+
+        def count_iteration(_):
+            iterations[0] += 1
+
+        U_a, info = cg(
+            K_aa,
+            rhs,
+            M=preconditioner,
+            rtol=float(cg_rtol),
+            atol=0.0,
+            maxiter=int(cg_maxiter),
+            callback=count_iteration,
+        )
+        if info != 0:
+            detail = (
+                f"did not converge within {info} iterations"
+                if info > 0 else f"failed with status {info}")
+            raise RuntimeError(
+                f"{preconditioner_name.upper()}-preconditioned CG {detail}. "
+                "Try linear_solver='direct', improve mesh quality, or check "
+                "boundary constraints.")
+        solver_info = {
+            "name": "cg",
+            "iterations": int(iterations[0]),
+            "rtol": float(cg_rtol),
+            "preconditioner": preconditioner_name,
+        }
+    else:
+        raise ValueError(
+            f"Unknown linear_solver '{linear_solver}'; "
+            "expected direct, cg or ilu.")
+
+    # (4) 组装全位移向量
+    u = np.zeros(n_dof)
+    u[free_dofs] = U_a
+    u[fixed_dofs] = prescribed_vals
+
+    # (5) 支反力: R_b = (K·U - F)_b (Bathe Eq 4.45)
+    # 直接使用完整残差避免额外构造 K_ba/K_bb 两个稀疏子矩阵。
+    reactions = (K.dot(u) - F)[fixed_dofs]
+
+    if return_info:
+        return u, reactions, solver_info
+    return u, reactions
+
+
+# ═══════════════════════════════════════════════════════════════
+# 2. 乘大数法 — Bathe §4.2.2 p.190 (备选)
+# ═══════════════════════════════════════════════════════════════
+
+def apply_penalty(K, F, fixed_dofs, prescribed_vals=None, penalty=None,
+                  *, _system_validated=False):
+    """用乘大数法施加位移约束 (Bathe §4.2.2 p.190)
+
+    加法式: K_ii += k_penalty,  F_i += k_penalty * d_i
+      → u_i ≈ d_i  (k_penalty >> max|K_ij|)
+
+    Bathe 推荐: k_penalty = max(|K_ii|) × 10⁸
+
+    代价: 条件数 κ(K) 被抬高约 8 个量级 (k_penalty / min_eigenvalue).
+    对良态网格, 消去法 vs 罚函数位移相对差 ~2.8e-10, 约束残差 ~1.4e-15,
+    精度完全可用。但在病态网格上, 额外 8 个量级的条件数恶化可能使 splu
+    的误差边界被击穿。推荐: 默认使用消去法 (精确, 无此代价);
+    罚函数法作为备选, 仅在消去法因自由度为空的纯 Dirichlet 问题不适用时使用。
+
+    参数
+    ----
+    K : csr_matrix (n_dof, n_dof)
+    F : (n_dof,) ndarray
+    fixed_dofs : (n_fixed,) ndarray of int
+    prescribed_vals : (n_fixed,) ndarray or None
+    penalty : float or None
+        罚因子; None 则自动 k_penalty = max(|K_ii|)×1e8
+
+    返回
+    ----
+    K_mod : csr_matrix
+    F_mod : (n_dof,) ndarray
+    penalty : float — 实际使用的罚刚度值 [N/m]
+    """
+    if not _system_validated:
+        _validate_system_inputs(K, F)
+    n_dof = K.shape[0]
+    fixed_dofs, prescribed_vals = _reject_duplicate_fixed_dofs(
+        fixed_dofs, prescribed_vals, n_dof=n_dof)
+
+    # 自动罚刚度: k_penalty = max(|K_ii|) × 1e8
+    diag = np.abs(K.diagonal())
+    max_diag = diag.max() if diag.max() > 0 else 1.0
+    if penalty is None:
+        penalty = max_diag * 1e8
+    elif not np.isfinite(penalty) or penalty < max_diag * 1e4:
+        raise ValueError(
+            f"Penalty factor {penalty!r} must be finite and >= "
+            f"1e4 * max|K_ii| = {max_diag*1e4:.3e} "
+            f"(max|K_ii| = {max_diag:.3e}; 建议自动值 {max_diag*1e8:.3e})")
+
+    # 加法式: K_ii += k_penalty (量纲一致, 不平方)
+    penalty_vals = np.zeros(n_dof)
+    for dof in fixed_dofs:
+        penalty_vals[dof] = penalty
+
+    K_mod = K + diags(penalty_vals, 0, format='csr')
+
+    # F_mod: 累加罚项 (不覆盖已有外载)
+    F_mod = F.copy()
+    for k, dof in enumerate(fixed_dofs):
+        F_mod[dof] += penalty * prescribed_vals[k]
+
+    return K_mod, F_mod, penalty
+
+
+def _validate_system_inputs(K, F):
+    """K 方阵 + 数据有限 / F 形状与有限性 (elimination/penalty 共用)."""
+    if K.shape[0] != K.shape[1]:
+        raise ValueError(
+            f"K must be square, got shape {K.shape}")
+    from scipy.sparse import issparse
+    k_data = K.data if issparse(K) else np.asarray(K).ravel()
+    if k_data.size and not np.all(np.isfinite(k_data)):
+        n_bad = int(np.count_nonzero(~np.isfinite(k_data)))
+        raise ValueError(
+            f"K contains {n_bad} NaN/Inf entries — 刚度矩阵非法 "
+            "(element stiffness overflow or corrupted assembly)")
+    F = np.asarray(F)
+    if F.shape != (K.shape[0],):
+        raise ValueError(
+            f"F must have shape ({K.shape[0]},), got {F.shape}")
+    if not np.all(np.isfinite(F)):
+        raise ValueError("F contains NaN/Inf — 载荷向量非法")
+    return F
+
+
+def _validate_elimination_inputs(K, F, free_dofs, fixed_dofs,
+                                 prescribed_vals, system_validated=False):
+    """apply_elimination 统一输入校验 (第三轮外部审查, 2026-08-03):
+    K 方阵/有限 / F 形状与有限性 / DOF 分区 (重复、重叠、覆盖) / 给定位移。
+    返回 (free_dofs, fixed_dofs, prescribed_vals) 规范化后的分区。
+    """
+    if not system_validated:
+        F = _validate_system_inputs(K, F)
+    n_dof = K.shape[0]
+    fixed_dofs, prescribed_vals = _reject_duplicate_fixed_dofs(
+        fixed_dofs, prescribed_vals, n_dof)
+    free_dofs = _validate_dof_partition(free_dofs, fixed_dofs, n_dof)
+    return free_dofs, fixed_dofs, prescribed_vals
+
+
+def _validate_dof_partition(free_dofs, fixed_dofs, n_dof):
+    """自由/约束 DOF 分区校验 — 曾缺省 (外部审查, 2026-08-03):
+    free/fixed 重叠时约束值覆盖自由解, 遗漏 DOF 静默设 0。
+    要求: free 合法整数、无重叠、free ∪ fixed 完整覆盖 [0, n_dof)。
+    """
+    free = np.asarray(free_dofs)
+    if free.ndim != 1:
+        raise ValueError(f"free_dofs must be 1-D, got shape {free.shape}")
+    if free.dtype == np.bool_ or free.dtype.kind == "b":
+        raise ValueError(
+            "free_dofs must be integer DOF indices, got boolean mask")
+    if not np.all(np.isfinite(free)):
+        raise ValueError("free_dofs contain NaN/Inf")
+    if not np.all(free == np.rint(free)):
+        raise ValueError(f"free_dofs must be integers, got {free.tolist()}")
+    free = np.rint(free).astype(np.int64)
+    if np.any((free < 0) | (free >= n_dof)):
+        raise ValueError(f"free_dofs out of range [0, {n_dof - 1}]")
+    if np.unique(free).size != free.size:
+        # 自身重复曾延迟到 SuperLU 奇异才报错 (第三轮外部审查)
+        dup = free[np.flatnonzero(
+            np.diff(np.sort(free)) == 0)]
+        raise ValueError(
+            f"free_dofs contain duplicates: {dup[:10].tolist()}")
+
+    overlap = np.intersect1d(free, np.asarray(fixed_dofs))
+    if overlap.size:
+        raise ValueError(
+            f"free_dofs 与 fixed_dofs 重叠: {overlap[:10].tolist()} — "
+            "同一 DOF 不能既是自由又是约束")
+
+    covered = np.unique(np.concatenate([free, np.asarray(fixed_dofs)]))
+    missing = n_dof - covered.size
+    if missing:
+        raise ValueError(
+            f"DOF 分区未覆盖全部 {n_dof} 个自由度, 遗漏 {missing} 个 "
+            f"(如 {np.setdiff1d(np.arange(n_dof), covered)[:5].tolist()}) — "
+            "遗漏 DOF 曾静默设为 0")
+    return free
+
+
+def _reject_duplicate_fixed_dofs(fixed_dofs, prescribed_vals, n_dof=None):
+    """罚函数参数统一验证 + 重复约束防御 (审计 2026-08).
+
+    公开 API 曾对长度不等静默丢约束 (zip 截断)、负 DOF 静默约束最后
+    一个 — 主 solve() 路径已由 validate_state 防护, 此处兜底直接调用。
+    返回去重后的 (fixed_dofs, prescribed_vals)。
+    """
+    fixed = np.asarray(fixed_dofs)
+    if fixed.ndim != 1:
+        raise ValueError(f"fixed_dofs must be 1-D, got shape {fixed.shape}")
+    if fixed.dtype == np.bool_ or fixed.dtype.kind == "b":
+        # 布尔掩码 [True] 曾 rint→1 被当作 DOF 1, 静默约束错自由度
+        # (外部审查复现, 2026-08-03)
+        raise ValueError(
+            "fixed_dofs must be integer DOF indices, got boolean mask")
+    if not np.all(np.isfinite(fixed)):
+        raise ValueError("fixed_dofs contain NaN/Inf")
+    if not np.issubdtype(fixed.dtype, np.integer):
+        if not np.all(fixed == np.rint(fixed)):
+            raise ValueError(
+                f"fixed_dofs must be integers, got {fixed.tolist()}")
+        fixed = np.rint(fixed).astype(np.int64)
+    if prescribed_vals is None:
+        prescribed = np.zeros(len(fixed))
+    else:
+        prescribed = np.asarray(prescribed_vals)
+        if len(prescribed) != len(fixed):
+            raise ValueError(
+                f"fixed_dofs ({len(fixed)}) 与 prescribed_vals "
+                f"({len(prescribed)}) 长度必须相等 — 曾静默丢约束")
+        if not np.all(np.isfinite(prescribed)):
+            raise ValueError("prescribed_vals contain NaN/Inf")
+    if n_dof is not None:
+        if np.any((fixed < 0) | (fixed >= n_dof)):
+            raise ValueError(f"fixed_dofs out of range [0, {n_dof - 1}]")
+    seen = {}
+    for dof, value in zip(fixed, prescribed):
+        if dof in seen and seen[dof] != value:
+            raise ValueError(
+                f"DOF {dof} 被重复约束为不同值 {seen[dof]} 与 {value} — "
+                "同一 DOF 只能约束一次")
+        seen[dof] = value
+    return list(seen.keys()), list(seen.values())

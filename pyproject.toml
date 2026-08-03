@@ -1,0 +1,98 @@
+# FEM2D 打包配置 (2026-08-02 补充 — 审计指出缺少 pyproject.toml).
+#
+# 本项目以源码运行为主 (python run.py), 本文件使:
+#   - 依赖/工具链 (pytest/ruff) 声明集中一处, 替代 requirements.txt 的口头约定
+#   - `pip install -e .` 开发安装可用 (import fem2d + scripts 均解析)
+#   - `pytest` / `ruff` 无需额外命令行参数
+#
+# 注意: Gmsh 双路径 (子进程 gmsh.exe + Python API) 的 gmsh.exe 位于
+# tools/ (不打包, 见 ARCHITECTURE.md 打包规则); Python 包 gmsh 为
+# 运行时依赖, 其原生库 (Linux 需 libGLU.so.1) 由系统环境提供。
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fem2d-q4"
+version = "9.17.0"
+description = "2D displacement FEM solver — CST/Q4/Q4R/Q4I, plane stress/strain, Gmsh mesh input"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.12",
+    "matplotlib>=3.5",
+    "gmsh>=4.11",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "vulture>=2.7",
+    "bandit>=1.7",
+]
+
+# CLI 入口: pip install 后直接 `fem2d <input.geo>` 可用 (编码安全网在
+# runner.main 内); 根目录 run.py 仍保留为源码运行方式
+[project.scripts]
+fem2d = "fem2d.runner:main"
+
+[tool.setuptools]
+# 显式列出包 (tools/ 为数据目录, 不打包; scripts/ 由 __init__.py 声明为
+# 普通包, 保证安装后 import scripts.geo_spec 可用)
+packages = [
+    "fem2d",
+    "fem2d.boundary",
+    "fem2d.element",
+    "scripts",
+]
+
+[tool.setuptools.data-files]
+# 示例模型随 wheel 分发 (安装到 site-packages 旁的 fem2d-models/)
+"fem2d-models" = ["models/*.geo", "models/*.spec", "models/*.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+# 规则口径: E/F 错误级 (历史基线 0 错误)。其余规则组 (I/SIM/UP/BLE 等)
+# 历史代码大量命中, 不开启以免全规则检查被风格噪音淹没。
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = [
+    "E402",  # 脚本模式: sys.path 注入后 import
+    "E501",  # 行长 (历史代码)
+    "E701",  # 一行复合语句 (历史风格)
+    "E702",  # 分号多语句 (历史风格)
+    "E722",  # bare except (历史)
+    "E731",  # lambda 赋值 (历史)
+    "E741",  # 截面惯矩 I 是数学约定变量名
+]
+
+# 默认命令 (mypy 无参数) 直接可达 0 错误 — files 限定 fem2d (scripts 为
+# 脚本模式, 单独跑时用 --ignore-missing-imports); scipy/gmsh 无类型存根
+[tool.mypy]
+files = ["fem2d"]
+# 历史类型标注不精确项 (field(default=None)、动态属性等) — 0 错误基线
+disable_error_code = [
+    "arg-type", "union-attr", "attr-defined",
+    "assignment", "var-annotated", "no-redef",
+]
+
+[[tool.mypy.overrides]]
+# scipy/gmsh 无类型存根
+module = ["scipy.*", "gmsh"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# scripts.* 是脚本模式 (部分包相对导入), 跟随检查时忽略模块解析
+module = ["scripts.*"]
+disable_error_code = ["import-not-found", "import-untyped"]

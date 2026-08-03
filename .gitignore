@@ -1,0 +1,13 @@
+# 缓存与构建产物
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# 第三方工具 (86MB gmsh.exe — 需用时手动复制, 不入库)
+tools/
+
+# 运行产物
+models/tmp*

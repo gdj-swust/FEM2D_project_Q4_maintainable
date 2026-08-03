@@ -1,0 +1,946 @@
+"""Mesh 数据结构 — Bathe §4.2.1: 有限元节点/单元/载荷数据容器
+
+数据结构：
+  nodes:     (n_nodes, 2) — 节点坐标 [x, y]
+  elements:  (n_elem, nnode_e) — 单元节点索引 (边界按 CCW 排列)
+  DOF 编号:  节点 i → [2i (x), 2i+1 (y)]  (Bathe Eq 4.18)
+"""
+import copy
+from dataclasses import dataclass, field
+
+import numpy as np
+
+
+@dataclass(init=False)
+class Mesh:
+    """二维、同构单元网格
+
+    Bathe §4.2.1: 位移有限元法的完整网格数据。
+
+    Attributes
+    ----------
+    nodes : (n_nodes, 2) ndarray
+        节点坐标 (只读数组; 构造后修改必须走
+        :meth:`replace_nodes` — 直接重绑 ``mesh.nodes = new`` 也会
+        自动路由到 replace_nodes, 保证邻接/几何缓存一致失效)
+    elements : (n_elem, nnode_e) ndarray
+        单元节点索引 (边界按 CCW 方向; 只读, 修改走
+        :meth:`replace_elements`)
+    elem_type : str
+        已注册的单元类型或别名；默认 ``"CPS3"``。
+    thickness : float
+        厚度 [m] (平面应力/应变)
+    E : float
+        杨氏模量 [Pa]
+    nu : float
+        泊松比
+    plane_type : str
+        "stress" (平面应力) 或 "strain" (平面应变)
+        Bathe Table 4.3 / §6.3.4
+    fixed_dofs : ndarray
+        受约束的 DOF 索引
+    prescribed_vals : dict
+        DOF索引 → 指定位移值
+    body_force : tuple or callable or None
+        (bx, by) [N/m³] 体力分量或函数 f(x,y)→(bx,by)
+    surface_tractions : list
+        面力边列表 [{"nodes":(ni,nj), "traction":(tx,ty)}, ...]
+    concentrated_forces : list
+        集中力列表 [{"node":nid, "force":(fx,fy)}, ...]
+
+    Computed (__post_init__):
+    -------------------------
+    node_to_elems : list[list[int]]
+        node_to_elems[i] = 包含节点 i 的所有单元索引
+    elem_neighbors : list[list[int]]
+        elem_neighbors[e] = 与单元 e 共享边的相邻单元索引 (最多3个)
+    boundary_edges : list[tuple[int,int]]
+        仅属于一个单元的边 (边界边)
+    """
+    # ── 私有几何存储: nodes/elements 由 property 暴露, setter 路由到
+    # replace_nodes/replace_elements — 直接赋值也正确失效缓存。
+    # 构造期由 __init__ 直接写 _nodes/_elements, __post_init__ 校验后
+    # 再经 setter 锁定。
+    _nodes: np.ndarray = field(init=False, repr=False)
+    _elements: np.ndarray = field(init=False, repr=False)
+    thickness: float = 1.0
+    E: float = 210e9
+    nu: float = 0.3
+    plane_type: str = "stress"
+    fixed_dofs: np.ndarray = field(default_factory=lambda: np.array([], dtype=int))
+    prescribed_vals: dict = field(default_factory=dict)
+    body_force: object = None   # tuple | callable | None
+    surface_tractions: list = field(default_factory=list)
+    concentrated_forces: list = field(default_factory=list)
+    elem_type: str = "CPS3"   # 只读 (property) — 构造后赋值须重建 Mesh
+
+    # ── 预计算拓扑 (Bathe §4.3.6: 应力恢复需要邻接关系) ──
+    node_to_elems: list = field(default=None, repr=False)
+    elem_neighbors: list = field(default=None, repr=False)
+    boundary_edges: list = field(default=None, repr=False)
+    edge_to_elems: dict = field(default=None, repr=False)  # (a,b)→[elem_ids]
+    internal_edge_data: np.ndarray = field(default=None, repr=False)
+    locator: object = field(default=None, init=False, repr=False)
+    areas: np.ndarray = field(default=None, repr=False)        # (n_elem,) 单元面积 (正值)
+    signed_areas: np.ndarray = field(default=None, repr=False) # (n_elem,) 有向面积 (CCW>0)
+    element_kernel: object = field(default=None, init=False, repr=False)
+
+    def __init__(self, nodes, elements, thickness=1.0, E=210e9, nu=0.3,
+                 plane_type="stress", fixed_dofs=None, prescribed_vals=None,
+                 body_force=None, surface_tractions=None,
+                 concentrated_forces=None, elem_type="CPS3"):
+        """签名与 dataclass 自动 __init__ 完全兼容 (只读 property 需 init=False)."""
+        self.thickness = thickness
+        self.E = E
+        self.nu = nu
+        self.plane_type = plane_type
+        self.fixed_dofs = (np.array([], dtype=int) if fixed_dofs is None
+                           else fixed_dofs)
+        self.prescribed_vals = ({} if prescribed_vals is None
+                                else prescribed_vals)
+        self.body_force = body_force
+        self.surface_tractions = ([] if surface_tractions is None
+                                  else surface_tractions)
+        self.concentrated_forces = ([] if concentrated_forces is None
+                                    else concentrated_forces)
+        self._elem_type = elem_type
+        # 缓存字段 (areas 等) 由 field(default=None) 类属性兜底, 无需赋 None
+        self._nodes = np.asarray(nodes, dtype=float)
+        self._elements = np.asarray(elements)
+        self.__post_init__()
+
+    # ── 几何属性: setter 保证缓存一致性 ──
+
+    @property
+    def elem_type(self) -> str:
+        """单元类型名 (只读) — 构造后赋值曾只改字符串不改 element_kernel,
+        显示 CPS4I/CPS4R 实际仍按原单元计算; 换类型必须重建 Mesh."""
+        return self._elem_type
+
+    @elem_type.setter
+    def elem_type(self, value):
+        raise AttributeError(
+            "elem_type is read-only after construction — rebuild the Mesh "
+            f"with elem_type={value!r} to change element type")
+
+    @property
+    def nodes(self) -> np.ndarray:
+        """节点坐标 (n_nodes, 2) — 只读数组, 修改走 replace_nodes."""
+        return self._nodes
+
+    @nodes.setter
+    def nodes(self, value):
+        # 构造后任何赋值路由到 replace_nodes (校验/只读/失效缓存);
+        # 构造期由 __init__ 直接写 _nodes, __post_init__ 经本 setter 锁定
+        self.replace_nodes(value)
+
+    @property
+    def elements(self) -> np.ndarray:
+        """单元节点索引 (n_elem, nnode_e) — 只读数组, 修改走 replace_elements."""
+        return self._elements
+
+    @elements.setter
+    def elements(self, value):
+        self.replace_elements(value)
+
+    def __post_init__(self):
+        """初始化后不自动计算拓扑 — 延迟到首次访问时 (lazy evaluation)"""
+        self._connectivity_built = False
+
+        # Import here to keep Mesh lightweight and avoid an import cycle through
+        # fem2d.__init__.  Importing element registers the built-in kernels.
+        from .element import get_element_kernel
+        # 浅拷贝: 注册表缓存单例 kernel, 而 Q4R 的 hourglass_coefficient 等
+        # 是可变类属性 — 共享单例会令一个 Mesh 的修改污染进程内所有同型
+        # 网格 (批量/多模型脚本中静默改变刚度)。
+        self.element_kernel = copy.copy(get_element_kernel(self.elem_type))
+        self._elem_type = str(self._elem_type).strip().upper()
+
+        # ── 类型转换 & 基本校验 (先于所有检查) ──
+        nodes = np.asarray(self.nodes, dtype=float)
+        elems_raw = np.asarray(self.elements)
+
+        if nodes.shape[0] == 0:
+            raise ValueError("Mesh must contain at least one node")
+        if elems_raw.shape[0] == 0:
+            raise ValueError("Mesh must contain at least one element")
+        if nodes.ndim != 2 or nodes.shape[1] != 2:
+            raise ValueError(f"nodes must be (n_nodes, 2), got {nodes.shape}")
+        expected_npe = self.element_kernel.nodes_per_element
+        if elems_raw.ndim != 2 or elems_raw.shape[1] != expected_npe:
+            raise ValueError(
+                f"{self.elem_type} elements must be "
+                f"(n_elem, {expected_npe}), got {elems_raw.shape}")
+        if not np.all(np.isfinite(nodes)):
+            raise ValueError("nodes contain NaN or Inf")
+        if not np.all(np.isfinite(elems_raw)):
+            raise ValueError("elements contain NaN or Inf")
+        # 拒绝非整数节点索引 (浮点索引会被静默截断, 非常危险)
+        if not np.issubdtype(elems_raw.dtype, np.integer):
+            bad = elems_raw != np.rint(elems_raw)
+            if np.any(bad):
+                raise ValueError(
+                    "Element node indices must be integers — "
+                    f"non-integer value found: {elems_raw[bad].flat[0]}. "
+                    "Floating-point indices can silently change mesh topology.")
+            elems_raw = np.rint(elems_raw)
+
+        elements = elems_raw.astype(np.int64, copy=False)
+        if np.any(elements < 0):
+            raise ValueError("Element node indices must be ≥ 0")
+        if np.any(elements >= nodes.shape[0]):
+            bad = elements[(elements < 0) | (elements >= nodes.shape[0])]
+            raise ValueError(
+                f"Element node indices out of bounds [0, {nodes.shape[0]-1}]: "
+                f"{np.unique(bad).tolist()}")
+
+        # ── 固定自由度校验 (拒绝 list/float/负数/重复/越界) ──
+        n_dof = 2 * nodes.shape[0]
+        raw_fixed = np.asarray(self.fixed_dofs)
+        if np.issubdtype(raw_fixed.dtype, np.bool_):
+            # 布尔掩码曾经 asarray(dtype=float) 变成 [0,0,1,1,...], unique
+            # 折叠成 {0,1} — 用户想约束的 DOF 被静默换成节点 0 (审计 2026-08-03)
+            raise TypeError(
+                "fixed_dofs must be integer DOF indices, not a boolean mask — "
+                "pass np.flatnonzero(mask) or explicit integer indices")
+        fixed = raw_fixed.astype(float)
+        if not np.issubdtype(fixed.dtype, np.integer):
+            bad = fixed != np.rint(fixed)
+            if np.any(bad):
+                raise ValueError(
+                    f"fixed_dofs must contain integer DOF indices — "
+                    f"non-integer value found: {fixed[bad].flat[0]}")
+            fixed = np.rint(fixed)
+        fixed = fixed.astype(np.int64)
+        if np.any((fixed < 0) | (fixed >= n_dof)):
+            bad = fixed[(fixed < 0) | (fixed >= n_dof)]
+            raise ValueError(f"fixed_dofs out of range [0, {n_dof-1}]: {bad.tolist()}")
+        fixed = np.unique(fixed)
+        # 校验 prescribed_vals 的键都在 fixed_dofs 中
+        extra_keys = set(self.prescribed_vals.keys()) - set(fixed.tolist())
+        if extra_keys:
+            raise ValueError(
+                f"prescribed_vals keys {extra_keys} are not in fixed_dofs")
+        self.fixed_dofs = fixed
+        self.fixed_dofs.setflags(write=False)
+
+        # ── 材料参数校验 ──
+        if not np.isfinite(self.E) or not np.isfinite(self.nu):
+            raise ValueError(f"E={self.E}, nu={self.nu} must be finite")
+        if not np.isfinite(self.thickness) or self.thickness <= 0.0:
+            raise ValueError(
+                f"thickness = {self.thickness} — must be > 0 and finite. "
+                f"For plane stress/strain, thickness represents the out-of-plane dimension.")
+
+        # ── 锁定 & 存储 ──
+        # 经 property setter 写入: 校验 → 复制 → 只读 → 缓存失效。
+        # (__init__ 已写入原始值, 此处完成最终锁定; _nodes/_elements
+        # 只读后即使绕过 API 直接写私有字段也会被 numpy 拒绝。)
+        self.nodes = nodes.copy()
+        self.elements = elements.copy()
+
+        # 重复单元检测 (排序后的连接数组相同 = 重复)
+        sorted_conn = np.sort(self.elements, axis=1)
+        vals, counts = np.unique(sorted_conn, axis=0, return_counts=True)
+        if np.any(counts > 1):
+            dup = vals[np.where(counts > 1)[0][0]].tolist()
+            raise ValueError(
+                f"Duplicate element: nodes {dup}. "
+                f"Remove duplicate elements before solving."
+            )
+
+    def invalidate_cache(self):
+        """清除所有惰性缓存 — 在通过 replace_nodes/replace_elements
+        修改网格后由这些方法调用.
+
+        ``nodes``/``elements`` 是只读数组 (原地写入会抛 ValueError),
+        property setter 把任何重绑赋值路由到 :meth:`replace_nodes` /
+        :meth:`replace_elements` — 它们内部完成校验、只读锁定并清除
+        缓存。直接绕过 API 改数组会导致面积/形函数系数/邻接关系
+        静默过期, 产生错误结果.
+        """
+        self._connectivity_built = False
+        self.node_to_elems = None
+        self.elem_neighbors = None
+        self.boundary_edges = None
+        self.edge_to_elems = None
+        self.internal_edge_data = None
+        self.locator = None
+        for name in getattr(self, "_kernel_cache_names", ()):
+            setattr(self, name, None)
+        self._kernel_cache_names = ()
+        self.areas = None
+        self.signed_areas = None
+        self.b_coeffs = None
+        self.c_coeffs = None
+        self.element_dofs = None
+        self.centroids = None
+        # 内核材料/几何指纹缓存 (Q4R 沙漏 _q4r_*, Q4I 缩聚 _q4i_*) —
+        # 几何变更后必须失效, 否则 hourglass_energy / enhanced_amplitudes
+        # 会用旧坐标算出的缓存 (B4 同类问题)。
+        self._q4r_hourglass_material = None
+        self._q4i_enhancement = None
+        self._q4i_enhancement_material = None
+
+    def replace_nodes(self, new_nodes):
+        """原子替换节点坐标 — 显式修改网格的唯一正规途径.
+
+        ``nodes``/``elements`` 是只读数组 (直接写会抛 ValueError);
+        需要改坐标时调用本方法 (或直接赋值 ``mesh.nodes = new`` —
+        property setter 自动路由到这里): 校验新数组 (形状/有限性),
+        重建节点数组 (保持只读), 并清除全部惰性缓存。单元连接不变。
+        """
+        nodes = np.asarray(new_nodes, dtype=float)
+        if nodes.shape != self._nodes.shape:
+            raise ValueError(
+                f"replace_nodes: 形状必须为 {self._nodes.shape} "
+                f"(保持节点数), 得到 {nodes.shape}")
+        if not np.all(np.isfinite(nodes)):
+            raise ValueError("replace_nodes: 坐标包含 NaN/Inf")
+        self._nodes = nodes.copy()
+        self._nodes.setflags(write=False)
+        self.invalidate_cache()
+
+    def replace_elements(self, new_elements):
+        """原子替换单元连接 — 显式修改网格的唯一正规途径.
+
+        校验与 ``__post_init__`` 相同的约束 (非空/整数索引/边界/单元
+        节点数/重复单元), 重建单元数组 (保持只读) 并清除全部惰性缓存。
+        节点坐标不变; 拓扑变化后既有 BC/载荷按新编号解释, 调用方自行
+        负责一致性.
+        """
+        elems_raw = np.asarray(new_elements)
+        expected_npe = self.element_kernel.nodes_per_element
+        if elems_raw.ndim != 2 or elems_raw.shape[1] != expected_npe:
+            raise ValueError(
+                f"replace_elements: 需要 (n_elem, {expected_npe}), "
+                f"得到 {elems_raw.shape}")
+        if elems_raw.shape[0] == 0:
+            raise ValueError("replace_elements: 单元集不能为空")
+        if not np.issubdtype(elems_raw.dtype, np.integer):
+            bad = elems_raw != np.rint(elems_raw)
+            if np.any(bad):
+                raise ValueError(
+                    "replace_elements: 单元节点索引必须是整数 — "
+                    f"非整数值: {elems_raw[bad].flat[0]}")
+            elems_raw = np.rint(elems_raw)
+        elements = elems_raw.astype(np.int64, copy=False)
+        if np.any((elements < 0) | (elements >= self._nodes.shape[0])):
+            raise ValueError("replace_elements: 节点索引越界")
+        # 重复单元检测 (与 __post_init__ 一致 — 重复单元会使刚度和体力
+        # 重复计算, 静默改变结果)
+        sorted_conn = np.sort(elements, axis=1)
+        vals, counts = np.unique(sorted_conn, axis=0, return_counts=True)
+        if np.any(counts > 1):
+            dup = vals[np.where(counts > 1)[0][0]].tolist()
+            raise ValueError(
+                f"replace_elements: 重复单元: nodes {dup}. "
+                f"Remove duplicate elements before solving.")
+        self._elements = elements.copy()
+        self._elements.setflags(write=False)
+        self.invalidate_cache()
+
+    def validate_state(self):
+        """求解/装配入口的完整状态校验.
+
+        构造后字段可被重写 (如 ``mesh.thickness = -1.0`` 会静默返回
+        负位移, 残差却接近机器精度), 求解前重新检查: 材料参数、
+        平面类型、节点/单元、BC/载荷合法性、几何缓存一致性。
+
+        返回 ``self`` 便于链式调用。
+        """
+        # 单元类型与 kernel 一致性: elem_type 只读后, 任何分叉都意味着
+        # 外部直接破坏 kernel — 求解前拒绝, 防止"显示 CPS4I 实际按 Q4 算"
+        if not self.element_kernel.matches(self._elem_type):
+            raise ValueError(
+                f"element_kernel ({self.element_kernel.name}) 与 elem_type "
+                f"({self._elem_type}) 不一致 — 单元类型构造后不可修改, "
+                f"请重建 Mesh")
+        self._validate_material_and_mesh()
+        self._validate_bc_state()
+        self._validate_loads_state()
+        # 几何缓存一致性: 缺失/被破坏时强制重建 (双保险 — 正常路径下
+        # property setter 已保证一致, 这里兜底外部直接破坏缓存的情况;
+        # element_dofs 是 build_connectivity 的动态属性, 用 getattr 查)
+        if self.areas is None or self.centroids is None \
+                or getattr(self, "element_dofs", None) is None:
+            self.invalidate_cache()
+            self.build_connectivity()
+        return self
+
+    def _validate_material_and_mesh(self):
+        if not np.isfinite(self.E) or self.E <= 0.0:
+            raise ValueError(
+                f"E = {self.E} — must be finite and > 0")
+        if not np.isfinite(self.nu) or not (-1.0 < self.nu < 0.5):
+            raise ValueError(
+                f"nu = {self.nu} — must be in (-1, 0.5) "
+                f"for isotropic material stability")
+        if not np.isfinite(self.thickness) or self.thickness <= 0.0:
+            raise ValueError(
+                f"thickness = {self.thickness} — must be finite and > 0")
+        if self.plane_type not in ("stress", "strain"):
+            raise ValueError(
+                f"plane_type = {self.plane_type!r} — must be 'stress' or 'strain'")
+        if self._nodes.shape[0] == 0 or self._elements.shape[0] == 0:
+            raise ValueError("Mesh must contain at least one node and one element")
+        if not np.all(np.isfinite(self._nodes)):
+            raise ValueError("nodes contain NaN or Inf")
+        if not np.all(np.isfinite(self._elements)):
+            raise ValueError("elements contain NaN or Inf")
+
+    def _validate_bc_state(self):
+        # ── BC 状态 (构造后可被重写, 复测 2026-08-02 建议) ──
+        n_dof = 2 * self._nodes.shape[0]
+        fixed = np.asarray(self.fixed_dofs)
+        if np.issubdtype(fixed.dtype, np.bool_):
+            # 与 __post_init__ 同: 布尔掩码曾静默折叠成 {0,1} 约束错 DOF
+            raise TypeError(
+                "fixed_dofs must be integer DOF indices, not a boolean mask — "
+                "pass np.flatnonzero(mask) or explicit integer indices")
+        if not np.all(np.isfinite(fixed)):
+            raise ValueError("fixed_dofs contain NaN/Inf")
+        if not np.issubdtype(fixed.dtype, np.integer):
+            bad = fixed != np.rint(fixed)
+            if np.any(bad):
+                raise ValueError(
+                    f"fixed_dofs must contain integer DOF indices — "
+                    f"non-integer value found: {fixed[bad].flat[0]}")
+            fixed = np.rint(fixed).astype(np.int64)
+        if np.any((fixed < 0) | (fixed >= n_dof)):
+            raise ValueError(
+                f"fixed_dofs out of range [0, {n_dof-1}]")
+        _u, _c = np.unique(fixed, return_counts=True)
+        dup = _u[_c > 1]
+        if len(dup):
+            # 重复约束: 罚函数 RHS 重复累加 → 静默错误位移 (审计 2026-08)
+            raise ValueError(
+                f"fixed_dofs 含重复 DOF: {dup.tolist()} — "
+                "同一 DOF 只能约束一次")
+        fixed_set = set(fixed.tolist())
+        extra_keys = set(self.prescribed_vals.keys()) - fixed_set
+        if extra_keys:
+            raise ValueError(
+                f"prescribed_vals keys {extra_keys} are not in fixed_dofs")
+        for d, v in self.prescribed_vals.items():
+            if not np.isfinite(v):
+                raise ValueError(
+                    f"prescribed_vals[{d}] = {v} — must be finite")
+
+    def _validate_loads_state(self):
+        for cf in self.concentrated_forces:
+            # 构造函数直传的载荷不走 add_* API — 节点号必须整数。
+            # 整数值浮点 (2.0) 规范化**写回** — 曾只转局部变量验证,
+            # 原始记录仍是 2.0, 组装时 IndexError (审计 2026-08-03)
+            nid = cf["node"]
+            if isinstance(nid, bool) or not isinstance(nid, (int, np.integer)):
+                if isinstance(nid, float) and float(nid).is_integer():
+                    nid = int(nid)
+                else:
+                    raise TypeError(
+                        f"concentrated force node must be an integer, "
+                        f"got {nid!r}")
+            if not (0 <= nid < self._nodes.shape[0]):
+                raise ValueError(
+                    f"concentrated force node {nid} out of range "
+                    f"[0, {self._nodes.shape[0]-1}]")
+            fx, fy = cf["force"]
+            if not (np.isfinite(fx) and np.isfinite(fy)):
+                raise ValueError("concentrated force contains NaN/Inf")
+            cf["node"] = nid   # 规范化写回 (整数)
+        for st in self.surface_tractions:
+            ni, nj = st["nodes"]
+            for n in (ni, nj):
+                if isinstance(n, bool) or not isinstance(n, (int, np.integer)):
+                    if isinstance(n, float) and float(n).is_integer():
+                        n = int(n)
+                    else:
+                        raise TypeError(
+                            f"surface traction node must be an integer, "
+                            f"got {n!r}")
+            ni, nj = int(ni), int(nj)
+            if not (0 <= ni < self._nodes.shape[0]
+                    and 0 <= nj < self._nodes.shape[0]):
+                raise ValueError(
+                    f"surface traction nodes ({ni},{nj}) out of range "
+                    f"[0, {self._nodes.shape[0]-1}]")
+            # 内部边载荷必须在此拒绝 — 曾绕过 add_traction 的边界检查,
+            # solve 成功而误差估计崩溃 (审计 2026-08-03)
+            self._validate_boundary_edge(ni, nj)
+            st["nodes"] = (ni, nj)   # 规范化写回 (整数)
+            for t_val in st["traction"]:
+                if not callable(t_val) and not np.isfinite(t_val):
+                    raise ValueError("surface traction contains NaN/Inf")
+        if self.body_force is not None:
+            for b_val in (self.body_force if not callable(self.body_force)
+                          else ()):
+                if not callable(b_val) and not np.isfinite(b_val):
+                    raise ValueError("body force contains NaN/Inf")
+
+    def build_connectivity(self):
+        """预计算 node→elements, element→neighbors, boundary edges + 几何缓存
+
+        使用向量化 topology_core (NumPy argsort) 替代 Python 循环,
+        10万节点网格预处理从秒级降到毫秒级.
+        """
+        if self._connectivity_built:
+            return
+
+        n_nodes = self.n_nodes
+        n_elem = self.n_elements
+
+        from .topology_core import (
+            ElementLocator,
+            build_edge_table,
+            element_neighbor_table,
+            node_element_table,
+        )
+
+        # (1) node_to_elems: CSR 格式, 惰性列表
+        self.node_to_elems = node_element_table(self.elements, n_nodes)
+
+        # (2) 边表 + 邻接 + 边界: 纯 NumPy argsort
+        edge_table = build_edge_table(
+            self.elements, self.element_kernel.local_edges, n_nodes)
+        self.elem_neighbors = element_neighbor_table(edge_table, n_elem)
+        self.boundary_edges = [
+            (int(lo), int(hi)) for lo, hi in zip(
+                edge_table.lo[edge_table.boundary_mask()],
+                edge_table.hi[edge_table.boundary_mask()])
+        ]
+        self.edge_to_elems = edge_table.as_mapping()
+        self.locator = ElementLocator(self.nodes, self.elements)
+
+        # 内部边数据: [(a,b,e1,e2), ...]
+        internal_mask = edge_table.counts == 2
+        self.internal_edge_data = np.column_stack([
+            edge_table.lo[internal_mask],
+            edge_table.hi[internal_mask],
+            edge_table.owners[internal_mask, 0],
+            edge_table.owners[internal_mask, 1],
+        ]).astype(np.int64)
+
+        # (3) 单元专属几何缓存。标准键为 areas/centroids；内核可附加
+        # b_coeffs、Gauss Jacobians 等私有缓存。
+        geometry = self.element_kernel.build_geometry(
+            self.nodes, self.elements)
+        self._kernel_cache_names = tuple(geometry)
+        for name, value in geometry.items():
+            setattr(self, name, value)
+        if getattr(self, "areas", None) is None:
+            raise RuntimeError(
+                f"{self.element_kernel.name} geometry did not provide 'areas'.")
+        if getattr(self, "centroids", None) is None:
+            raise RuntimeError(
+                f"{self.element_kernel.name} geometry did not provide "
+                f"'centroids'.")
+
+        # (4) 通用单元 DOF 索引: (ne, 2*nnode_e)
+        dof_base = 2 * self.elements
+        n_local_dof = self.element_kernel.dofs_per_element
+        self.element_dofs = np.empty(
+            (self.n_elements, n_local_dof), dtype=np.int32)
+        self.element_dofs[:, 0::2] = dof_base
+        self.element_dofs[:, 1::2] = dof_base + 1
+
+        self._connectivity_built = True
+
+    # ── 基本属性 ──
+
+    @property
+    def n_nodes(self):
+        return self.nodes.shape[0]
+
+    @property
+    def n_elements(self):
+        return self.elements.shape[0]
+
+    @property
+    def n_dof(self):
+        """总自由度数 = 2 × 节点数 (Bathe Eq 4.18)"""
+        return 2 * self.n_nodes
+
+    @staticmethod
+    def _validate_node_id(nid):
+        """节点编号必须为整数 — 曾接受 1.5 静默约束错误 DOF (fix_node
+        1.5 → 节点 1 Y + 节点 2 X) / 载荷接口组装时崩溃 (审计 2026-08)。
+
+        兼容"有限且恰为整数"的浮点 (如 1.0); 拒绝 bool (True==1 陷阱)。
+        """
+        if isinstance(nid, bool):
+            raise TypeError(f"node id must be an integer, got bool {nid}")
+        if isinstance(nid, float) and float(nid).is_integer():
+            nid = int(nid)
+        if not isinstance(nid, (int, np.integer)):
+            raise TypeError(
+                f"node id must be an integer, got {type(nid).__name__} {nid!r}")
+        return int(nid)
+
+    def fix_node(self, nid, dof="both", value=0.0):
+        """固定单个节点并指定位移值 (Bathe §4.2.2)
+
+        参数
+        ----
+        nid : int — 节点索引 (0-based)
+        dof : str — "x", "y", 或 "both" (默认)
+        value : float — 指定位移值 [m]
+        """
+        nid = self._validate_node_id(nid)
+        if not (0 <= nid < self.n_nodes):
+            raise ValueError(f"fix_node: nid={nid} out of range [0, {self.n_nodes-1}]")
+        if dof not in ("x", "y", "both"):
+            raise ValueError(
+                f"fix_node: dof='{dof}' — must be 'x', 'y', or 'both'")
+        if not np.isfinite(value):
+            raise ValueError(
+                f"fix_node: prescribed displacement value={value} — must be finite")
+        dofs = []
+        if dof in ("x", "both"):
+            dofs.append(2 * nid)
+        if dof in ("y", "both"):
+            dofs.append(2 * nid + 1)
+
+        # 用 set 快速判重, list 累积新增
+        existing = set(self.fixed_dofs.tolist())
+        for d in dofs:
+            if d in existing:
+                old_val = self.prescribed_vals.get(d, 0.0)
+                # 曾绝对 1e-12: 微尺度位移 (1e-13 vs 2e-13) 覆盖静默无警告
+                # (审计 2026-08-03)
+                if abs(old_val - value) > 1e-12 * max(
+                        abs(old_val), abs(value), np.finfo(float).tiny):
+                    import warnings
+                    warnings.warn(f"fix_node: DOF {d} already constrained to "
+                                  f"{old_val:.6e}, overwriting to {value:.6e}")
+            existing.add(d)
+            self.prescribed_vals[d] = value
+        self.fixed_dofs = np.array(sorted(existing), dtype=int)
+        # 保持全程冻结: __post_init__ 之后 fixed_dofs 也必须是只读的,
+        # 与 nodes/elements 的可变契约一致 (见 replace_nodes)。
+        self.fixed_dofs.setflags(write=False)
+
+    def fix_nodes_func(self, node_list, func):
+        """函数形式的给定位移 (Bathe §4.2.2: 非零位移约束)
+
+        参数
+        ----
+        node_list : list[int]
+            受约束节点索引列表
+        func : callable or float
+            func(x, y) → (ux, uy) 或 常数 value
+            例: lambda x,y: (x/r, y/r) → 径向单位位移
+
+        Bathe Eq 4.43: 非零位移 U_b 需修正右端项 R_a' = R_a - K_ab·U_b
+        """
+        for nid in node_list:
+            nid = self._validate_node_id(nid)
+            x, y = self.nodes[nid]
+            if callable(func):
+                result = func(x, y)
+                if isinstance(result, (int, float)):
+                    ux = uy = result
+                else:
+                    ux, uy = result[0], result[1]
+            else:
+                ux = uy = func
+            self.fix_node(nid, "x", ux)
+            self.fix_node(nid, "y", uy)
+
+    def add_force(self, nid, fx=0.0, fy=0.0):
+        """添加节点集中力 [N] (Bathe: R_c 向量)
+
+        参数
+        ----
+        nid : int — 节点索引 (0-based)
+        fx, fy : float — x, y 方向集中力分量
+        """
+        nid = self._validate_node_id(nid)
+        if not (0 <= nid < self.n_nodes):
+            raise ValueError(f"add_force: nid={nid} out of range [0, {self.n_nodes-1}]")
+        if not (np.isfinite(fx) and np.isfinite(fy)):
+            raise ValueError(f"add_force: fx={fx}, fy={fy} — must be finite")
+        if fx != 0.0 or fy != 0.0:
+            # 曾用 abs>1e-30 阈值: 微尺度模型合法小载荷 (1e-31 N) 被静默
+            # 丢弃, 求解"成功"但位移全零 (审计 2026-08-03)
+            self.concentrated_forces.append({"node": nid, "force": (fx, fy)})
+
+    def _get_edge_elements(self, ni, nj):
+        """返回包含边 (ni,nj) 的单元索引列表; 边不存在则 ValueError."""
+        self.build_connectivity()
+        key = (min(int(ni), int(nj)), max(int(ni), int(nj)))
+        eids = self.edge_to_elems.get(key, [])
+        if len(eids) == 0:
+            raise ValueError(
+                f"Edge ({ni},{nj}) is not a mesh edge — "
+                f"nodes must be connected by an element side.")
+        return eids
+
+    def _validate_boundary_edge(self, ni, nj):
+        """验证 (ni,nj) 是网格中的边界边 (恰好属于一个单元)."""
+        eids = self._get_edge_elements(ni, nj)
+        if len(eids) > 1:
+            raise ValueError(
+                f"Edge ({ni},{nj}) is an interior edge shared by {len(eids)} elements. "
+                f"Surface tractions only supported on boundary edges.")
+        return eids[0]
+
+    def boundary_outward_normal(self, ni, nj):
+        """返回边界边 (ni,nj) 的单位外法向 — 由相邻单元 CCW 方向确定
+
+        算法: 找到包含此边的唯一单元, 取单元局部 CCW 边 (a→b) 的方向,
+        则外法向 n = (dy/L, -dx/L) (Bathe §5.3.2: CCW 域外法向 = 切向顺时针90°).
+
+        add_pressure 内部自动调用此方法, 因此 add_pressure(ni,nj,p) 和
+        add_pressure(nj,ni,p) 结果完全相同。
+
+        返回
+        ----
+        (nx, ny) : tuple[float, float] — 单位外法向分量
+        """
+        ni = self._validate_node_id(ni)
+        nj = self._validate_node_id(nj)
+        eid = self._validate_boundary_edge(ni, nj)
+        conn = self.elements[eid]
+
+        # 找到单元中与 (ni,nj) 匹配的局部 CCW 边
+        for ia, ib in self.element_kernel.local_edges:
+            a, b = conn[ia], conn[ib]
+            if {int(a), int(b)} == {int(ni), int(nj)}:
+                xa, ya = self.nodes[a]
+                xb, yb = self.nodes[b]
+                dx, dy = xb - xa, yb - ya
+                L = float(np.hypot(dx, dy))
+                edge_ulp = 64.0 * np.finfo(float).eps * max(
+                    float(max(abs(xa), abs(xb), abs(ya), abs(yb))),
+                    np.finfo(float).tiny)
+                if L <= edge_ulp:
+                    raise ValueError(
+                        f"Zero-length edge ({ni},{nj}) "
+                        f"(L={L:.3e} <= ULP {edge_ulp:.3e}).")
+                # CCW 单元局部边 (a→b): 外法向 = 切向顺时针90°
+                return float(dy / L), float(-dx / L)
+
+        raise RuntimeError(
+            f"Boundary edge ({ni},{nj}) not found in adjacent element {eid}. "
+            f"This should not happen — check mesh consistency.")
+
+    def add_traction(self, ni, nj, tx, ty):
+        """添加边上的均布面力 [Pa] (Bathe §4.2.1: R_s 向量).
+
+        仅支持边界边 (恰好属于1个单元). 内部边应使用独立的界面模型.
+        """
+        ni = self._validate_node_id(ni)
+        nj = self._validate_node_id(nj)
+        for n in (ni, nj):
+            if not (0 <= n < self.n_nodes):
+                raise ValueError(f"add_traction: node {n} out of range [0, {self.n_nodes-1}]")
+        for name, val in (("tx", tx), ("ty", ty)):
+            if not callable(val) and not np.isfinite(val):
+                raise ValueError(
+                    f"add_traction: {name}={val} — must be finite or callable")
+        eids = self._get_edge_elements(ni, nj)
+        if len(eids) != 1:
+            raise ValueError(
+                f"Edge ({ni},{nj}) is shared by {len(eids)} elements; "
+                f"surface tractions require a boundary edge (exactly 1 element).")
+        self.surface_tractions.append({"nodes": (ni, nj), "traction": (tx, ty)})
+
+    def add_pressure(self, ni, nj, p):
+        """添加边上的法向压力 [Pa] — 自动从单元方向计算 t = -p·n (Bathe §4.2.1)
+
+        外法向由相邻单元的 CCW 局部边方向确定, 不依赖调用者传入的节点顺序。
+        add_pressure(ni,nj,p) 和 add_pressure(nj,ni,p) 结果完全相同。
+
+        对直线、圆弧、椭圆、样条离散边均适用, 自动处理外边界和孔洞方向。
+
+        参数
+        ----
+        ni, nj : int — 边两端节点索引 (0-based, 顺序无关)
+        p : float or callable — 压力幅值 [Pa] (正值=压缩, 指向域内)
+        """
+        ni = self._validate_node_id(ni)
+        nj = self._validate_node_id(nj)
+        for n in (ni, nj):
+            if not (0 <= n < self.n_nodes):
+                raise ValueError(f"add_pressure: node {n} out of range [0, {self.n_nodes-1}]")
+        if not callable(p) and not np.isfinite(p):
+            raise ValueError(
+                f"add_pressure: p={p} — must be finite or callable")
+        # 不缓存外法向: 组装时由当前几何重新计算 (boundary_outward_normal),
+        # 这样 replace_nodes/replace_elements 改变几何后载荷自动跟随 —
+        # 缓存法向曾导致改几何后压力沿用旧方向。
+        self.surface_tractions.append({
+            "nodes": (ni, nj),
+            "traction": (p,),
+            "is_pressure": True,
+        })
+
+    def nodes_on_edge(self, axis, edge, tol=None):
+        """查找边界框特定边上的节点.
+
+        axis: 'x' 或 'y'. edge: 'min' 或 'max'.
+        tol=None → 自动: span × 1e-8 (覆盖 μm~km 尺度).
+        tol=0  → 严格相等.
+        """
+        if axis not in ("x", "y"):
+            raise ValueError(f"axis must be 'x' or 'y', got '{axis}'")
+        if edge not in ("min", "max"):
+            raise ValueError(f"edge must be 'min' or 'max', got '{edge}'")
+        if tol is not None and (not np.isfinite(tol) or tol < 0):
+            raise ValueError(f"tol={tol} must be finite and non-negative")
+        col = 0 if axis == "x" else 1
+        val = self.nodes[:, col].min() if edge == "min" else self.nodes[:, col].max()
+        span = max(np.ptp(self.nodes[:, 0]), np.ptp(self.nodes[:, 1]))
+        # 曾 span<1e-30 → 1.0 绝对地板: 子 1e-30 跨度模型 tol=1e-8 覆盖
+        # 全部节点, 边界查询静默返回整条边 (审计 2026-08-03)
+        if span < 64.0 * np.finfo(float).eps * max(
+                float(np.max(np.abs(self.nodes))), np.finfo(float).tiny):
+            span = np.finfo(float).tiny
+        effective_tol = tol if tol is not None else span * 1e-8
+        return np.where(np.abs(self.nodes[:, col] - val) <= effective_tol)[0]
+
+    def check_jacobian(self):
+        """验证所有单元采样点的 Jacobian 行列式为正值。
+
+        返回
+        ----
+        ok : bool
+            所有单元 Jacobian 为正
+        bad : list[int]
+            Jacobian ≤ 0 的单元索引列表
+        """
+        self.build_connectivity()
+        report = self.element_kernel.jacobian_report(self)
+        return report.ok, report.bad.tolist()
+
+    def check_rigid_body_constraints(self):
+        """逐连通分量检查是否消除了全部刚体模态 (Bathe §4.2.2)
+
+        每个 2D 连通分量需要至少 3 个独立约束消除:
+          x-平动, y-平动, 绕原点转动
+
+        仅计数不足时会漏掉: 3 个共线约束无法阻止转动, 或约束在断开的零件上。
+
+        返回
+        ----
+        list[dict]: 每个有问题的分量 {"component": int, "nodes": list, "issue": str}
+        """
+        from scipy.sparse import csr_matrix
+        from scipy.sparse.csgraph import connected_components
+
+        self.build_connectivity()
+        n_nodes = self.n_nodes
+
+        # ── 1. 连通分量分解 (复用向量化边表 — 取代 Python 双循环) ──
+        from .topology_core import build_edge_table
+        edge_table = build_edge_table(
+            self.elements, self.element_kernel.local_edges, n_nodes)
+        row = np.concatenate([edge_table.lo, edge_table.hi])
+        col = np.concatenate([edge_table.hi, edge_table.lo])
+        data = np.ones(len(row), dtype=int)
+        adj = csr_matrix((data, (row, col)), shape=(n_nodes, n_nodes))
+        n_comp, labels = connected_components(adj, directed=False)
+
+        # ── 2. 逐分量检查 ──
+        fixed_set = set(self.fixed_dofs)
+        issues = []
+
+        for comp in range(n_comp):
+            comp_nodes = np.where(labels == comp)[0]
+            if len(comp_nodes) < 2:
+                # 孤立节点: 无单元连接
+                issues.append({
+                    "component": comp,
+                    "nodes": comp_nodes.tolist(),
+                    "issue": f"孤立分量 ({len(comp_nodes)} 节点, 无单元连接)"
+                })
+                continue
+
+            # 该分量中被约束的 DOF
+            comp_dofs = set()
+            for n in comp_nodes:
+                if (2*n) in fixed_set:
+                    comp_dofs.add(2*n)
+                if (2*n + 1) in fixed_set:
+                    comp_dofs.add(2*n + 1)
+
+            if len(comp_dofs) == 0:
+                issues.append({
+                    "component": comp,
+                    "nodes": comp_nodes.tolist(),
+                    "issue": "无任何约束 — 保留 3 个刚体模态"
+                })
+                continue
+
+            # ── 刚体模态约束矩阵 (中心化 + 归一化, 与坐标系原点无关) ──
+            # R_i = [[1, 0, -y_i], [0, 1, x_i]]  (2×3)
+            # 被约束行 → R_constrained (n_fixed × 3)
+            xy = self.nodes[comp_nodes]
+            origin = xy.mean(axis=0)
+            # 分量特征尺寸: 局部跨度 + 坐标 ULP — 固定 1.0 下限在极小
+            # 尺寸模型 (1e-16) 下破坏刚体模态检查的尺度不变性, 合法
+            # 约束被误报"仍有转动模态" (审计 2026-08; 内层 1.0 残留
+            # 在坐标<1 且跨度<~3e-29 时仍把旋转列缩到 SVD 阈值下 —
+            # 2026-08-03 补修)
+            scl = max(np.ptp(xy, axis=0).max(),
+                      64.0 * np.finfo(float).eps * max(
+                          float(np.max(np.abs(xy))), np.finfo(float).tiny))
+            constrained_nodes = sorted(set(d // 2 for d in comp_dofs))
+            R_rows = []
+            for n in constrained_nodes:
+                x = (self.nodes[n, 0] - origin[0]) / scl
+                y = (self.nodes[n, 1] - origin[1]) / scl
+                if (2*n) in comp_dofs:
+                    R_rows.append([1.0, 0.0, -y])   # x-平动 + 转动
+                if (2*n + 1) in comp_dofs:
+                    R_rows.append([0.0, 1.0,  x])   # y-平动 + 转动
+
+            R = np.array(R_rows)  # (n_constrained, 3)
+            rank = np.linalg.matrix_rank(R)
+
+            if rank < 3:
+                missing = []
+                if rank < 2:
+                    # 检查缺少哪个平动
+                    _, _, vt = np.linalg.svd(R)
+                    null = vt[2] if rank < 2 else vt[1]
+                    if abs(null[0]) > 0.5:
+                        missing.append("x-平动")
+                    if abs(null[1]) > 0.5:
+                        missing.append("y-平动")
+                    if abs(null[2]) > 0.5:
+                        missing.append("转动")
+                elif rank == 2:
+                    # 零空间向量指示真正缺失的模态 — 曾一律报"转动", 但
+                    # 三个仅 y 约束的节点缺失的是 x 平动 (审计 2026-08-03)
+                    _, _, vt = np.linalg.svd(R)
+                    null = vt[2]
+                    if abs(null[0]) > 0.5:
+                        missing.append("x-平动")
+                    elif abs(null[1]) > 0.5:
+                        missing.append("y-平动")
+                    else:
+                        missing.append("转动 (约束共线或等价)")
+
+                issues.append({
+                    "component": comp,
+                    "nodes": comp_nodes.tolist(),
+                    "issue": (f"约束不足 ({len(constrained_nodes)} 节点约束, "
+                              f"rank={rank}/3) — 残留: {', '.join(missing) if missing else '未知'}"),
+                    "constrained_nodes": constrained_nodes,
+                })
+
+        return issues
+
+    def info(self):
+        """返回网格摘要字符串
+
+        包含: 节点数、单元数、DOF 数、Jacobian 状态、边界边数
+        """
+        ok, bad = self.check_jacobian()
+        self.build_connectivity()  # 确保拓扑已构建
+        n_bdy = len(self.boundary_edges) if self.boundary_edges else 0
+        return (f"Mesh: {self.n_nodes} nodes, {self.n_elements} elements  "
+                f"{self.elem_type}/{self.element_kernel.name}  "
+                f"{self.n_dof} DOFs  Jacobian: {'OK' if ok else f'{len(bad)} BAD'}  "
+                f"boundary: {n_bdy} edges")
