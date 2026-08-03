@@ -278,21 +278,34 @@ class Q4Element(ElementKernel):
         return fe
 
     def shape_values_at(self, coords, x, y, tol=1e-12):
+        coords = np.asarray(coords, dtype=float)
         target = np.array([x, y], dtype=float)
+        if not (np.all(np.isfinite(target)) and np.all(np.isfinite(coords))):
+            # NaN/Inf 查询或坐标 — 曾静默返回 NaN 形函数并被当作"点在
+            # 单元内" (NaN 比较全假), 污染下游应力插值/域包含判断
+            return None
+        # Newton 迭代在单元局部坐标系进行 (以首个节点为原点): 绝对坐标下
+        # N@coords 的浮点求和含 ~ulp(原点) 消差误差, 大坐标原点 + 小局部
+        # 尺寸时迭代无法收敛 (1e12 平移的单位方形 ~10% 内部点定位失败)。
+        # 局部坐标量级 = 单元尺寸, 与刚度/几何缓存的居中化约定一致。
+        origin = coords[0]
+        local = coords - origin
+        local_target = target - origin
         natural = np.zeros(2)
-        # 局部单元尺度, 下限取坐标 ULP — 固定 1.0 下限在纳米尺度
+        # 局部单元尺度, 下限取局部坐标 ULP — 固定 1.0 下限在纳米尺度
         # (边长 1e-12) 下容差 1e-10×1 远超单元本身, 域外点被误判在单元内
         coord_ulp = 64.0 * np.finfo(float).eps * float(
-            np.max(np.abs(coords)))
-        scale = max(float(np.ptp(coords[:, 0])),
-                    float(np.ptp(coords[:, 1])), coord_ulp)
+            np.max(np.abs(local)))
+        scale = max(float(np.ptp(local[:, 0])),
+                    float(np.ptp(local[:, 1])), coord_ulp,
+                    np.finfo(float).tiny)
         for _ in range(20):
             xi, eta = natural
             N = shape_values(xi, eta)
-            residual = N @ coords - target
+            residual = N @ local - local_target
             if np.linalg.norm(residual, ord=np.inf) <= tol * scale:
                 break
-            jac = shape_derivatives(xi, eta) @ coords
+            jac = shape_derivatives(xi, eta) @ local
             if abs(np.linalg.det(jac)) <= np.finfo(float).tiny:
                 return None
             natural -= np.linalg.solve(jac.T, residual)
@@ -302,7 +315,8 @@ class Q4Element(ElementKernel):
         if eta < -1.0 - tol or eta > 1.0 + tol:
             return None
         N = shape_values(xi, eta)
-        if np.linalg.norm(N @ coords - target, ord=np.inf) > 10.0 * tol * scale:
+        if (np.linalg.norm(N @ local - local_target, ord=np.inf)
+                > 10.0 * tol * scale):
             return None
         return N
 
