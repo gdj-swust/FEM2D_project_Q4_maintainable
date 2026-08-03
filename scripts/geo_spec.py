@@ -299,6 +299,14 @@ def _check_hole_separation(holes, lc, margin_factor=0.5):
 # .geo 生成 — 内置几何内核 (tutorial t1/t4)
 # ══════════════════════════════════════════════════════
 
+def _require_param(spec, key, label):
+    """几何参数缺失必须报错 — 漏参数 + 静默默认值 = 看似正常但错误的几何."""
+    if key not in spec["params"]:
+        raise ValueError(
+            f"几何类型 {spec['type']} 缺少参数 '{label}' — "
+            f"请在描述中指定 (如 '{label} 3.0')")
+
+
 def generate_geo(spec, output_path, quad=False):
     """spec → Gmsh .geo 文件.
 
@@ -317,11 +325,17 @@ def generate_geo(spec, output_path, quad=False):
     # ── 几何 ──
     edges = {}
     if spec["type"] == "rect":
+        _require_param(spec, "width", "宽")
+        _require_param(spec, "height", "高")
         edges = _geo_rect(L, spec)
         W('')
     elif spec["type"] in ("circle", "annulus"):
-        inner = spec["params"].get("inner_r", 0)
-        edges = _geo_circle(L, spec["params"].get("outer_r", 1.0), inner, spec["holes"], lc)
+        _require_param(spec, "outer_r", "外径/外半径")
+        if spec["type"] == "annulus":
+            # 缺内径曾静默按 0 处理 → 圆环变成实心圆, 几何语义根本改变
+            _require_param(spec, "inner_r", "内径/内半径")
+        inner = spec["params"]["inner_r"] if spec["type"] == "annulus" else 0
+        edges = _geo_circle(L, spec["params"]["outer_r"], inner, spec["holes"], lc)
         W('')
     else:
         raise ValueError(f"Unknown type: {spec['type']}")
@@ -426,7 +440,7 @@ def _edge_ids(edge_name, edges):
 
 def _geo_rect(L, spec):
     p = spec["params"]
-    hw, hh = p.get("width", 1.0) / 2.0, p.get("height", 1.0) / 2.0
+    hw, hh = p["width"] / 2.0, p["height"] / 2.0
     holes = spec.get("holes", [])
     n_holes = len(holes)
     lc = spec.get("mesh_size", 0.1)  # 校验留量用 (几何文件中的 lc 是字面文本)

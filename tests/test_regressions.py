@@ -45,6 +45,19 @@ def test_physical_curve_square_stays_lines():
         assert s['type'] == 'line', 'Square edge should be line, got ' + s['type']
 
 
+def test_physical_curves_none_labels_returns_none():
+    """生产守卫: edge_labels 为 None (生产链路恒如此) 必须返回 None —
+    曾无此测试, 未来重构可能让 legacy 映射在生产路径复活."""
+    from fem2d import Mesh
+    from fem2d.boundary.naming import segments_from_physical_curves
+    nodes = np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
+    elems = np.array([[0, 1, 2], [0, 2, 3]], dtype=int)
+    m = Mesh(nodes=nodes, elements=elems, E=210e9, nu=0.3,
+             thickness=0.01, elem_type='CPS3')
+    assert segments_from_physical_curves(m, None) is None
+    assert segments_from_physical_curves(m, {}) is None
+
+
 def test_small_deformation_asserts_false():
     """大载荷 → small_deformation_ok 必须为 False + RuntimeWarning."""
     from fem2d import Mesh, solve
