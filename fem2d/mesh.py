@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .checks import (
+    require_dof_index_array,
     require_finite_positive,
     require_finite_scalar,
     require_nu_valid,
@@ -289,27 +290,10 @@ class Mesh:
                 f"Element node indices out of bounds [0, {nodes.shape[0]-1}]: "
                 f"{np.unique(bad).tolist()}")
 
-        # ── 固定自由度校验 (拒绝 list/float/负数/重复/越界) ──
+        # ── 固定自由度校验 (共享 DOF helper: 布尔掩码 TypeError / 其余 ValueError) ──
         n_dof = 2 * nodes.shape[0]
-        raw_fixed = np.asarray(self.fixed_dofs)
-        if np.issubdtype(raw_fixed.dtype, np.bool_):
-            # 布尔掩码曾经 asarray(dtype=float) 变成 [0,0,1,1,...], unique
-            # 折叠成 {0,1} — 用户想约束的 DOF 被静默换成节点 0
-            raise TypeError(
-                "fixed_dofs must be integer DOF indices, not a boolean mask — "
-                "pass np.flatnonzero(mask) or explicit integer indices")
-        fixed = raw_fixed.astype(float)
-        if not np.issubdtype(fixed.dtype, np.integer):
-            bad = fixed != np.rint(fixed)
-            if np.any(bad):
-                raise ValueError(
-                    f"fixed_dofs must contain integer DOF indices — "
-                    f"non-integer value found: {fixed[bad].flat[0]}")
-            fixed = np.rint(fixed)
-        fixed = fixed.astype(np.int64)
-        if np.any((fixed < 0) | (fixed >= n_dof)):
-            bad = fixed[(fixed < 0) | (fixed >= n_dof)]
-            raise ValueError(f"fixed_dofs out of range [0, {n_dof-1}]: {bad.tolist()}")
+        fixed = require_dof_index_array(
+            self.fixed_dofs, "fixed_dofs", n_dof=n_dof)
         fixed = np.unique(fixed)
         # 校验 prescribed_vals 的键都在 fixed_dofs 中
         extra_keys = set(self.prescribed_vals.keys()) - set(fixed.tolist())
@@ -486,26 +470,10 @@ class Mesh:
             raise ValueError("elements contain NaN or Inf")
 
     def _validate_bc_state(self):
-        # ── BC 状态 (构造后可被重写, 复测 2026-08-02 建议) ──
+        # ── BC 状态 (构造后可被重写, 复测 2026-08-02 建议; 共享 DOF helper) ──
         n_dof = 2 * self._nodes.shape[0]
-        fixed = np.asarray(self.fixed_dofs)
-        if np.issubdtype(fixed.dtype, np.bool_):
-            # 与 __post_init__ 同: 布尔掩码曾静默折叠成 {0,1} 约束错 DOF
-            raise TypeError(
-                "fixed_dofs must be integer DOF indices, not a boolean mask — "
-                "pass np.flatnonzero(mask) or explicit integer indices")
-        if not np.all(np.isfinite(fixed)):
-            raise ValueError("fixed_dofs contain NaN/Inf")
-        if not np.issubdtype(fixed.dtype, np.integer):
-            bad = fixed != np.rint(fixed)
-            if np.any(bad):
-                raise ValueError(
-                    f"fixed_dofs must contain integer DOF indices — "
-                    f"non-integer value found: {fixed[bad].flat[0]}")
-            fixed = np.rint(fixed).astype(np.int64)
-        if np.any((fixed < 0) | (fixed >= n_dof)):
-            raise ValueError(
-                f"fixed_dofs out of range [0, {n_dof-1}]")
+        fixed = require_dof_index_array(
+            self.fixed_dofs, "fixed_dofs", n_dof=n_dof)
         _u, _c = np.unique(fixed, return_counts=True)
         dup = _u[_c > 1]
         if len(dup):

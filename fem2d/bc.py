@@ -17,6 +17,8 @@ import numpy as np
 from scipy.sparse import diags
 from scipy.sparse.linalg import LinearOperator, cg, spilu, splu
 
+from .checks import require_dof_index_array
+
 # ═══════════════════════════════════════════════════════════════
 # 1. 消去法 — Bathe §4.2.2 Eq 4.42-4.45 (推荐)
 # ═══════════════════════════════════════════════════════════════
@@ -290,19 +292,8 @@ def _validate_dof_partition(free_dofs, fixed_dofs, n_dof):
     free/fixed 重叠时约束值覆盖自由解, 遗漏 DOF 静默设 0。
     要求: free 合法整数、无重叠、free ∪ fixed 完整覆盖 [0, n_dof)。
     """
-    free = np.asarray(free_dofs)
-    if free.ndim != 1:
-        raise ValueError(f"free_dofs must be 1-D, got shape {free.shape}")
-    if free.dtype == np.bool_ or free.dtype.kind == "b":
-        raise ValueError(
-            "free_dofs must be integer DOF indices, got boolean mask")
-    if not np.all(np.isfinite(free)):
-        raise ValueError("free_dofs contain NaN/Inf")
-    if not np.all(free == np.rint(free)):
-        raise ValueError(f"free_dofs must be integers, got {free.tolist()}")
-    free = np.rint(free).astype(np.int64)
-    if np.any((free < 0) | (free >= n_dof)):
-        raise ValueError(f"free_dofs out of range [0, {n_dof - 1}]")
+    free = require_dof_index_array(
+        free_dofs, "free_dofs", n_dof=n_dof, bool_error=ValueError)
     if np.unique(free).size != free.size:
         # 自身重复曾延迟到 SuperLU 奇异才报错
         dup = free[np.flatnonzero(
@@ -333,21 +324,8 @@ def _reject_duplicate_fixed_dofs(fixed_dofs, prescribed_vals, n_dof=None):
     一个 — 主 solve() 路径已由 validate_state 防护, 此处兜底直接调用。
     返回去重后的 (fixed_dofs, prescribed_vals)。
     """
-    fixed = np.asarray(fixed_dofs)
-    if fixed.ndim != 1:
-        raise ValueError(f"fixed_dofs must be 1-D, got shape {fixed.shape}")
-    if fixed.dtype == np.bool_ or fixed.dtype.kind == "b":
-        # 布尔掩码 [True] 曾 rint→1 被当作 DOF 1, 静默约束错自由度
-        #
-        raise ValueError(
-            "fixed_dofs must be integer DOF indices, got boolean mask")
-    if not np.all(np.isfinite(fixed)):
-        raise ValueError("fixed_dofs contain NaN/Inf")
-    if not np.issubdtype(fixed.dtype, np.integer):
-        if not np.all(fixed == np.rint(fixed)):
-            raise ValueError(
-                f"fixed_dofs must be integers, got {fixed.tolist()}")
-        fixed = np.rint(fixed).astype(np.int64)
+    fixed = require_dof_index_array(
+        fixed_dofs, "fixed_dofs", n_dof=n_dof, bool_error=ValueError)
     if prescribed_vals is None:
         prescribed = np.zeros(len(fixed))
     else:
@@ -358,9 +336,6 @@ def _reject_duplicate_fixed_dofs(fixed_dofs, prescribed_vals, n_dof=None):
                 f"({len(prescribed)}) 长度必须相等 — 曾静默丢约束")
         if not np.all(np.isfinite(prescribed)):
             raise ValueError("prescribed_vals contain NaN/Inf")
-    if n_dof is not None:
-        if np.any((fixed < 0) | (fixed >= n_dof)):
-            raise ValueError(f"fixed_dofs out of range [0, {n_dof - 1}]")
     seen = {}
     for dof, value in zip(fixed, prescribed):
         if dof in seen and seen[dof] != value:
