@@ -24,7 +24,9 @@ def run_plane_verification():
 
     def check(name, computed, theory, tol=0.05):
         nonlocal PASS, FAIL
-        rel = abs(computed - theory) / (abs(theory) + 1e-30)
+        # 分母地板用 tiny 而非固定 1e-30 — 理论值恰为零时 1e-30 会使
+        # 微小误差被误判为 0 通过 (微尺度约定: 禁止绝对阈值)。
+        rel = abs(computed - theory) / (abs(theory) + np.finfo(float).tiny)
         status = "PASS" if rel < tol else "FAIL"
         print(f"  {status}  {name}: err={rel*100:.1f}%  ({computed:.4e} vs {theory:.4e})")
         if status == "PASS":
@@ -112,9 +114,15 @@ def run_plane_verification():
 
     m = Mesh(nodes=nodes, elements=elems, E=E, nu=nu, thickness=1.0,
              plane_type="strain", elem_type="CST")
-    m.fix_node(0, "both")
-    m.fix_node(nr, "y")
-    m.fix_node((nth - 1) * (nr + 1), "x")
+    # 最小约束 — 全部沿切向, 不约束任何节点的径向位移:
+    # 内压自由膨胀下 Lame 解 u_r(a) ≠ 0, 旧版把内边界节点 0 两方向
+    # 都固定 → 该点径向位移被强制为零, 与解析解冲突, 污染内环检查区
+    # (σ_θ/σ_r 误差虚高)。切向三元组: (a,0) 与 (b,0) 的 uy (θ=0 处
+    # 切向 = +y) 杀 Ty+Rz (a≠b 两式联立), (0,a) 的 ux (θ=π/2 处
+    # 切向 = -x) 杀 Tx — 刚体模态全消, 径向解完整保留。
+    m.fix_node(0, "y")                       # (a, 0): 切向
+    m.fix_node(nr, "y")                      # (b, 0): 切向, 联立上式杀 Ty/Rz
+    m.fix_node((nth // 4) * (nr + 1), "x")   # (0, a): θ=π/2 切向, 杀 Tx
 
     m.build_connectivity()
     for ea, eb in m.boundary_edges:
@@ -146,7 +154,8 @@ def run_plane_verification():
 
         r_fe = sx*c*c + sy*s*s + 2*txy*c*s                   # σ_rr = 张量旋转
         r_th = factor * (1 - b_out**2 / r_c**2)
-        err_r.append(abs(r_fe - r_th) / (abs(r_th) + 1e-30))
+        err_r.append(abs(r_fe - r_th)
+                     / (abs(r_th) + np.finfo(float).tiny))
 
     err_t = np.mean(err_t) if err_t else 1.0
     err_r = np.mean(err_r) if err_r else 1.0

@@ -3,6 +3,28 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
+## 包 6 — 测试与文档 (2026-08-03, 未发布, 版本号未变)
+
+- **测试数实测修正**: 504 collected → 502 passed + 2 skipped (本机); 无 Gmsh
+  环境 483 collected → 474 passed + 13 skipped (4 个模块级 skip 不计入
+  collected)。文档不再写单一固定数字, 注明环境差异。
+- **中文字体缺字警告收敛**: 绘图测试经 plot_three 渲染中文标签, 无 CJK
+  字体机器上 matplotlib 发 "Glyph ... missing from font(s)" 噪音 —
+  tests/conftest.py 经 pytest_configure 注册 filterwarnings 收敛
+  (模块级 warnings.filterwarnings 会被 pytest 的 catch_warnings 绕过,
+  必须用 ini 机制), 不动任何断言语义。
+- **厚壁圆筒验证约束修正** (fem2d/verification.py): 旧版 fix_node(0, "both")
+  把内边界 θ=0 节点径向位移强制为零, 与 Lame 自由膨胀 u_r(a) 冲突 —
+  改为三个切向最小约束 (θ=0 处内外两点 uy + θ=π/2 处 ux), 刚体模态
+  全消且不约束任何径向位移; σ_θ/σ_r 误差 6.7265%→6.7257% / 8.8287%→
+  8.8273% (结论不变, 仍 PASS)。同文件 2 处 1e-30 绝对地板 → tiny。
+- **判别性测试**: test_cylinder_constraint_leaves_inner_radial_free
+  (旧约束 ux(0)=0, 相对 Lame 100% 误差必失败); 字体过滤注册守卫。
+- **文档同步**: README / PROJECT_SUMMARY / NEXT_SESSION_HANDOFF 测试数、
+  git 基线 (2026-08-03 起)、打包惯例
+  (`FEM2D_project_Q4_YYYYMMDD_HHMMSS_maintainable.zip` 放 Downloads,
+  不含 tools/、缓存、egg-info) 全部按实测更新。
+
 ## 9.17.0 (2026-08-03) — 高强度整修 + 外部审查修复
 
 ### 核心数值
