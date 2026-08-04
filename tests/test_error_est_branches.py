@@ -185,11 +185,39 @@ def test_traction_jumps_sigma_ref_fixed_denominator():
 
 
 def test_traction_jumps_sigma_ref_invalid_rejected():
-    """sigma_ref 非正/非有限 → ValueError (曾 max(...,1e-30) 静默覆盖)."""
+    """sigma_ref 非正/非有限 → ValueError 带参数名 (曾 max(...,1e-30)
+    静默覆盖; 现在走 checks.require_finite_positive 统一消息格式)."""
     mesh = _two_tri()
     stress = np.ones((2, 3))
-    for bad in (0.0, -1.0, np.nan, np.inf):
-        with pytest.raises(ValueError, match="finite and positive"):
+    for bad, match in ((0.0, "must be > 0"), (-1.0, "must be > 0"),
+                       (np.nan, "must be finite"), (np.inf, "must be finite")):
+        with pytest.raises(ValueError, match=match):
+            compute_traction_jumps(mesh, stress, sigma_ref=bad)
+
+
+def test_traction_jumps_sigma_ref_string_rejected():
+    """sigma_ref 传字符串 → TypeError 带参数名 (旧实现: 裸 numpy
+    TypeError, 无上下文)."""
+    mesh = _two_tri()
+    stress = np.ones((2, 3))
+    for bad in ("1e6", "abc"):
+        with pytest.raises(TypeError, match="sigma_ref="):
+            compute_traction_jumps(mesh, stress, sigma_ref=bad)
+
+
+def test_traction_jumps_single_element_mesh_validates_first():
+    """单单元网格无内部边: 非法 sigma_ref 必须先报错, 不能静默返回 [] —
+    校验必须早于空数据快速返回 (旧实现: 返回空列表, 非法值被静默接受)."""
+    mesh = Mesh(
+        nodes=np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]),
+        elements=np.array([[0, 1, 2]], dtype=int),
+        elem_type="CPS3")
+    stress = np.ones((1, 3))
+    # 合法 sigma_ref + 单单元网格 → 无内部边, 空列表是正确结果
+    assert compute_traction_jumps(mesh, stress, sigma_ref=1e6) == []
+    # 非法 sigma_ref → 报错而非空列表
+    for bad in (0.0, -1.0, np.nan, "1e6"):
+        with pytest.raises((ValueError, TypeError)):
             compute_traction_jumps(mesh, stress, sigma_ref=bad)
 
 
