@@ -16,9 +16,9 @@
   try/except 双捕 (ImportError + OSError — 缺 libGLU 等原生依赖时
   gmsh 加载抛 OSError, importorskip 只捕 ImportError); 语义与
   test_msh_import_audit 原有模块级 skipif 块一致。
-- mesh_from_geo: 临时 .geo → generate_from_geo → (nodes, elements,
-  elem_type), 复制于 test_boundary_complex/gmsh/stress/highpressure
-  的 4 份同构实现。
+- mesh_from_geo / mesh_result_from_geo: 临时 .geo → generate_from_geo
+  → 3 元组 / 完整结果对象, 复制于 test_boundary_complex/gmsh/stress/
+  highpressure 的 4 份同构实现。
 - square_mesh / quad_mesh: 2×2 单位方板 CPS4 网格 fixture (节点
   CCW), 对应 test_physical_point_resolution._square_mesh /
   test_solver_branches 等文件的 _quad 语义。
@@ -53,22 +53,27 @@ def gmsh_available():
         pytest.skip(GMSH_UNAVAILABLE_REASON)
 
 
-def mesh_from_geo(geo_str):
-    """写临时 .geo → generate_from_geo → (nodes, elements, elem_type)."""
+def mesh_result_from_geo(geo_str):
+    """写临时 .geo → generate_from_geo, 返回完整结果对象 (含 .regions)."""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.geo',
                                      delete=False) as f:
         f.write(geo_str)
         geo = f.name
     try:
         from fem2d.gmsh_adapter import generate_from_geo
-        r = generate_from_geo(geo)
-        return r.nodes, r.elements, r.elem_type
+        return generate_from_geo(geo)
     finally:
         if os.path.exists(geo):
             try:
                 os.unlink(geo)
             except OSError:
                 pass
+
+
+def mesh_from_geo(geo_str):
+    """写临时 .geo → generate_from_geo → (nodes, elements, elem_type)."""
+    r = mesh_result_from_geo(geo_str)
+    return r.nodes, r.elements, r.elem_type
 
 
 def _mesh():
