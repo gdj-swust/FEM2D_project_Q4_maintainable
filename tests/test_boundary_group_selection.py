@@ -123,6 +123,20 @@ def test_group_missing_exit_code_1_runner():
                  "--no-plot"]) == 1
 
 
+def test_interactive_comma_list_and_group(monkeypatch):
+    """交互路径: "12,13" 逗号多选 + "@组名" — 段列表提示行名副其实.
+
+    "1,1" 重复选择去重 (不得重复施加); 组内多段按段列表序展开."""
+    import fem2d.bc_apply as bc_apply
+
+    segments, registry = _segments_and_registry()
+    answers = iter(["1,3", "@组A", "2,2", ""])
+    monkeypatch.setattr(bc_apply, "ask", lambda prompt: next(answers))
+    collected = list(
+        bc_apply._interactive_edge_index(segments, registry))
+    assert collected == [0, 2, 0, 2, 1]
+
+
 @pytest.mark.skipif(
     not __import__("tests.conftest", fromlist=["GMSH_AVAILABLE"]).
     GMSH_AVAILABLE,

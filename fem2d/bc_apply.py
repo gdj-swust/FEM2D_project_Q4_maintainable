@@ -48,16 +48,27 @@ def _interactive_edge_index(segs, region_registry=None):
     """交互收集边编号 (回车结束), 逐个产出匹配的边索引.
 
     fix 与 traction 交互共用 (曾各自实现相同的提问循环).
+    支持逗号分隔多选 ("12,13") 与 @组名 — 段列表提示行
+    "输入编号 12,13 精细选择；输入 @组名 整组选择" 必须名副其实.
     """
     while True:
         inp = ask("  边编号 (回车结束): ")
         if not inp:
             return
-        indices = _resolve_boundary_selection(
-            inp, segs, fatal=False, region_registry=region_registry)
+        parts = [part.strip() for part in inp.split(",") if part.strip()]
+        indices = []
+        for part in parts:
+            matched = _resolve_boundary_selection(
+                part, segs, fatal=False, region_registry=region_registry)
+            if not matched:
+                indices = []
+                break
+            indices.extend(matched)
         if not indices:
             print("    ? 无效编号")
             continue
+        # 去重保序: "1,1" 重复选择不得重复施加 (重复 traction 会双倍装配)
+        indices = list(dict.fromkeys(indices))
         if len(indices) > 1:
             # 曾 yield indices[0] 静默丢弃其余匹配: "left" 命中 3 段时
             # 只施加第 1 段, 打印却显示成功
