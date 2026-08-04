@@ -1,5 +1,5 @@
 """Topology-independent linear-elastic material operations."""
-import sys
+import warnings
 
 import numpy as np
 
@@ -20,16 +20,15 @@ def D_matrix(E, nu, plane_type="stress"):
         D *= factor
     elif plane_type == "strain":
         if nu > 0.45:
-            print(
-                f"  [WARN] ν = {nu} > 0.45 in plane strain → "
-                "near-incompressible material.",
-                file=sys.stderr,
-            )
-            print(
-                "         Standard displacement formulations may exhibit "
-                "volumetric locking; verify mesh convergence and use a "
-                "mixed/selective formulation when needed as ν → 0.5.",
-                file=sys.stderr,
+            # 全库统一 warnings.warn (曾 print stderr, 库调用方无法过滤/
+            # 捕获) — 文案化交给报告层
+            warnings.warn(
+                f"ν = {nu} > 0.45 in plane strain → "
+                "near-incompressible material. Standard displacement "
+                "formulations may exhibit volumetric locking; verify mesh "
+                "convergence and use a mixed/selective formulation when "
+                "needed as ν → 0.5.",
+                RuntimeWarning, stacklevel=2,
             )
         factor = E / ((1.0 + nu) * (1.0 - 2.0 * nu))
         D[0, 0] = D[1, 1] = 1.0 - nu

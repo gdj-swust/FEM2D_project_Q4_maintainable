@@ -727,3 +727,37 @@ def test_main_reconfigure_failure_swallowed(monkeypatch):
         raise ValueError("fake reconfigure failure")
     monkeypatch.setattr(sys.stdout, "reconfigure", _reconfigure)
     assert main(["nonexistent.msh"]) == 1
+
+
+# ═══════════════════════════════════════════════════════════════
+# pkg11 A17 — reconfigure_streams 共享 (run_demo 与 runner.main)
+# ═══════════════════════════════════════════════════════════════
+
+def test_reconfigure_streams_shared_helper(monkeypatch):
+    """编码安全网统一入口 (pkg11 A17).
+
+    判别性: run_demo.py 与 runner.main 曾 7 行逐字复制 — 两处必须
+    调用同一 reconfigure_streams; 支持/不支持 reconfigure 与重配
+    失败 (ValueError/OSError) 三种流都不得抛异常。
+    """
+    from fem2d.errors import reconfigure_streams
+
+    calls = []
+
+    class _NoReconfigure:
+        pass
+
+    class _Reconfigurable:
+        def reconfigure(self, **kwargs):
+            calls.append(kwargs)
+
+    class _Raising:
+        def reconfigure(self, **kwargs):
+            raise OSError("cannot set")
+
+    for stream in (_NoReconfigure(), _Reconfigurable(), _Raising()):
+        monkeypatch.setattr(sys, "stdout", stream)
+        monkeypatch.setattr(sys, "stderr", stream)
+        reconfigure_streams()
+    # stdout + stderr 各一次 (仅 _Reconfigurable 命中; 其余两轮无调用)
+    assert calls == [{"errors": "replace"}, {"errors": "replace"}]

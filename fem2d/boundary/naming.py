@@ -38,17 +38,14 @@ _segment_is_outer = segment_is_outer
 
 def validate_boundary_segments(mesh, segments):
     """验证边界分段覆盖了所有边界边, 每条边恰好一次."""
-    def _canon(a, b):
-        return (min(int(a), int(b)), max(int(a), int(b)))
-
     mesh.build_connectivity()
-    expected = {_canon(a, b) for a, b in mesh.boundary_edges}
+    expected = {canonical_edge(a, b) for a, b in mesh.boundary_edges}
 
     counts = Counter()
     for seg in segments:
         ns = seg["nodes"]
         for a, b in zip(ns, ns[1:]):
-            counts[_canon(a, b)] += 1
+            counts[canonical_edge(a, b)] += 1
 
     found = set(counts.keys())
     missing = expected - found

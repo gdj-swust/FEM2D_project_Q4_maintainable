@@ -212,25 +212,17 @@ def run_cantilever_convergence(
     # Per-level local convergence rates。
     # 曾 1e-15 地板 + 1e-14 门槛: 精细层误差 (<1e-14) 的速率被截成 0,
     # 收敛序列 [1e-3,1e-6,1e-10,1e-15,1e-16] 的最细层报 k=0.00 。仅当下一层误差恰为 0 (机器精度收敛) 才跳过。
-    per_level = []
-    for i in range(len(h) - 1):
-        r_local = np.log(h[i] / h[i+1])
-        if uy_err[i + 1] > 0.0:
-            ku = np.log(np.maximum(uy_err[i], np.finfo(float).tiny)
-                        / uy_err[i + 1]) / r_local
-        else:
-            ku = 0.0
-        if s_err[i + 1] > 0.0:
-            ks = np.log(np.maximum(s_err[i], np.finfo(float).tiny)
-                        / s_err[i + 1]) / r_local
-        else:
-            ks = 0.0
-        if eta_vals[i + 1] > 0.0:
-            ke = np.log(np.maximum(eta_vals[i], np.finfo(float).tiny)
-                        / eta_vals[i + 1]) / r_local
-        else:
-            ke = 0.0
-        per_level.append((ku, ks, ke))
+    # 三块 (ku/ks/ke) 同一模式堆成数组一次向量化 — 曾逐字重复三次
+    prev = np.array([uy_err[:-1], s_err[:-1], eta_vals[:-1]])
+    nxt = np.array([uy_err[1:], s_err[1:], eta_vals[1:]])
+    r_local = np.log(h[:-1] / h[1:])
+    rates = np.zeros_like(prev)
+    valid = nxt > 0.0
+    # valid 是 (3, n-1) 掩码 — r_local 按列取 (同一列三行共享同一 r_local)
+    rates[valid] = np.log(
+        np.maximum(prev[valid], np.finfo(float).tiny) / nxt[valid]
+    ) / r_local[np.where(valid)[1]]
+    per_level = [tuple(row) for row in rates.T]
 
     # Global fit: only fit asymptotic region (finest 3-4 levels, skip coarsest)
     uy_rate = s_rate = e_rate = 0.0

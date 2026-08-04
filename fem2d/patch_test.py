@@ -16,13 +16,7 @@ Bathe §5.3.3 (line 19754-19896):
 
 运行: python -m fem2d.patch_test
 """
-import os
-import sys
-
 import numpy as np
-
-# Ensure project root on path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from .element import get_element_kernel
 from .mesh import Mesh
@@ -112,8 +106,6 @@ def run_patch_test(E=210e9, nu=0.3, plane="stress", tol=1e-10,
         _gen_irregular_q4_patch() if is_q4 else _gen_irregular_patch())
     mesh = Mesh(nodes=nodes, elements=elements, E=E, nu=nu,
                 thickness=1.0, plane_type=plane, elem_type=elem_type)
-
-    bdy_nodes = _identify_boundary_nodes(mesh)
 
     # ── 三个常应力测试 ──
     # 对平面应力:

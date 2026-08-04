@@ -322,12 +322,11 @@ def _find_degenerate_elements(nodes, elements):
         if not bad and len(conn) == 4:
             # 蝴蝶形 (自交) 四边形: 两片三角有向面积异号, 净面积仍为正
             # 而漏检 — 求解器 Jacobian 检查会以 inverted 拒绝, 导入校验
-            # 必须给出同样诊断
+            # 必须给出同样诊断。两片三角分解复用 _signed_area (曾内联
+            # 逐字重复同一公式, 修一处分叉另一处仍错)
             c = nodes[conn]
-            a1 = 0.5 * ((c[1, 0] - c[0, 0]) * (c[2, 1] - c[0, 1]) -
-                        (c[2, 0] - c[0, 0]) * (c[1, 1] - c[0, 1]))
-            a2 = 0.5 * ((c[3, 0] - c[2, 0]) * (c[0, 1] - c[2, 1]) -
-                        (c[0, 0] - c[2, 0]) * (c[3, 1] - c[2, 1]))
+            a1 = _signed_area(c[:3])
+            a2 = _signed_area(np.vstack([c[2], c[3], c[0]]))
             bad = a1 * a2 < 0
         if bad:
             degenerate.append((eid, area))
@@ -418,7 +417,10 @@ def validate_mesh(nodes, elements, elem_type=None, tol=None):
     nodes : (n_nodes, 2) ndarray
     elements : (n_elem, npe) ndarray of int
     elem_type : str — "CPS3" (三角形) or "CPS4" (四边形)
-    tol : float or None — 重复节点容差; None 则 auto = min(edge_length)*1e-3
+    tol : float or None — 重复节点容差; None 则
+        auto = max(min(非零单元跨度)×1e-6, 坐标 ULP)
+        (见 _resolve_duplicate_tolerance — 曾文档声称
+        min(edge_length)×1e-3, 与实现不符)
 
     返回
     ----

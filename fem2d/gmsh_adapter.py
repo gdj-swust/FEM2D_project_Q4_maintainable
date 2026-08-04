@@ -7,6 +7,7 @@ node, edge and element regions.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib
 import os
 import sys
@@ -57,6 +58,30 @@ def _load_gmsh_module():
         ) from error
 
 
+@contextlib.contextmanager
+def _gmsh_session(gmsh_module=None):
+    """Gmsh 会话生命周期统一管理 — 模块单例语义.
+
+    gmsh 是进程级单例: 已初始化则复用外部会话 (不得代为 finalize,
+    外部会话可能继续使用); 未初始化则 initialize, 退出时 finalize
+    恰好一次。曾 4 处逐字复制 isInitialized→owns_session→initialize→
+    finally finalize 样板, 重复 finalize 会抛异常。yield 活动模块。
+    """
+    if gmsh_module is None:
+        gmsh_module = _load_gmsh_module()
+    initialized = bool(
+        gmsh_module.isInitialized()
+        if hasattr(gmsh_module, "isInitialized") else False)
+    owns_session = not initialized
+    if owns_session:
+        gmsh_module.initialize()
+    try:
+        yield gmsh_module
+    finally:
+        if owns_session:
+            gmsh_module.finalize()
+
+
 def _safe_geo_source(geo_path):
     """Strip standalone scripted Save + Mesh commands in a copy.
 
@@ -96,35 +121,28 @@ def read_geo_curve_groups(geo_path, *, gmsh_module=None):
     if not os.path.isfile(geo_path):
         return None
     temporary_geo = None
-    owns_session = False
     try:
-        gmsh_module = gmsh_module or _load_gmsh_module()
-        initialized = bool(
-            gmsh_module.isInitialized()
-            if hasattr(gmsh_module, "isInitialized") else False)
-        owns_session = not initialized
-        if owns_session:
-            gmsh_module.initialize()
-        command_geo, temporary_geo = _safe_geo_source(geo_path)
-        gmsh_module.open(command_geo)
-        gmsh_module.model.geo.synchronize()
+        with _gmsh_session(gmsh_module) as active:
+            command_geo, temporary_geo = _safe_geo_source(geo_path)
+            active.open(command_geo)
+            active.model.geo.synchronize()
 
-        groups = {}
-        for dimension, physical_tag in gmsh_module.model.getPhysicalGroups():
-            if int(dimension) != 1:
-                continue
-            name = str(gmsh_module.model.getPhysicalName(
-                1, int(physical_tag))).strip()
-            if not name:
-                continue
-            entities = gmsh_module.model.getEntitiesForPhysicalGroup(
-                1, int(physical_tag))
-            groups.setdefault(name, set()).update(
-                int(entity) for entity in entities)
-        return {
-            name: sorted(entities)
-            for name, entities in groups.items()
-        }
+            groups = {}
+            for dimension, physical_tag in active.model.getPhysicalGroups():
+                if int(dimension) != 1:
+                    continue
+                name = str(active.model.getPhysicalName(
+                    1, int(physical_tag))).strip()
+                if not name:
+                    continue
+                entities = active.model.getEntitiesForPhysicalGroup(
+                    1, int(physical_tag))
+                groups.setdefault(name, set()).update(
+                    int(entity) for entity in entities)
+            return {
+                name: sorted(entities)
+                for name, entities in groups.items()
+            }
     except Exception as error:
         print(
             f"[Gmsh] CAD group read failed ({type(error).__name__}: {error}); "
@@ -133,8 +151,6 @@ def read_geo_curve_groups(geo_path, *, gmsh_module=None):
     finally:
         if temporary_geo and os.path.isfile(temporary_geo):
             os.unlink(temporary_geo)
-        if owns_session and gmsh_module is not None:
-            gmsh_module.finalize()
 
 
 def _entity_type(model, dimension, tag):
@@ -605,17 +621,10 @@ def import_msh(msh_path, *, require_quads=False, plane_type="stress"):
         # 文件不存在曾透传 gmsh 底层 "Unable to open file" — 前置明确
         # 报错 (与 generate_from_geo 的 FileNotFoundError 契约一致)
         raise FileNotFoundError(f"Mesh file not found: {msh_path}")
-    gmsh_module = _load_gmsh_module()
-    initialized = bool(
-        gmsh_module.isInitialized()
-        if hasattr(gmsh_module, "isInitialized") else False)
-    owns_session = not initialized
-    try:
-        if owns_session:
-            gmsh_module.initialize()
-        gmsh_module.open(os.path.abspath(msh_path))
+    with _gmsh_session() as active:
+        active.open(os.path.abspath(msh_path))
         result = _extract_mesh(
-            gmsh_module, require_quads=require_quads, plane_type=plane_type)
+            active, require_quads=require_quads, plane_type=plane_type)
         if (
                 not result.regions.curves
                 and not result.regions.surfaces
@@ -630,9 +639,6 @@ def import_msh(msh_path, *, require_quads=False, plane_type="stress"):
                 "请用 Gmsh 4.1 格式重新导出 (python gmsh.write('x.msh') "
                 "或 CLI 不加 -format msh2)。")
         return result
-    finally:
-        if owns_session:
-            gmsh_module.finalize()
 
 
 def _write_atomic(gmsh_module, output_path):
@@ -671,38 +677,29 @@ def generate_from_geo(
     """
     if not os.path.isfile(geo_path):
         raise FileNotFoundError(f"Geometry file not found: {geo_path}")
-    gmsh_module = gmsh_module or _load_gmsh_module()
-    initialized = bool(
-        gmsh_module.isInitialized()
-        if hasattr(gmsh_module, "isInitialized") else False)
-    owns_session = not initialized
-    command_geo = os.path.abspath(geo_path)
     temporary_geo = None
     try:
-        if owns_session:
-            gmsh_module.initialize()
-        command_geo, temporary_geo = _safe_geo_source(geo_path)
-        gmsh_module.open(command_geo)
-        # Existing project .geo files often contain `Mesh 2;`. Clear that
-        # early mesh and regenerate once so API options and extracted regions
-        # always refer to the same final mesh.
-        clear_mesh = getattr(gmsh_module.model.mesh, "clear", None)
-        if clear_mesh is not None:
-            clear_mesh()
-        if quad:
-            gmsh_module.option.setNumber("Mesh.RecombineAll", 1)
-            gmsh_module.option.setNumber("Mesh.Algorithm", 8)
-        gmsh_module.model.mesh.generate(2)
-        result = _extract_mesh(
-            gmsh_module, require_quads=quad, plane_type=plane_type)
-        if output_path:
-            result.output_path = _write_atomic(
-                gmsh_module, output_path)
-        return result
+        with _gmsh_session(gmsh_module) as active:
+            command_geo, temporary_geo = _safe_geo_source(geo_path)
+            active.open(command_geo)
+            # Existing project .geo files often contain `Mesh 2;`. Clear that
+            # early mesh and regenerate once so API options and extracted
+            # regions always refer to the same final mesh.
+            clear_mesh = getattr(active.model.mesh, "clear", None)
+            if clear_mesh is not None:
+                clear_mesh()
+            if quad:
+                active.option.setNumber("Mesh.RecombineAll", 1)
+                active.option.setNumber("Mesh.Algorithm", 8)
+            active.model.mesh.generate(2)
+            result = _extract_mesh(
+                active, require_quads=quad, plane_type=plane_type)
+            if output_path:
+                result.output_path = _write_atomic(
+                    active, output_path)
+            return result
     finally:
         if temporary_geo and os.path.isfile(temporary_geo):
             os.unlink(temporary_geo)
-        if owns_session:
-            gmsh_module.finalize()
 
 

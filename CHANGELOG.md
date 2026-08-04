@@ -3,6 +3,7 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
+<<<<<<< HEAD
 ## 9.22.0 (2026-08-04) — 并行批次 1+2 (pkg7 文档 + pkg8 工具 + pkg9 尺度 + pkg10 CLI + pkg11 去重 + pkg12 测试基建)
 
 ### pkg7 文档数字统刷 + 交接归档
@@ -165,6 +166,68 @@ config 退出码更新)。全量 pytest 951 passed 2 skipped 0 失败; 冒烟
 - 全量 pytest 948 collected 0 失败; ruff 干净
 - regression_compare 10 组合 (5 模型 × 消去/罚函数) 改动前后
   **逐位一致 (相对差 0.0)** — 正常尺度模型行为未受影响
+
+### pkg11 重复实现/契约清理
+
+#### A 组 重复校验/重复实现 (判别性测试全部在场)
+- **solver_key 单点校验** (solver._solve_linear_system): 逐字重复两遍的
+  白名单校验合并为入口一次, cg-block 别名映射只发生一次, 三个分支
+  复用归一键; 非法 solver 名 ("spqr") 在纯 Dirichlet/penalty 分支入口
+  同样拒绝 (判别性测试)
+- **L2 投影共享内核** (stress.nodal_L2_projection): 提取
+  `_l2_batch_assembly`/`_l2_stress_qp`, batch (共享规则广播) 与
+  uniform (逐单元堆叠) 两路径只构造参数; 逐单元回退分支复用同一
+  广播助手 (消除第三份副本); 两路径与逐单元参考**逐位一致**
+  (np.array_equal 判别性测试)
+- **canonical_edge 去重** (boundary/naming): 内联 `_canon` 删除,
+  直接用已导入实现; numpy int64/反向边判重行为测试锁定
+- **_signed_area 复用** (preprocess): 蝴蝶形四边形两片三角分解复用
+  同文件 `_signed_area` (曾逐字重复); 正净面积自交四边形判别性测试
+- **gmsh 会话统一生命周期** (gmsh_adapter/input_source): 新增
+  `_gmsh_session()` 上下文管理器, 4 处 isInitialized→initialize→
+  finalize 样板收敛; 外部已初始化会话不代为 finalize (禁止双重
+  finalize, 顺序测试在场); 实测 run.py l_bracket.spec 与 Gmsh API
+  自管/复用两条路径会话语义正确
+- **批量常量引用** (error_est): 硬编码 50000 → assembly 的
+  ASSEMBLY_BATCH_ELEMENTS 共享常量
+- **收敛速率向量化** (convergence): per-level ku/ks/ke 三块逐字重复
+  堆成数组一次向量化 (与独立标量参考逐位一致, 判别性测试在场)
+- **无意义 lambda 内联** (error_est): `both_fixed = lambda d1,d2: d1 and d2`
+  直接展开为 dof 元组判定
+
+#### B 组 死代码/无效防御
+- **patch_test**: `bdy_nodes` 首次计算结果从未使用 → 删除; 模块内
+  `sys.path.insert` 死操作 → 删除 (`python -m fem2d.patch_test` 是文档
+  运行方式, 根目录已在 path)
+- **bc_apply**: `if idx >= len(segs): continue` 死守卫删除 — resolver
+  契约保证索引恒在界内, 静默 continue 曾把内部 bug 吞成"面力漏施加"
+
+#### C 组 API 形状/错误机制统一
+- **estimate_condition 返回形状统一** (solver): 成功/失败路径键集一致
+  (失败补 lambda_min/lambda_max/digits_lost=None, 成功补 error=None);
+  reporting 消费方 `.get()` 兜底不变, 行为锁 golden 测试同步
+- **regions.by_name 非法维度** `dimension=5` 曾裸 KeyError → 带参数名
+  ValueError (0/1/2/None 契约, 判别性测试)
+- **material.D_matrix** 平面应变 ν>0.45 告警 print(stderr) → 统一
+  warnings.warn(RuntimeWarning, stacklevel=2) (库调用方可过滤/捕获,
+  判别性测试)
+- **input_source 模块顶 sys.path.insert 移除** → CLI 入口 (runner.main)
+  注入项目根 + `_import_scripts()` 惰性注入; 库用户 import 零副作用
+  (reload 判别性测试改写为新契约)
+- **reconfigure_streams 共享** (errors.py): run_demo.py 与 runner.main
+  的 7 行编码安全网收敛为同一函数 (两种入口行为锁定测试)
+
+#### D 组 docstring 与实现对齐 (教学文档)
+- error_est.estimate(): 算法描述改为实际积分点公式 (Σ_q w_q·(σ*−σ_h)ᵀ
+  D⁻¹(σ*−σ_h), 无 A_e 项, 归一化积分权 + 尺度乘回)
+- stress.principal_stresses(): 补第 4 返回 θ = 0.5·atan2(2τxy, σx−σy)
+- preprocess.validate_mesh(): tol=None 语义同步为
+  max(min(非零单元跨度)×1e-6, 坐标 ULP) (曾声称 min(edge_length)×1e-3)
+
+#### 验收
+- 全量 pytest **0 失败** (含 A 组判别性测试); 回归对照
+  (elimination/penalty) **相对差 0.0** (字符级一致)
+- 冻结区零改动: solver 数值路径 / error_est 公式 / element/ 未触碰
 
 ## 9.21.1 (2026-08-04) — 审查 9.0 轮收尾
 

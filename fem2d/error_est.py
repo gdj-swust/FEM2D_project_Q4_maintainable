@@ -19,6 +19,7 @@ import math
 
 import numpy as np
 
+from .assembly import ASSEMBLY_BATCH_ELEMENTS
 from .checks import require_finite_positive
 from .element import evaluate_vector_field
 from .loads_core import LINE_GAUSS
@@ -89,8 +90,8 @@ def _element_energy_errors(mesh, method, stress, stress_qp, s_star, D_inv):
         vol_sqrt = math.sqrt(abs(mesh.thickness)) * math.sqrt(maxw)
         if maxw > 0.0:
             norm_w = weights / maxw  # 全局尺度下的 O(1) 相对权重
-            for start in range(0, n_elem, 50000):
-                stop = min(start + 50000, n_elem)
+            for start in range(0, n_elem, ASSEMBLY_BATCH_ELEMENTS):
+                stop = min(start + ASSEMBLY_BATCH_ELEMENTS, n_elem)
                 conn = mesh.elements[start:stop]
                 s_star_pt = np.einsum("qn,enc->eqc", shape, s_star[conn])
                 if stress_qp is None or method == "weighted":
@@ -144,11 +145,13 @@ def estimate(mesh, result, method="SPR", verbose=True):
 
     Bathe §4.3.6: 通过比较原始应力 σ_h 和改进应力 σ* 来估计误差。
 
-    算法:
+    算法 (积分点离散, 无 A_e 项 — 面积权重由积分权 dA 承载):
       1. 计算改进应力 σ* (L2 投影 或 面积加权平均)
-      2. 对每个单元: ||e_e||²_energy = A_e · (σ* - σ_e)ᵀ·D⁻¹·(σ* - σ_e)
-      3. ||e||² = Σ||e_e||²_energy
-      4. ||U||² = Σ A_e · σ*_avgᵀ·D⁻¹·σ*_avg
+      2. 对每个单元: ||e_e||²_energy = Σ_q w_e,q · (σ*_q - σ_h,q)ᵀ·D⁻¹·(σ*_q - σ_h,q)
+         其中 w_e,q = dA_e,q / max_w (积分权全局归一化; 单元厚度 t 与
+         应力/柔度尺度一并进入物理量乘回因子, 不影响 η 比值)
+      3. ||e||² = Σ_e ||e_e||²_energy
+      4. ||U||² = Σ_e Σ_q w_e,q · σ*_qᵀ·D⁻¹·σ*_q
       5. η = ||e|| / ||U|| × 100%
 
     参数
@@ -554,9 +557,8 @@ def element_refinement_indicator(mesh, result):
         # ── Dirichlet分类: 检查边两端DOF ──
         dof_a = (2*a in fixed_dofs_set, 2*a+1 in fixed_dofs_set)  # (ux, uy)
         dof_b = (2*b in fixed_dofs_set, 2*b+1 in fixed_dofs_set)
-        both_fixed = lambda d1,d2: d1 and d2
         # 两边节点都是全约束(ux+uy) → 固支边 → 跳过
-        if both_fixed(*dof_a) and both_fixed(*dof_b):
+        if dof_a[0] and dof_a[1] and dof_b[0] and dof_b[1]:
             continue
 
         try:

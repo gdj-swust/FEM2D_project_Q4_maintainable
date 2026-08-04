@@ -228,9 +228,10 @@ def _apply_tractions(config, mesh, segs, batch_mode):
             _apply_traction_profile(
                 mesh, segs, matched, edge_str, tx, ty, profile)
             continue
+        # matched 索引由 _resolve_edge_indices (boundary/naming) 契约保证
+        # 恒在 [0, len(segs)) — 曾 idx>=len(segs) 静默 continue, 把内部
+        # bug 吞成"面力漏施加"
         for idx in matched:
-            if idx >= len(segs):
-                continue
             ns = segs[idx]['nodes']
             if profile == 'n':
                 # 法向压力: 使用 mesh.add_pressure(), 自动计算 t = -p·n

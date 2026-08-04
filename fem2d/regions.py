@@ -193,13 +193,21 @@ class RegionRegistry:
     cad_boundary_complete: bool = False
 
     def by_name(self, name, dimension=None):
-        """Return all regions with an exact case-insensitive name."""
+        """Return all regions with an exact case-insensitive name.
+
+        dimension 必须为 None 或 0/1/2 — 非法维度曾裸 KeyError
+        (collections[int(dimension)] 越界), 契约: 带参数名 ValueError。
+        """
         needle = str(name).casefold()
         collections = {
             0: self.points,
             1: self.curves,
             2: self.surfaces,
         }
+        if dimension is not None and int(dimension) not in collections:
+            raise ValueError(
+                f"by_name: dimension={dimension!r} — 仅支持 0/1/2 "
+                "(0=点, 1=曲线, 2=曲面) 或 None (全部)")
         selected = (
             collections.values()
             if dimension is None else [collections[int(dimension)]])

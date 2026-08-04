@@ -143,6 +143,93 @@ def test_l2_nonuniform_nqp_falls_back_bitwise():
     assert np.array_equal(fast, ref)
 
 
+def test_l2_batch_path_bitwise_matches_reference():
+    """共享规则批量路径 (recovery_shape_matrix) 与手写逐单元参考逐位一致.
+
+    Q4 内核的恢复规则与质量阵积分规则点数一致 → 走 batch 路径;
+    pkg11 A3 抽取共享组装内核后此路径必须保持逐位一致 (判别性:
+    放回旧 batch 实现结果仍相等, 内核两路径互相比对锁死)。
+    """
+    rng = np.random.default_rng(9)
+    nx, ny = 5, 4
+    gx = np.linspace(0.0, 1.0, nx + 1)
+    gy = np.linspace(0.0, 1.0, ny + 1)
+    xx, yy = np.meshgrid(gx, gy)
+    coords = np.column_stack([xx.ravel(), yy.ravel()])
+    coords += rng.normal(0.0, 0.02, coords.shape)
+    elems = []
+    for j in range(ny):
+        for i in range(nx):
+            n0 = j * (nx + 1) + i
+            elems.append([n0, n0 + 1, n0 + nx + 2, n0 + nx + 1])
+    ncol = nx + 1
+    corners = [0, nx, ny * ncol, ny * ncol + nx]
+    dofs = [d for n in corners for d in (2 * n, 2 * n + 1)]
+    mesh = Mesh(coords, np.array(elems, dtype=np.int64), E=2.1e11,
+                nu=0.3, plane_type="stress", fixed_dofs=dofs,
+                elem_type="CPS4")
+    mesh.build_connectivity()
+    # Q4 恢复规则与积分规则同点 → batch 路径 (判别性前提)
+    shape = mesh.element_kernel.recovery_shape_matrix(mesh)
+    _, dA_ref = mesh.element_kernel.recovery_quadrature(mesh, 0)
+    assert shape is not None and len(dA_ref) == shape.shape[0]
+    res = solve(mesh, verbose=False)
+    for src in (res["stress_qp"], res["stress"]):
+        fast = nodal_L2_projection(mesh, src)
+        ref = _reference_l2(mesh, src)
+        assert np.array_equal(fast, ref), (
+            f"Q4 L2 batch 路径与逐单元参考不一致: "
+            f"max|Δ|={np.max(np.abs(fast - ref)):.3e}")
+
+
+def test_l2_batch_path_matches_uniform_stacked_path():
+    """batch (共享规则) 与 uniform (逐单元堆叠) 两路径逐位一致.
+
+    pkg11 A3 共享内核的判别性: 同一 Q4 网格分别以共享规则广播与
+    逐单元堆叠构造输入, 两路径经同一内核组装, 结果必须逐位相同。
+    """
+    rng = np.random.default_rng(11)
+    gx = np.linspace(0.0, 1.0, 4)
+    gy = np.linspace(0.0, 1.0, 3)
+    xx, yy = np.meshgrid(gx, gy)
+    coords = np.column_stack([xx.ravel(), yy.ravel()])
+    coords += rng.normal(0.0, 0.02, coords.shape)
+    elems = []
+    for j in range(2):
+        for i in range(3):
+            n0 = j * 4 + i
+            elems.append([n0, n0 + 1, n0 + 4 + 1, n0 + 4])
+    ncol = 4
+    corners = [0, 3, 2 * ncol, 2 * ncol + 3]
+    dofs = [d for n in corners for d in (2 * n, 2 * n + 1)]
+    mesh = Mesh(coords, np.array(elems, dtype=np.int64), E=2.1e11,
+                nu=0.3, plane_type="stress", fixed_dofs=dofs,
+                elem_type="CPS4")
+    mesh.build_connectivity()
+    res = solve(mesh, verbose=False)
+    src = res["stress_qp"]
+    fast = nodal_L2_projection(mesh, src)
+    # 逐单元堆叠参考 (与 _reference_l2 同源但独立构造)
+    from fem2d.stress import _l2_batch_assembly, _l2_stress_qp
+    N_list, dA_list = [], []
+    for eid in range(mesh.n_elements):
+        N, dA = mesh.element_kernel.recovery_quadrature(mesh, eid)
+        N_list.append(N)
+        dA_list.append(dA)
+    N_all = np.stack(N_list)
+    dA_all = np.stack(dA_list)
+    stress_qp = _l2_stress_qp(src, N_all.shape[1], src.shape[-1],
+                              mesh.n_elements)
+    mass, rhs = _l2_batch_assembly(mesh, N_all, dA_all, stress_qp)
+    from scipy.sparse.linalg import splu
+    factor = splu(mass.tocsc())
+    stacked = np.column_stack(
+        [factor.solve(rhs[:, c]) for c in range(rhs.shape[1])])
+    assert np.array_equal(fast, stacked), (
+        f"batch 与 uniform 路径不一致: "
+        f"max|Δ|={np.max(np.abs(fast - stacked)):.3e}")
+
+
 def test_l2_batched_fallback_keeps_orphan_error():
     """批量堆叠路径保留孤立节点错误契约 (曾只在逐单元路径检查)."""
     nodes = np.array([[0, 0], [1, 0], [1, 1], [0, 1], [5, 5]], dtype=float)

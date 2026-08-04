@@ -7,6 +7,7 @@
 """
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import fem2d.convergence as conv_mod
@@ -81,3 +82,47 @@ def test_module_main_entrypoint_dispatches_three_elements(monkeypatch):
     exec(compile(src, str(conv_mod.__file__), "exec"), globs)
     assert [c["elem_type"] for c in calls] == ["CPS3", "CPS4", "CPS4R"]
     assert all(c["refinements"] == 5 for c in calls)
+
+
+def test_per_level_rates_match_scalar_reference(capsys):
+    """per-level 速率向量化与独立标量参考逐位一致 (pkg11 A8).
+
+    判别性: 三块 (ku/ks/ke) 曾逐字重复同一模式 — 本测试用独立标量
+    循环重算打印值, 任何一处分叉 (如误用 0/正号判定) 立即失败。
+    """
+    res = conv_mod.run_cantilever_convergence(
+        refinements=3, verbose=True, elem_type="CPS3")
+    out = capsys.readouterr().out
+    lines = [ln for ln in out.splitlines()
+             if ln.strip().startswith("h=") and "->" in ln]
+    assert len(lines) == len(res["h"]) - 1
+
+    h = np.array(res["h"])
+    uy_tip = np.array(res["uy_tip"])
+    s_max = np.array(res["sigma_sample"])
+    eta_vals = np.array(res["eta"])
+    # 与函数内部同源重建误差序列 (Richardson 参考)
+    uy_richardson = res["uy_richardson"]
+    uy_err = np.abs(uy_tip - uy_richardson) / (
+        np.abs(uy_richardson) + np.finfo(float).tiny)
+    r = h[-2] / h[-1] if len(h) >= 2 else 1.0
+    s_ref_actual = (
+        s_max[-1] + (s_max[-1] - s_max[-2]) / (r - 1.0)
+        if len(h) >= 2 else s_max[-1])
+    s_err = np.abs(s_max - s_ref_actual) / (
+        np.abs(s_ref_actual) + np.finfo(float).tiny)
+
+    def _scalar_rate(prev, nxt, r_local):
+        if nxt > 0.0:
+            return np.log(np.maximum(prev, np.finfo(float).tiny) / nxt) \
+                / r_local
+        return 0.0
+
+    for i, line in enumerate(lines):
+        r_local = np.log(h[i] / h[i + 1])
+        ku = _scalar_rate(uy_err[i], uy_err[i + 1], r_local)
+        ks = _scalar_rate(s_err[i], s_err[i + 1], r_local)
+        ke = _scalar_rate(eta_vals[i], eta_vals[i + 1], r_local)
+        for value, key in ((ku, "k_u="), (ks, "k_s="), (ke, "k_e=")):
+            assert f"{key}{value:+.2f}" in line, (
+                f"level {i} {key} 期望 {value:+.2f}, 打印: {line.strip()}")

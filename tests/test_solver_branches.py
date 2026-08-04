@@ -76,6 +76,37 @@ def test_estimate_condition_singular_status():
     assert info["error"]
 
 
+# ═══════════════════════════════════════════════════════════════
+# estimate_condition 返回形状统一 (pkg11 A13)
+# ═══════════════════════════════════════════════════════════════
+
+_EC_KEYS = {"condition_number", "lambda_min", "lambda_max",
+            "digits_lost", "status", "error"}
+
+
+def test_estimate_condition_failure_shape_matches_success():
+    """失败路径补齐全部键 (None 填充) — 曾缺 4 键, 逐键访问崩溃.
+
+    判别性: 对成功/失败各取一次返回, 键集必须完全一致。
+    """
+    ok = estimate_condition(_spdiag([1.0, 2.0, 3.0]), method="dense")
+    assert set(ok) == _EC_KEYS
+    assert ok["error"] is None
+    fail = estimate_condition(
+        sparse.csr_matrix(np.full((4, 4), np.nan)), method="dense")
+    assert set(fail) == _EC_KEYS
+    assert fail["condition_number"] is None
+    assert fail["lambda_min"] is None
+    assert fail["lambda_max"] is None
+    assert fail["digits_lost"] is None
+    assert fail["status"] == "SINGULAR?"
+    # 稀疏路径的奇异矩阵 (零矩阵 shift-invert 必失败) 同样补齐
+    fail_sparse = estimate_condition(
+        sparse.csr_matrix(np.zeros((4, 4))), method="sparse")
+    assert set(fail_sparse) == _EC_KEYS
+    assert fail_sparse["status"] == "SINGULAR?"
+
+
 def test_estimate_condition_skip_status():
     """非特征值类异常 (空矩阵 IndexError) → SKIP (与 SINGULAR? 区分)."""
     K = sparse.csr_matrix((0, 0))
@@ -139,6 +170,37 @@ def test_solve_linear_system_unknown_solver():
     args["linear_solver"] = "bogus"
     with pytest.raises(ValueError, match="Unknown linear_solver"):
         _solve_linear_system(**args)
+
+
+def test_solve_linear_system_solver_validated_before_all_branches():
+    """非法 solver 名在任何分支入口统一拒绝 (pkg11 A1).
+
+    判别性: 纯 Dirichlet (全约束, 无需求解) 与 penalty 分支同样必须
+    在入口拒绝 "spqr" — 曾 elimination 分支二次校验与入口校验逐字
+    重复, 任一分支漏校验都会静默放行.
+    """
+    args = _solve_args()
+    args["linear_solver"] = "spqr"
+    args["free_dofs"] = np.array([], dtype=int)   # 纯 Dirichlet
+    with pytest.raises(ValueError, match="Unknown linear_solver"):
+        _solve_linear_system(**args)
+    args["free_dofs"] = np.array([2, 3])
+    args["method"] = "penalty"
+    with pytest.raises(ValueError, match="Unknown linear_solver"):
+        _solve_linear_system(**args)
+
+
+def test_solve_linear_system_cg_block_alias_normalized():
+    """cg-block 兼容别名在 elimination 分支归一为 cg (pkg11 A1).
+
+    判别性: 别名映射只发生一次 — 归一后的 solver_key 直接用于
+    apply_elimination, 迭代信息须按 cg 路径返回.
+    """
+    args = _solve_args()
+    args["linear_solver"] = "cg-block"
+    u, reactions, _kmod, _fmod, info, _dirichlet = _solve_linear_system(**args)
+    assert info["name"] == "cg"
+    assert np.all(np.isfinite(u)) and np.all(np.isfinite(reactions))
 
 
 # ═══════════════════════════════════════════════════════════════

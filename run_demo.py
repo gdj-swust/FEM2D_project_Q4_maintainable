@@ -13,13 +13,11 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# 编码安全网: 非中文 Windows 下中文输出会 UnicodeEncodeError, 替换为 ?
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        try:
-            _stream.reconfigure(errors="replace")
-        except (ValueError, OSError):
-            pass
+# 编码安全网 (与 runner.main 共用 reconfigure_streams): 非中文 Windows
+# 下中文输出会 UnicodeEncodeError, 替换为 ?
+from fem2d.errors import CliError, reconfigure_streams
+
+reconfigure_streams()
 import numpy as np
 
 from fem2d import (
@@ -28,7 +26,6 @@ from fem2d import (
     solve,
 )
 from fem2d.boundary import BoundaryDiagnostics, build_boundary_segments
-from fem2d.errors import CliError
 from fem2d.input_source import generate_geo_with_topology
 from fem2d.visualize import interactive_plot
 

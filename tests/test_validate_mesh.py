@@ -55,6 +55,22 @@ def test_duplicate_elements_detected():
     assert r["stats"]["duplicate_elems"] >= 1
 
 
+def test_butterfly_quad_detected():
+    """正净面积的蝴蝶形 (自交) 四边形必须被检出 (pkg11 A5).
+
+    判别性: 两片三角有向面积异号但净面积 > 0 (面积判据放行),
+    只能靠 a1·a2 < 0 自交判据拦截 — 该分解曾内联逐字重复
+    _signed_area, 本测试锁死复用后的行为.
+    """
+    nodes = np.array([
+        [0.0, 0.0], [2.0, 0.0], [1.2, 2.0], [0.0, 1.2],
+    ], dtype=float)
+    elems = np.array([[0, 1, 3, 2]], dtype=int)
+    r = validate_mesh(nodes, elems)
+    assert not r["ok"]
+    assert r["stats"]["degenerate_elems"] == 1
+
+
 def test_zero_area_element_detected():
     """三个共线节点 → 退化三角."""
     nodes = np.array([
