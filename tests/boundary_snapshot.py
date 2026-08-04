@@ -177,9 +177,27 @@ def compare_golden(name, data):
             f"金标准缺失: {path} — 请先以 FEM2D_UPDATE_GOLDEN=1 生成")
     expected = path.read_text(encoding="utf-8")
     if expected != rendered:
+        first_diff = _first_line_diff(expected, rendered)
         raise AssertionError(
             f"金标准不一致: {name} — 边界输出已漂移. "
+            f"首个差异行: {first_diff}. "
             "修复实现或确认后以 FEM2D_UPDATE_GOLDEN=1 重写.")
+
+
+def _first_line_diff(expected, rendered):
+    """返回首个差异行 (CI 日志可直接定位漂移点)."""
+    expected_lines = expected.splitlines()
+    rendered_lines = rendered.splitlines()
+    for index in range(max(len(expected_lines), len(rendered_lines))):
+        old = (
+            expected_lines[index]
+            if index < len(expected_lines) else "<缺失>")
+        new = (
+            rendered_lines[index]
+            if index < len(rendered_lines) else "<缺失>")
+        if old != new:
+            return f"行 {index + 1}: 期望 {old[:120]!r} 实测 {new[:120]!r}"
+    return "不可达: 文本不同但逐行一致"
 
 
 def edge_coverage_check(mesh, segments):

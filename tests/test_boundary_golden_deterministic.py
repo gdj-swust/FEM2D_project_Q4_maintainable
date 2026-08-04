@@ -19,6 +19,16 @@ from tests.boundary_snapshot import (
 )
 
 
+def _round12(coords):
+    """输入坐标圆整到 12 位有效数字 — np.cos/np.sin 在 Windows vs Linux
+    libm 有末位差, 会经 orient2d 精确符号/拟合传导到输出; 圆整后输入
+    跨平台逐位一致 (输出浮点再由快照 12g 圆整, 双层免疫)."""
+    return np.array([
+        [float(f"{float(v):.12g}") for v in row]
+        for row in np.asarray(coords, dtype=float)
+    ])
+
+
 def _check(mesh, name):
     """自动检测路径 → 金标准; build 路径必须与 detect 逐位一致."""
     segs = detect_boundaries(mesh)
@@ -68,7 +78,8 @@ def _holed_plate():
 def _circle_fan(n=32, radius=1.5):
     """扇形 CST 网格: 中心 + 32 边正圆 — 闭环整圆检测."""
     angle = 2.0 * np.pi * np.arange(n) / n
-    rim = radius * np.column_stack([np.cos(angle), np.sin(angle)])
+    rim = _round12(radius * np.column_stack(
+        [np.cos(angle), np.sin(angle)]))
     nodes = np.vstack([[0.0, 0.0], rim])
     elems = np.array([
         [0, 1 + i, 1 + (i + 1) % n]
@@ -81,7 +92,8 @@ def _circle_fan(n=32, radius=1.5):
 def _ellipse_fan(n=40, a=2.0, b=1.0):
     """扇形 CST 网格: 40 边椭圆 (2:1) — 闭环椭圆检测."""
     angle = 2.0 * np.pi * np.arange(n) / n
-    rim = np.column_stack([a * np.cos(angle), b * np.sin(angle)])
+    rim = _round12(np.column_stack(
+        [a * np.cos(angle), b * np.sin(angle)]))
     nodes = np.vstack([[0.0, 0.0], rim])
     elems = np.array([
         [0, 1 + i, 1 + (i + 1) % n]
