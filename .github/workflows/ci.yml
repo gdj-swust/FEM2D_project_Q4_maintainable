@@ -91,3 +91,7 @@ jobs:
           python -m pip install -e ".[dev]"
       - name: pytest (gmsh API available)
         run: python -m pytest -q -rs
+      - name: pytest with coverage gate (fail_under=90, pyproject)
+        # 防死代码/防静默常驻门禁: 覆盖率低于 90% 即失败 (test_geo_models
+        # 在此 job 也 skip — 无 gmsh.exe — 与本地 93% 基线的差距即此)。
+        run: python -m pytest -q --cov=fem2d

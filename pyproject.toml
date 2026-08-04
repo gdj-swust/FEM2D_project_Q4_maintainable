@@ -113,3 +113,9 @@ ignore_missing_imports = true
 # scripts.* 是脚本模式 (部分包相对导入), 跟随检查时忽略模块解析
 module = ["scripts.*"]
 disable_error_code = ["import-not-found", "import-untyped"]
+
+# 覆盖率硬门 (2026-08-04): 任何 `pytest --cov=fem2d` 运行 (本地或 CI) 低于
+# 此值即失败。基线 93% (docs/coverage.md, 含 gmsh.exe 用例); 90 给 CI
+# 无 gmsh.exe (test_geo_models 恒定 skip) 留余量。防死代码/防静默的常驻门禁。
+[tool.coverage.report]
+fail_under = 90
