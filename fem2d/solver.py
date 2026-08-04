@@ -524,6 +524,23 @@ def _hourglass_monitor(mesh, K, u, u_e, log):
         raise RuntimeError(
             f"Internal energy = {internal_energy:.3e} is not finite — "
             "载荷或材料参数超出数值范围, 检查模型设置")
+    if internal_energy < 0.0:
+        # 刚体位移/零应变时 uᵀKu 精确为 0, 浮点舍入可得负值 (纯 Dirichlet
+        # 均匀位移实测 -4.66e-13)。舍入界 ≈ n·ε·uᵀ|K|u (K 构造误差相对
+        # |K| 尺度) — 按问题规模相对判定, 禁绝对阈值 (微尺度模型内能
+        # ~1e-308 为正数不进入此分支)
+        abs_scale = float(abs(u) @ abs(K) @ abs(u))
+        if np.isfinite(abs_scale) and -internal_energy <= (
+                np.finfo(float).eps * abs_scale * max(int(len(u)), 1)):
+            internal_energy = 0.0
+        else:
+            # 明显负值: K 非 SPD (如 Q4R 沙漏稳定项) 或数值灾难 —
+            # 保留数值但明确告警, 不静默返回
+            warnings.warn(
+                f"Internal energy = {internal_energy:.3e} is negative "
+                "beyond round-off — stiffness matrix may not be positive "
+                "definite. Verify element type / mesh quality.",
+                RuntimeWarning, stacklevel=2)
     hourglass_energy_ratio = 0.0
     if hasattr(mesh.element_kernel, "hourglass_energy"):
         hourglass_energy_elem = np.asarray(
