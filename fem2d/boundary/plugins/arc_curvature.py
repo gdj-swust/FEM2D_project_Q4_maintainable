@@ -170,7 +170,6 @@ class ArcCurvatureDetector(Detector):
         得解最精确. 曾 O(n²) 全对最远点: 细网格大弧 (1e5 节点) 变
         成 1e10 次运算 — 分类是逐链调用, 必须线性.
         """
-        n = len(coords)
         i = 0
         p_i = coords[i]
         distances = np.linalg.norm(coords - p_i, axis=1)

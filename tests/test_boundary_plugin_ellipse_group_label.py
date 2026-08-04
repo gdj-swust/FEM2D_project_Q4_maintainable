@@ -31,7 +31,6 @@ def _smooth_noisy_ellipse(amp=0.04, n=40, k=3):
     超插件严格门, 仍在内置门内 (判别性窗口)."""
     phi = 2.0 * np.pi * np.arange(n) / n
     base = _ellipse_chain(n)
-    radius = np.linalg.norm(base, axis=1)
     scale = 1.0 + amp * np.sin(k * phi + 0.7)
     return base * scale[:, None]
 
@@ -151,7 +150,7 @@ def test_plugin_1_registered_in_default_pipeline():
 def test_plugin_1_registered_through_pipeline_discriminative():
     """真 gmsh 管线: 演示椭圆孔 (20 段 Line 近似, 残差 0.78% < 2%)
     在**生产默认管线**输出组级椭圆标签; 边界边/节点逐位不变."""
-    from fem2d import Mesh, build_boundary_segments, detect_boundaries
+    from fem2d import Mesh, build_boundary_segments
     from tests.conftest import mesh_result_from_geo
 
     # 物理组名用 ASCII: 临时 .geo 以平台默认编码写盘, 中文名会乱码

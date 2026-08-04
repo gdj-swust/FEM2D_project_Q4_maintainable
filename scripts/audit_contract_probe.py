@@ -413,7 +413,6 @@ def _probe_ellipse_group_label_strict_gate():
     plugin = EllipseGroupLabelDetector()
     phi = 2.0 * np.pi * np.arange(40) / 40
     base = np.column_stack([2.0 * np.cos(phi), 1.0 * np.sin(phi)])
-    radius = np.linalg.norm(base, axis=1)
     chain = base * (1.0 + 0.04 * np.sin(3.0 * phi + 0.7))[:, None]
     detection = plugin.detect(
         chain, scale=2.0, is_outer=True, closed=True)
@@ -488,6 +487,7 @@ def _probe_arc_curvature_algebraic():
     assert "ρ=1.5" in detection.label
     assert "圆心(1.2,-0.7)" in detection.label
     assert abs(detection.params["radius"] - 1.5) < 1e-9
+    assert "radius" in detection.params
 probe("arc_curvature algebraic arc", _probe_arc_curvature_algebraic, None)
 
 
