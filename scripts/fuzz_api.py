@@ -5,6 +5,9 @@
   - 预期异常空消息 / 其他异常 (裸 IndexError/KeyError/RuntimeError
     /OverflowError 等) 冒出 → bug (契约禁止)
   - 静默成功但输入非法 (已知误用模式) → bug
+静默豁免按生成值过滤: 只有该值"确实合法" (契约允许) 才允许静默成功 —
+complex/NaN/str/容器等非法类别照常断言必须抛异常 (曾把值类别参数
+整体 silent_ok=True, 非法输入被静默接受也查不出来)。
 用法: python scripts/fuzz_api.py [轮数=500]
 退出码: 抓到 bug → 1。
 """
@@ -104,6 +107,38 @@ def _rand_value(rng):
     return 0
 
 
+def _is_real(v):
+    """有限实数标量 — bool 是数值 (值参数接受 True/False 为 0/1)."""
+    return isinstance(v, (int, float)) and np.isfinite(v)
+
+
+def _valid_nid(v):
+    """合法节点索引: 非 bool 的整数 0..3 (网格 4 节点, "恰为整数"
+    浮点接受; 数组内 nid 2/3 也是合法节点, 不能只认 {0,1})."""
+    return (not isinstance(v, bool) and isinstance(v, (int, float))
+            and float(v).is_integer() and 0 <= float(v) < 4)
+
+
+def _valid_nid_list(v):
+    """合法节点列表: 非空 1-D 容器且元素全部是合法 nid."""
+    if isinstance(v, np.ndarray):
+        if v.ndim != 1:
+            return False
+        values = v.tolist()
+    elif isinstance(v, (list, tuple)):
+        values = list(v)
+    else:
+        return False
+    return bool(values) and all(_valid_nid(e) for e in values)
+
+
+def _flat2(v):
+    """(2,) 一维数值容器 — spr_recovery 单分量恢复的合法输入."""
+    if isinstance(v, np.ndarray):
+        return v.ndim == 1 and v.shape[0] == 2
+    return isinstance(v, (list, tuple)) and len(v) == 2
+
+
 def main():
     rounds = int(sys.argv[1]) if len(sys.argv) > 1 else 500
     rng = random.Random(20260803)
@@ -113,7 +148,7 @@ def main():
     def feed(name, fn, silent_ok=False):
         """非法输入必须报领域错误 — 正常返回且 silent_ok=False 记为
         "静默成功" bug (曾只查异常, 非法输入被静默接受不报告).
-        silent_ok=True 仅用于 v 可能是合法值的 case (如 nid=0/1)."""
+        silent_ok 由调用方按生成值过滤: 仅该值确实合法时放行."""
         nonlocal calls
         calls += 1
         try:
@@ -131,22 +166,22 @@ def main():
         i = rng.randrange(30)
         if i == 0:
             feed(f"fix_node({v!r})", lambda v=v: _mesh().fix_node(v, "both", 0.0),
-                 silent_ok=True)  # v=0/1 是合法 nid
+                 silent_ok=_valid_nid(v))  # 仅 0/1 是合法 nid
         elif i == 1:
             feed(f"fix_node value({v!r})", lambda v=v: _mesh().fix_node(0, "both", v),
-                 silent_ok=True)  # 任意数值位移都合法 (含负/零)
+                 silent_ok=_is_real(v))  # 有限实数 (含负/零/bool) 合法
         elif i == 2:
             feed(f"add_force({v!r})", lambda v=v: _mesh().add_force(v, 1.0, 0.0),
-                 silent_ok=True)  # v=0/1 是合法 nid
+                 silent_ok=_valid_nid(v))  # 仅 0/1 是合法 nid
         elif i == 3:
             feed(f"add_pressure({v!r})", lambda v=v: _mesh().add_pressure(0, 1, v),
-                 silent_ok=True)  # 任意有限数值压力都合法 (负=反向)
+                 silent_ok=_is_real(v))  # 有限实数 (负=反向) 合法
         elif i == 4:
             feed(f"fix_nodes_func({v!r})", lambda v=v: _mesh().fix_nodes_func(v, 0.0),
-                 silent_ok=True)  # 数值列表可能是合法 nid
+                 silent_ok=_valid_nid_list(v))  # 元素全为合法 nid 的列表
         elif i == 5:
             feed(f"nodes_on_edge({v!r})", lambda v=v: _mesh().nodes_on_edge(v, "min"),
-                 silent_ok=True)  # v=0/1 可能是合法轴值
+                 silent_ok=False)  # 生成值恒非 "x"/"y", 全部必须报错
         elif i == 6:
             feed(f"solve({v!r})", lambda v=v: solve(v, verbose=False))
         elif i == 7:
@@ -159,28 +194,28 @@ def main():
             feed(f"von_mises({v!r})", lambda v=v: von_mises(v))
         elif i == 11:
             feed(f"D_matrix({v!r})", lambda v=v: D_matrix(v, 0.3),
-                 silent_ok=True)  # v 可能是合法 E (>0)
+                 silent_ok=_is_real(v) and v > 0)  # 合法 E: 有限正数
         elif i == 12:
             feed(f"compute_stresses({v!r})", lambda v=v: compute_stresses(_mesh(), v))
         elif i == 13:
             feed(f"nodal_average({v!r})", lambda v=v: nodal_average(_mesh(), v))
         elif i == 14:
             feed(f"spr_recovery({v!r})", lambda v=v: spr_recovery(_mesh(), v),
-                 silent_ok=True)  # 一维输入 → 单分量恢复是设计 (reshape(-1,1))
+                 silent_ok=_flat2(v))  # (2,) 一维 → 单分量恢复是设计
         elif i == 15:
             feed(f"parse_vec2({v!r})", lambda v=v: parse_vec2(v),
-                 silent_ok=True)  # '1e6,0' 等随机串可能是合法格式
+                 silent_ok=isinstance(v, str) and v == "1e6,0")  # 唯一合法格式
         elif i == 16:
             feed(f"parse_traction({v!r})", lambda v=v: parse_traction(v),
-                 silent_ok=True)  # 无冒号返回 (None,0,0,None) 契约允许
+                 silent_ok=isinstance(v, str))  # 无冒号 → (None,0,0,None) 契约
         elif i == 17:
             feed(f"apply_penalty penalty({v!r})",
                  lambda v=v: apply_penalty(np.eye(4), np.zeros(4),
                                            np.array([0]), penalty=v),
-                 silent_ok=True)  # v 可能是合法正数罚因子
+                 silent_ok=v is None or (_is_real(v) and v >= 1e4))  # None=自动; 阈值相对 max|K_ii|=1
         elif i == 18:
             feed(f"stress_at_point({v!r})", lambda v=v: stress_at_point(_mesh(), {"stress": np.ones((2, 3))}, v, 0.5),
-                 silent_ok=True)  # v 是 x 坐标, 任意有限值都可能合法
+                 silent_ok=_is_real(v))  # x 坐标: 有限实数 (域外报错亦正确)
         elif i == 19:
             feed(f"get_element_kernel({v!r})", lambda v=v: F.get_element_kernel(v))
         elif i == 20:
@@ -195,10 +230,10 @@ def main():
             feed(f"nodal_simple({v!r})", lambda v=v: nodal_simple(_mesh(), v))
         elif i == 25:
             feed(f"AnalysisConfig({v!r})", lambda v=v: AnalysisConfig(E=v),
-                 silent_ok=True)  # E=None/数值都可能合法
+                 silent_ok=v is None or (_is_real(v) and v > 0))  # None=未指定; 合法 E: 有限正数
         elif i == 26:
             feed(f"point_in_element({v!r})", lambda v=v: point_in_element(_mesh(), v, 0.5),
-                 silent_ok=True)  # v 是 x 坐标, 有限值域外返回 -1 是设计
+                 silent_ok=_is_real(v))  # x 坐标: 有限实数 (域外返回 -1 是设计)
         elif i == 27:
             feed(f"replace_nodes({v!r})", lambda v=v: _mesh().replace_nodes(v))
         elif i == 28:

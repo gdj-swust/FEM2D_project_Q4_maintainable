@@ -3,9 +3,26 @@
 逐条实测 docs/api_contract.md 各行的"应有错误行为"列:
   probe(name, fn, expect) — expect 为异常类型或 None (不应抛)。
 输出 PASS/FAIL, 任何 FAIL → 退出码 1。
+
+覆盖对照 (docs/api_contract.md 契约行 ↔ 探针数, 2026-08-04):
+  A0/A1/A2  Mesh 构造器/节点 API/结构 API   41 (全部行)
+  B         求解与 BC                      19 (全部行)
+  C         载荷                           10 (全部行)
+  D         应力与误差                     15 (全部行)
+  E         输入链 (无 gmsh 依赖路径)      12 (resolve_geo/resolve_txt/
+                                            generate_geo_with_topology 需
+                                            真实 Gmsh, 不在本探针覆盖内)
+  F         材料与单元注册                  9 (全部行)
+  G         边界                           10 (契约 6 行全覆盖)
+  H         配置与质量                     11 (全部行)
+  I         装配                            2 (契约 2 行全覆盖)
+  合计: 129 项探针 (可用 AST 统计 probe() 调用数核对)。
+每组的"全部行"以契约表行数为准; 行内无具体误用错误声明的
+(如 I 组"非对称内核 → RuntimeError") 以合法输入不抛为探针内容。
 """
 import os
 import sys
+import tempfile
 
 import numpy as np
 
@@ -18,15 +35,27 @@ if _ROOT not in sys.path:
 
 import fem2d as F
 from fem2d.bc import apply_elimination, apply_penalty
+from fem2d.boundary import build_boundary_segments
 from fem2d.config import AnalysisConfig
 from fem2d.error_est import (
     element_refinement_indicator,
     estimate as estimate_error,
 )
-from fem2d.gmsh_adapter import import_msh
+from fem2d.errors import CliError
+from fem2d.gmsh_adapter import generate_from_geo, import_msh
+from fem2d.input_source import resolve_input_file, resolve_spec_overrides
 from fem2d.loads_core import parse_traction, parse_vec2
 from fem2d.material import D_matrix, von_mises
 from fem2d.mesh import Mesh
+from fem2d.patch_test import run_patch_test
+from fem2d.preprocess import (
+    MeshValidationError,
+    parse_geo_fem_config,
+    parse_spec_config,
+    read_geo_groups,
+    validate_mesh,
+)
+from fem2d.regions import RegionRegistry
 from fem2d.solver import estimate_condition, solve
 from fem2d.spr import spr_recovery
 from fem2d.stress import (
@@ -90,6 +119,21 @@ def _solved():
         m.fix_node(i, "both", 0.0)
     m.add_force(2, 1.0, 0.0)
     return m, solve(m, verbose=False)
+
+
+# E 组误用探针需要真实坏文件 (解析器按行报错). 系统临时目录, 审计脚本
+# 运行频率低, 留待 OS 清理 (Windows 上 read_geo_groups 的 Gmsh 句柄
+# 会锁文件, 主动删除反而抛错).
+_PROBE_TMP = tempfile.mkdtemp(prefix="fem2d_probe_")
+_BAD_SPEC = os.path.join(_PROBE_TMP, "bad.spec")
+with open(_BAD_SPEC, "w", encoding="utf-8") as _fh:
+    _fh.write("E = 210e9\nmesh =\n")
+_BAD_GEO = os.path.join(_PROBE_TMP, "bad.geo")
+with open(_BAD_GEO, "w", encoding="utf-8") as _fh:
+    _fh.write("@FEM:pressure=\n")
+
+# G 组共用: 边界段缓存 + 歧义模糊名探针 (4 条直边都含"直边"标签).
+_SEGS = build_boundary_segments(_mesh())
 
 
 print("== A0 构造器 ==")
@@ -163,7 +207,9 @@ probe("estimate missing key", lambda: estimate_error(_mesh(), {"u": np.zeros(8)}
 
 print("== C 载荷 ==")
 m2, res = _solved()
-probe("assemble_loads n_dof mismatch", lambda: F.assemble_loads(m2, 3), (IndexError, ValueError))
+# 曾期望 (IndexError, ValueError) — 9.19.0 已修 n_dof 裸 IndexError
+# (集中力越界写), 收紧为只接受 ValueError (契约: 带上下文的领域错误).
+probe("assemble_loads n_dof mismatch", lambda: F.assemble_loads(m2, 3), ValueError)
 probe("parse_vec2 1comp", lambda: parse_vec2("1e6"), ValueError)
 probe("parse_vec2 3comp", lambda: parse_vec2("1,2,3"), ValueError)
 probe("parse_vec2 nan", lambda: parse_vec2("nan,0"), ValueError)
@@ -189,6 +235,7 @@ probe("point_in_element outside", lambda: point_in_element(m2, 50.0, 50.0), None
 probe("spr_recovery shape", lambda: spr_recovery(m2, np.ones((5, 3))), ValueError)
 probe("spr_recovery nan", lambda: spr_recovery(m2, np.array([[np.nan, 1., 1.], [1., 1., 1.]])), ValueError)
 probe("refinement missing key", lambda: element_refinement_indicator(m2, {"u": np.zeros(8)}), ValueError)
+probe("estimate non-dict", lambda: estimate_error(m2, 5), ValueError)
 
 print("== F 材料 ==")
 probe("D_matrix E neg", lambda: D_matrix(-1.0, 0.3), ValueError)
@@ -199,6 +246,7 @@ probe("von_mises shape", lambda: von_mises(np.ones((2, 2))), ValueError)
 probe("von_mises nan", lambda: von_mises(np.array([[np.nan, 1., 0.]])), ValueError)
 probe("von_mises plane", lambda: von_mises(np.ones((2, 3)), plane_type="bogus"), ValueError)
 probe("get_element_kernel unknown", lambda: F.get_element_kernel("BOGUS"), ValueError)
+probe("register_element non-instance", lambda: F.register_element(object()), TypeError)
 
 print("== H 配置 ==")
 probe("config E neg", lambda: AnalysisConfig(E=-1.0), ValueError)
@@ -208,11 +256,48 @@ probe("config solver", lambda: AnalysisConfig(linear_solver="bogus"), ValueError
 probe("config band trio", lambda: AnalysisConfig(band_min=0.0), ValueError)
 probe("config band step", lambda: AnalysisConfig(band_min=0., band_max=1., band_step=0.), ValueError)
 probe("config band nonint", lambda: AnalysisConfig(band_min=0., band_max=1., band_step=0.3), ValueError)
+# H 组其余契约行: 网格质量无输入误用面 (空网格不可构造) → 合法调用不抛;
+# patch test E/plane/elem_type 非法 → 领域错误.
+probe("evaluate_mesh_quality ok", lambda: F.evaluate_mesh_quality(_mesh()), None)
+probe("run_patch_test E neg", lambda: run_patch_test(E=-1.0, verbose=False), ValueError)
+probe("run_patch_test plane bogus", lambda: run_patch_test(plane="bogus", verbose=False), ValueError)
+probe("run_patch_test elem bogus", lambda: run_patch_test(elem_type="BOGUS", verbose=False), ValueError)
 
 print("== E 输入链 (无 gmsh 依赖路径) ==")
 probe("import_msh missing", lambda: import_msh("C:/no_such_dir_xyz/x.msh"), FileNotFoundError)
 from fem2d.input_source import physical_point_from_geo
 probe("physical_point no_geo", lambda: physical_point_from_geo(None, "p", _mesh())[3], None)
+# .inp/.xyz 在扩展名分派即拒, 不触 ask 交互 (探针非交互运行安全).
+probe("resolve_input_file .inp", lambda: resolve_input_file("x.inp", AnalysisConfig()), CliError)
+probe("resolve_input_file .xyz", lambda: resolve_input_file("x.xyz", AnalysisConfig()), CliError)
+probe("resolve_spec_overrides badfmt", lambda: resolve_spec_overrides(_BAD_SPEC, AnalysisConfig()), ValueError)
+probe("generate_from_geo missing", lambda: generate_from_geo("C:/no_such_dir_xyz/x.geo"), FileNotFoundError)
+probe("parse_spec_config badfmt", lambda: parse_spec_config(_BAD_SPEC), ValueError)
+probe("parse_geo_fem_config empty", lambda: parse_geo_fem_config(_BAD_GEO), ValueError)
+# 文件不存在 → None 是 read_geo_groups 的设计行为 (契约 E 行).
+probe("read_geo_groups missing", lambda: read_geo_groups("C:/no_such_dir_xyz/x.geo"), None)
+probe("validate_mesh neg idx", lambda: validate_mesh(NODES, np.array([[-1, 1, 2]])), MeshValidationError)
+probe("validate_mesh empty", lambda: validate_mesh(NODES, np.empty((0, 3))), MeshValidationError)
+probe("validate_mesh ok", lambda: validate_mesh(NODES, ELEMS), None)
+
+print("== G 边界 ==")
+probe("detect_boundaries ok", lambda: F.detect_boundaries(_mesh()), None)
+probe("build_boundary_segments ok", lambda: build_boundary_segments(_mesh()), None)
+# 诊断型 API: 返回诊断对象而非抛异常 (契约 G 行).
+probe("validate_boundary_segments ok", lambda: F.validate_boundary_segments(_mesh(), _SEGS), None)
+probe("describe_geometry ok", lambda: F.describe_geometry(_SEGS), None)
+probe("print_segments ok", lambda: F.print_segments(_SEGS), None)
+# 模糊匹配歧义 (4 条直边均含"直边"标签) → 解析器 ValueError.
+probe("parse_edge_name ambiguous", lambda: F.parse_edge_name("~直", _SEGS), ValueError)
+# 未映射标签 → 空/诊断 (契约 G 行): 无标签与不存在的标签均不抛.
+probe("physical_curves None", lambda: F.segments_from_physical_curves(_mesh(), None), None)
+probe("physical_curves unmapped", lambda: F.segments_from_physical_curves(_mesh(), {(0, 1): "no_such_curve"}), None)
+probe("region_registry empty", lambda: F.segments_from_region_registry(_mesh(), RegionRegistry()), None)
+probe("semantic_coverage ok", lambda: F.semantic_coverage(_mesh(), _SEGS), None)
+
+print("== I 装配 ==")
+probe("assemble_sparse ok", lambda: F.assemble_sparse(_mesh()), None)
+probe("assemble_sparse_vectorized ok", lambda: F.assemble_sparse_vectorized(_mesh()), None)
 
 if __name__ == "__main__":
     print(f"\n{'='*40}")

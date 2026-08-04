@@ -640,6 +640,12 @@ class Mesh:
 
         Bathe Eq 4.43: 非零位移 U_b 需修正右端项 R_a' = R_a - K_ab·U_b
         """
+        if isinstance(node_list, str):
+            # 空串迭代零次 → 静默 no-op (fuzz 收紧后暴露: 用户拼错类型
+            # 时约束消失无提示, 属载荷静默错误族)
+            raise ValueError(
+                f"fix_nodes_func: node_list 必须是节点索引列表, "
+                f"got 字符串 {node_list!r}")
         if isinstance(node_list, (int, np.integer)):
             # 单个节点号曾 for-in 迭代裸 TypeError — 明示期望列表
             raise ValueError(
