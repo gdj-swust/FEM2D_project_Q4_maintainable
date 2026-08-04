@@ -18,6 +18,7 @@ import math as _m
 import numpy as np
 
 from .element import evaluate_vector_field
+from .loads_schema import _load_component_ok
 
 # 标准 Gauss-Legendre 3 点 ([-1, 1], 精度 degree 5)
 # 格式: (weight, xi)
@@ -123,10 +124,15 @@ def assemble(mesh, n_dof):
                             f"({xg:.4g},{yg:.4g}) 求值失败: {error}") from error
                 else:
                     p_val = p_raw
-                if not np.isfinite(p_val):
+                if callable(p_val) or not _load_component_ok(p_val):
+                    # callable 返回 str/序列/None/NaN 曾裸 TypeError/ValueError
+                    # (np.isfinite 真值判定) 无载荷上下文 — 统一走 loads_schema
+                    # 标量校验, 与面力路径契约一致
                     raise ValueError(
-                        f"Pressure callable returned NaN/Inf at "
-                        f"Gauss point ({xg:.4g},{yg:.4g}) on edge ({ni},{nj})")
+                        f"边 ({ni},{nj}) 压力在 Gauss 点 ({xg:.4g},{yg:.4g}) "
+                        f"处非法值 {p_val!r} — 压力必须是单个有穷数值 "
+                        f"(NaN/Inf/字符串/序列均拒绝)")
+                p_val = float(p_val)
                 tx = -p_val * nx
                 ty = -p_val * ny
                 fe = mesh.thickness * w * L / 2.0
@@ -310,9 +316,6 @@ def _compile_expr(expr: str):
                     raise ValueError(f"表达式 '{expr}' 中不允许关键字参数.")
                 for arg in node.args:
                     self.visit(arg)
-            # ast.Num removed in Python 3.14 (deprecated since 3.8)
-            elif hasattr(ast, 'Num') and isinstance(node, ast.Num):
-                pass
             else:
                 raise ValueError(
                     f"表达式 '{expr}' 包含不支持的操作 ({type(node).__name__}). "

@@ -87,6 +87,84 @@ def test_assemble_pressure_callable_nan_raises():
         assemble(mesh, 8)
 
 
+def test_assemble_pressure_callable_str_raises():
+    """压力 callable 返回字符串 → ValueError 带边号+Gauss 点 (曾裸 TypeError:
+    np.isfinite('abc') ufunc 不支持)."""
+    mesh = _quad(surface_tractions=[
+        {"nodes": (0, 1), "traction": (lambda x, y: "abc",),
+         "is_pressure": True}])
+    with pytest.raises(ValueError, match=r"边 \(0,1\) 压力在 Gauss 点"):
+        assemble(mesh, 8)
+
+
+def test_assemble_pressure_callable_tuple_raises():
+    """压力 callable 返回多元素序列 → ValueError 带上下文 (曾裸 ValueError:
+    数组真值判定歧义, 无载荷位置)."""
+    mesh = _quad(surface_tractions=[
+        {"nodes": (0, 1), "traction": (lambda x, y: (1.0, 2.0),),
+         "is_pressure": True}])
+    with pytest.raises(ValueError, match=r"边 \(0,1\) 压力在 Gauss 点"):
+        assemble(mesh, 8)
+
+
+def test_assemble_pressure_callable_none_raises():
+    """压力 callable 返回 None → ValueError 带上下文 (曾裸 TypeError)."""
+    mesh = _quad(surface_tractions=[
+        {"nodes": (0, 1), "traction": (lambda x, y: None,),
+         "is_pressure": True}])
+    with pytest.raises(ValueError, match=r"边 \(0,1\) 压力在 Gauss 点"):
+        assemble(mesh, 8)
+
+
+def test_assemble_pressure_callable_returning_callable_raises():
+    """压力 callable 返回 callable → ValueError 带上下文 (曾裸 TypeError
+    于 -p_val*nx 处)."""
+    mesh = _quad(surface_tractions=[
+        {"nodes": (0, 1), "traction": (lambda x, y: (lambda z: 1.0),),
+         "is_pressure": True}])
+    with pytest.raises(ValueError, match=r"边 \(0,1\) 压力在 Gauss 点"):
+        assemble(mesh, 8)
+
+
+def test_assemble_pressure_callable_nan_unified_message():
+    """压力 callable 返回 NaN → 统一校验消息 (边号+Gauss 点+NaN/Inf).
+
+    判别性: 旧实现消息为英文 "Pressure callable returned NaN/Inf at
+    Gauss point ... on edge", 不含 "压力在 Gauss 点" — 放回旧实现必失败.
+    """
+    mesh = _quad(surface_tractions=[
+        {"nodes": (0, 1), "traction": (lambda x, y: np.nan,),
+         "is_pressure": True}])
+    with pytest.raises(
+            ValueError, match=r"边 \(0,1\) 压力在 Gauss 点 .*NaN/Inf"):
+        assemble(mesh, 8)
+
+
+def test_assemble_pressure_callable_size1_array_raises():
+    """压力 callable 返回 1 元素数组 → ValueError 带上下文.
+
+    numpy≥1.25 float(1 元素数组) 已禁用 — _load_component_ok 拒绝.
+    判别性: 旧实现 np.isfinite(ndarray) 真值判定歧义裸 ValueError 无上下文.
+    """
+    mesh = _quad(surface_tractions=[
+        {"nodes": (0, 1), "traction": (lambda x, y: np.array([2.0]),),
+         "is_pressure": True}])
+    with pytest.raises(ValueError, match=r"边 \(0,1\) 压力在 Gauss 点"):
+        assemble(mesh, 8)
+
+
+def test_assemble_pressure_callable_0d_array_normalized():
+    """压力 callable 返回 0 维 ndarray → 归一化为标量, 等效节点力正确."""
+    mesh = _quad(surface_tractions=[
+        {"nodes": (0, 1), "traction": (lambda x, y: np.array(2.0),),
+         "is_pressure": True}])
+    F = assemble(mesh, 8)
+    # 边 (0,1) 外法向 (0,-1), 压力 2.0 → t = -p·n = (0,+2); t=1, L=1
+    # → 总力 2.0 均分两端 +y
+    assert F[1] == pytest.approx(1.0, rel=1e-12)
+    assert F[3] == pytest.approx(1.0, rel=1e-12)
+
+
 def test_assemble_traction_callable_raise_wrapped():
     """面力表达式除零等异常 → ValueError 带边/点上下文 (曾裸抛)."""
     def _boom(x, y):
