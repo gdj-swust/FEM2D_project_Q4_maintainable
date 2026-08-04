@@ -8,7 +8,9 @@
 静默豁免按生成值过滤: 只有该值"确实合法" (契约允许) 才允许静默成功 —
 complex/NaN/str/容器等非法类别照常断言必须抛异常 (曾把值类别参数
 整体 silent_ok=True, 非法输入被静默接受也查不出来)。
-用法: python scripts/fuzz_api.py [轮数=500]
+用法: python scripts/fuzz_api.py [轮数=500] [--seed N]
+默认固定种子 (20260803) — 同一提交永远同结果 (判别性: CI 重跑可复现
+抓到的输入); --seed 覆盖以探索新输入序列。
 退出码: 抓到 bug → 1。
 """
 import os
@@ -139,9 +141,18 @@ def _flat2(v):
     return isinstance(v, (list, tuple)) and len(v) == 2
 
 
+DEFAULT_SEED = 20260803
+
+
 def main():
-    rounds = int(sys.argv[1]) if len(sys.argv) > 1 else 500
-    rng = random.Random(20260803)
+    args = sys.argv[1:]
+    seed = DEFAULT_SEED
+    if "--seed" in args:
+        position = args.index("--seed")
+        seed = int(args[position + 1])
+        del args[position:position + 2]
+    rounds = int(args[0]) if args else 500
+    rng = random.Random(seed)
     bugs = []
     calls = 0
 
@@ -241,6 +252,7 @@ def main():
         elif i == 29:
             feed(f"estimate_condition K({v!r})", lambda v=v: estimate_condition(v))
 
+    print(f"seed={seed} rounds={rounds}")
     print(f"calls={calls}")
     print(f"problems: {len(bugs)}")
     for b in bugs:

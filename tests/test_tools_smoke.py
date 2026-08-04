@@ -143,6 +143,19 @@ def test_fuzz_api_runs_clean():
     assert "problems: 0" in r.stdout, r.stdout[-300:]
 
 
+def test_fuzz_api_seed_determinism():
+    """同种子两次运行输出逐字节一致 — 固定种子契约 (同一提交永远同结果).
+
+    判别性: 种子机制被移除 (或 --seed 不支持) → 本测试失败
+    (旧实现把 '--seed' 当轮数解析 → ValueError 退出码 1)."""
+    r1 = _run(["scripts/fuzz_api.py", "100", "--seed", "42"])
+    r2 = _run(["scripts/fuzz_api.py", "100", "--seed", "42"])
+    assert r1.returncode == 0, r1.stderr[-500:]
+    assert r2.returncode == 0, r2.stderr[-500:]
+    assert r1.stdout == r2.stdout, "同种子两次运行输出不一致"
+    assert "seed=42" in r1.stdout, r1.stdout[-200:]
+
+
 def test_fuzz_api_catches_silent_acceptance():
     """值类别非法输入必须断言抛异常 — API 静默接受非法输入必须被报出
     (判别性: 收紧前 silent_ok=True 整体豁免, 静默成功查不出)."""
