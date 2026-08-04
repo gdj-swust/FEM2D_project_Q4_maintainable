@@ -3,7 +3,25 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
-## 9.22.0 (2026-08-04) — 并行批次 1+2 (pkg7 文档 + pkg8 工具 + pkg9 尺度 + pkg10 CLI + pkg11 去重 + pkg12 测试基建)
+## 9.23.0 (2026-08-04) — 边界层插件化重构 (阶段 1: 金标准快照)
+
+### 阶段 1 — 边界输出行为锁定基线
+
+- **新增 `tests/boundary_snapshot.py`**: 边界金标准共享工具 —
+  段集合/边界边集合/段定向法向 vs `boundary_outward_normal` 一致性/
+  `print_segments` 打印输出四维快照, JSON 逐位对比入库金标准
+  (`tests/boundary_golden/`, `FEM2D_UPDATE_GOLDEN=1` 重写)
+- **新增 `tests/test_boundary_golden_deterministic.py`**: 无 gmsh 依赖层 —
+  CST 三角形/CST 方板/Q4/Q4R/Q4I 方板/嵌套孔板/32 边形整圆/40 边形
+  椭圆 8 个模型 × 双入口 (detect == build_boundary_segments 逐位一致)
+- **新增 `tests/test_boundary_golden_gmsh.py`**: gmsh 层 (skipif 无 gmsh) —
+  demo_complex/multi_hole_plate/curved_beam/l_bracket 四模型 ×
+  自动检测/注册表双路径快照 (节点 ID 版本漂移面改为计数+语义锁定)
+- **判别性测试**: `test_discriminative_hardcoded_expectations` 显式
+  钉死 Q4 方板标签序/整圆闭环节点序/椭圆标签 — 识别器任何重排/
+  翻转/改标签必红
+
+ — 并行批次 1+2 (pkg7 文档 + pkg8 工具 + pkg9 尺度 + pkg10 CLI + pkg11 去重 + pkg12 测试基建)
 
 ### pkg7 文档数字统刷 + 交接归档
 

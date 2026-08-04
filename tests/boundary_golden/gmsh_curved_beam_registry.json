@@ -1,0 +1,1130 @@
+{
+ "boundary_edges": 266,
+ "n_boundary_edges": 266,
+ "n_segments": 38,
+ "normals": 266,
+ "normals_consistent": true,
+ "print_output": "\n  [一般二维截面 | 外R60.00@0.00,-0.00 | 外R60.00@0.00,-0.00 | 外R60.00@0.00,-0.00 | 外R60.00@0.00,-0.00 | 外R40.00@0.00,-0.00 | 外R40.00@0.00,-0.00 | 外R40.00@0.00,-0.00 | 外R40.00@0.00,-0.00 | 外R40.00@0.00,-0.00 | 外R40.00@0.00,-0.00 | 外R40.00@0.00,-0.00 | 外R40.00@0.00,-0.00 | 外R40.00@0.00,-0.00 | 外R40.00@0.00,-0.00 | 外R40.00@0.00,-0.00 | 外R40.00@0.00,-0.00 | 60.00×60.00m]\n  38 条边界:\n  [1] ━ 固定端 | 外边 直边 (2.44921e-15,-40)→(3.67382e-15,-60)  (26点)\n  [2] ━ 自由端 | 外边 直边 (60,-0)→(40,-0)  (26点)\n  [3] ⌒ 外边 圆角 R=60 (20.5212,-56.3816)→(25.3571,-54.3785)  (8点)  |  中心: (1.61293e-12, -3.8014e-12)  R=60  角度=5.0°\n  [4] ⌒ 外边 圆角 R=60 (42.4264,-42.4264)→(45.9627,-38.5673)  (8点)  |  中心: (9.87654e-12, -9.04521e-12)  R=60  角度=5.0°\n  [5] ⌒ 外边 圆角 R=60 (49.1491,-34.4146)→(51.9615,-30)  (8点)  |  中心: (1.15108e-12, -7.4607e-13)  R=60  角度=5.0°\n  [6] ⌒ 外边 圆角 R=60 (51.9615,-30)→(54.3785,-25.3571)  (8点)  |  中心: (3.95772e-12, -2.0961e-12)  R=60  角度=5.0°\n  [7] ~ 外边 类圆 R~59.9996  (8点)  |  k_mean=0.0166668  R_eq=59.9996  CV=0.00\n  [8] ~ 外边 类圆 R~59.9996  (8点)  |  k_mean=0.0166668  R_eq=59.9996  CV=0.00\n  [9] ~ 外边 类圆 R~59.9996  (8点)  |  k_mean=0.0166668  R_eq=59.9996  CV=0.00\n  [10] ~ 外边 类圆 R~59.9996  (8点)  |  k_mean=0.0166668  R_eq=59.9996  CV=0.00\n  [11] ~ 外边 类圆 R~59.9996  (8点)  |  k_mean=0.0166668  R_eq=59.9996  CV=0.00\n  [12] ~ 外边 类圆 R~59.9996  (8点)  |  k_mean=0.0166668  R_eq=59.9996  CV=0.00\n  [13] ~ 外边 类圆 R~59.9996  (8点)  |  k_mean=0.0166668  R_eq=59.9996  CV=0.00\n  [14] ~ 外边 类圆 R~59.9996  (8点)  |  k_mean=0.0166668  R_eq=59.9996  CV=0.00\n  [15] ~ 外边 类圆 R~59.9996  (8点)  |  k_mean=0.0166668  R_eq=59.9996  CV=0.00\n  [16] ~ 外边 类圆 R~59.9996  (8点)  |  k_mean=0.0166668  R_eq=59.9996  CV=0.00\n  [17] ~ 外边 类圆 R~59.9996  (8点)  |  k_mean=0.0166668  R_eq=59.9996  CV=0.00\n  [18] ~ 外边 类圆 R~59.9996  (8点)  |  k_mean=0.0166668  R_eq=59.9996  CV=0.00\n  [19] ~ 外边 类圆 R~59.9996  (8点)  |  k_mean=0.0166668  R_eq=59.9996  CV=0.00\n  [20] ~ 外边 类圆 R~59.9996  (8点)  |  k_mean=0.0166668  R_eq=59.9996  CV=0.00\n  [21] ⌒ 外边 圆角 R=40 (10.3528,-38.637)→(6.94593,-39.3923)  (6点)  |  中心: (1.62537e-12, -7.45359e-12)  R=40  角度=5.0°\n  [22] ⌒ 外边 圆角 R=40 (13.6808,-37.5877)→(10.3528,-38.637)  (6点)  |  中心: (4.67182e-13, -1.29319e-12)  R=40  角度=5.0°\n  [23] ⌒ 外边 圆角 R=40 (16.9047,-36.2523)→(13.6808,-37.5877)  (6点)  |  中心: (6.33094e-12, -1.53264e-11)  R=40  角度=5.0°\n  [24] ⌒ 外边 圆角 R=40 (25.7115,-30.6418)→(22.9431,-32.7661)  (6点)  |  中心: (1.35003e-12, -1.71951e-12)  R=40  角度=5.0°\n  [25] ⌒ 外边 圆角 R=40 (28.2843,-28.2843)→(25.7115,-30.6418)  (6点)  |  中心: (1.00897e-12, -1.05516e-12)  R=40  角度=5.0°\n  [26] ⌒ 外边 圆角 R=40 (3.48623,-39.8478)→(2.44921e-15,-40)  (6点)  |  中心: (2.4869e-14, -9.09495e-13)  R=40  角度=5.0°\n  [27] ⌒ 外边 圆角 R=40 (30.6418,-25.7115)→(28.2843,-28.2843)  (6点)  |  中心: (1.05871e-12, -9.05942e-13)  R=40  角度=5.0°\n  [28] ⌒ 外边 圆角 R=40 (34.641,-20)→(32.7661,-22.9431)  (6点)  |  中心: (7.4678e-12, -4.74287e-12)  R=40  角度=5.0°\n  [29] ⌒ 外边 圆角 R=40 (36.2523,-16.9047)→(34.641,-20)  (6点)  |  中心: (2.45848e-12, -1.36069e-12)  R=40  角度=5.0°\n  [30] ⌒ 外边 圆角 R=40 (39.3923,-6.94593)→(38.637,-10.3528)  (6点)  |  中心: (1.54188e-12, -3.49942e-13)  R=40  角度=5.0°\n  [31] ⌒ 外边 圆角 R=40 (40,-0)→(39.8478,-3.48623)  (6点)  |  中心: (4.65405e-12, -2.10498e-13)  R=40  角度=5.0°\n  [32] ⌒ 外边 圆角 R=40 (6.94593,-39.3923)→(3.48623,-39.8478)  (6点)  |  中心: (8.78408e-13, -6.92069e-12)  R=40  角度=5.0°\n  [33] ~ 外边 类圆 R~39.9995  (6点)  |  k_mean=0.0250003  R_eq=39.9995  CV=0.00\n  [34] ~ 外边 类圆 R~39.9995  (6点)  |  k_mean=0.0250003  R_eq=39.9995  CV=0.00\n  [35] ~ 外边 类圆 R~39.9995  (6点)  |  k_mean=0.0250003  R_eq=39.9995  CV=0.00\n  [36] ~ 外边 类圆 R~39.9995  (6点)  |  k_mean=0.0250003  R_eq=39.9995  CV=0.00\n  [37] ~ 外边 类圆 R~39.9995  (6点)  |  k_mean=0.0250003  R_eq=39.9995  CV=0.00\n  [38] ~ 外边 类圆 R~39.9995  (6点)  |  k_mean=0.0250003  R_eq=39.9995  CV=0.00\n  外边: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38\n  直边: 1,2\n  圆弧: 3,4,5,6,21,22,23,24,25,26,27,28,29,30,31,32\n  曲线: 7,8,9,10,11,12,13,14,15,16,17,18,19,20,33,34,35,36,37,38\n",
+ "segments": [
+  {
+   "closed": false,
+   "info": {
+    "axis": "x",
+    "cad_entity_types": [
+     "Line"
+    ],
+    "end": [
+     3.673819061467132e-15,
+     -60.0
+    ],
+    "entity_tags": [
+     401
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "physical_name": "固定端",
+    "physical_names": [
+     "固定端"
+    ],
+    "physical_tags": [
+     101
+    ],
+    "pos": 2.4492127076447545e-15,
+    "source": "gmsh_api+cad+geometry",
+    "start": [
+     2.4492127076447545e-15,
+     -40.0
+    ],
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "固定端 | 外边 直边 (2.44921e-15,-40)→(3.67382e-15,-60)",
+   "n_nodes": 26,
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "y",
+    "cad_entity_types": [
+     "Line"
+    ],
+    "end": [
+     40.0,
+     -0.0
+    ],
+    "entity_tags": [
+     400
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "physical_name": "自由端",
+    "physical_names": [
+     "自由端"
+    ],
+    "physical_tags": [
+     102
+    ],
+    "pos": -0.0,
+    "source": "gmsh_api+cad+geometry",
+    "start": [
+     60.0,
+     -0.0
+    ],
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "自由端 | 外边 直边 (60,-0)→(40,-0)",
+   "n_nodes": 26,
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.0872664625997226,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     1.6129320101754274e-12,
+     -3.801403636316536e-12
+    ],
+    "entity_tags": [
+     213
+    ],
+    "fit_residual": 3.552713678800501e-15,
+    "fit_residual_max": 7.105427357601002e-15,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 59.99999999999587,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=60 (20.5212,-56.3816)→(25.3571,-54.3785)",
+   "n_nodes": 8,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.08726646259973592,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     9.876544027065393e-12,
+     -9.045209026226075e-12
+    ],
+    "entity_tags": [
+     208
+    ],
+    "fit_residual": 1.0658141036401503e-14,
+    "fit_residual_max": 1.4210854715202004e-14,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 59.99999999998663,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=60 (42.4264,-42.4264)→(45.9627,-38.5673)",
+   "n_nodes": 8,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.08726646259971904,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     1.1510792319313623e-12,
+     -7.460698725481052e-13
+    ],
+    "entity_tags": [
+     206
+    ],
+    "fit_residual": 6.217248937900877e-15,
+    "fit_residual_max": 7.105427357601002e-15,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 59.99999999999862,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=60 (49.1491,-34.4146)→(51.9615,-30)",
+   "n_nodes": 8,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.08726646259972348,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     3.957723038183758e-12,
+     -2.0961010704922955e-12
+    ],
+    "entity_tags": [
+     205
+    ],
+    "fit_residual": 3.552713678800501e-15,
+    "fit_residual_max": 7.105427357601002e-15,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 59.999999999995524,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=60 (51.9615,-30)→(54.3785,-25.3571)",
+   "n_nodes": 8,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 9.914215327599852e-13,
+    "curvature_mean": 0.01666677459566419,
+    "curvature_std": 1.6523799215798574e-14,
+    "entity_tags": [
+     200
+    ],
+    "equivalent_radius": 59.99961145812501,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 5.235953849308206,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~59.9996",
+   "n_nodes": 8,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 1.3634590940715134e-12,
+    "curvature_mean": 0.016666774595648106,
+    "curvature_std": 2.272446539127648e-14,
+    "entity_tags": [
+     201
+    ],
+    "equivalent_radius": 59.99961145818291,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 5.2359538493082045,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~59.9996",
+   "n_nodes": 8,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 8.022444754842674e-13,
+    "curvature_mean": 0.01666677459566015,
+    "curvature_std": 1.3370827843509888e-14,
+    "entity_tags": [
+     202
+    ],
+    "equivalent_radius": 59.99961145813956,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 5.235953849308208,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~59.9996",
+   "n_nodes": 8,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 1.7543638678820474e-12,
+    "curvature_mean": 0.016666774595650084,
+    "curvature_std": 2.923958714474293e-14,
+    "entity_tags": [
+     203
+    ],
+    "equivalent_radius": 59.99961145817579,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 5.235953849308208,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~59.9996",
+   "n_nodes": 8,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 6.291319726455338e-13,
+    "curvature_mean": 0.01666677459566376,
+    "curvature_std": 1.048560077900841e-14,
+    "entity_tags": [
+     204
+    ],
+    "equivalent_radius": 59.99961145812656,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 5.235953849308208,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~59.9996",
+   "n_nodes": 8,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 6.481923081713464e-13,
+    "curvature_mean": 0.016666774595657994,
+    "curvature_std": 1.0803275094931114e-14,
+    "entity_tags": [
+     207
+    ],
+    "equivalent_radius": 59.99961145814732,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 5.2359538493082125,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~59.9996",
+   "n_nodes": 8,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 8.127271963082403e-13,
+    "curvature_mean": 0.01666677459566577,
+    "curvature_std": 1.3545540988636846e-14,
+    "entity_tags": [
+     209
+    ],
+    "equivalent_radius": 59.999611458119325,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 5.23595384930821,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~59.9996",
+   "n_nodes": 8,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 1.3928159060584994e-12,
+    "curvature_mean": 0.016666774595658764,
+    "curvature_std": 2.321374875952524e-14,
+    "entity_tags": [
+     210
+    ],
+    "equivalent_radius": 59.99961145814454,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 5.235953849308208,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~59.9996",
+   "n_nodes": 8,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 1.261479983184879e-12,
+    "curvature_mean": 0.016666774595652623,
+    "curvature_std": 2.102480253667004e-14,
+    "entity_tags": [
+     211
+    ],
+    "equivalent_radius": 59.999611458166655,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 5.235953849308201,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~59.9996",
+   "n_nodes": 8,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 1.3586186421942418e-12,
+    "curvature_mean": 0.01666677459565788,
+    "curvature_std": 2.2643790670910193e-14,
+    "entity_tags": [
+     212
+    ],
+    "equivalent_radius": 59.99961145814773,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 5.235953849308216,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~59.9996",
+   "n_nodes": 8,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 1.118564517477594e-12,
+    "curvature_mean": 0.01666677459565796,
+    "curvature_std": 1.864286268349997e-14,
+    "entity_tags": [
+     214
+    ],
+    "equivalent_radius": 59.99961145814744,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 5.235953849308203,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~59.9996",
+   "n_nodes": 8,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 6.269274312793586e-13,
+    "curvature_mean": 0.016666774595660853,
+    "curvature_std": 1.0448858184969729e-14,
+    "entity_tags": [
+     215
+    ],
+    "equivalent_radius": 59.999611458137025,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 5.235953849308218,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~59.9996",
+   "n_nodes": 8,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 2.9964331044963815e-12,
+    "curvature_mean": 0.016666774595641892,
+    "curvature_std": 4.9940875143560656e-14,
+    "entity_tags": [
+     216
+    ],
+    "equivalent_radius": 59.99961145820528,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 5.235953849308211,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~59.9996",
+   "n_nodes": 8,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 1.605842825747688e-12,
+    "curvature_mean": 0.016666774595646517,
+    "curvature_std": 2.6764220412772783e-14,
+    "entity_tags": [
+     217
+    ],
+    "equivalent_radius": 59.99961145818863,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 5.235953849308199,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~59.9996",
+   "n_nodes": 8,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.08726646259973325,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     1.6253665080512292e-12,
+     -7.453593298123451e-12
+    ],
+    "entity_tags": [
+     302
+    ],
+    "fit_residual": 1.1842378929335002e-15,
+    "fit_residual_max": 7.105427357601002e-15,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 39.999999999992376,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=40 (10.3528,-38.637)→(6.94593,-39.3923)",
+   "n_nodes": 6,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.08726646259971993,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     4.671818487622659e-13,
+     -1.2931877790833823e-12
+    ],
+    "entity_tags": [
+     303
+    ],
+    "fit_residual": 2.3684757858670005e-15,
+    "fit_residual_max": 7.105427357601002e-15,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 39.99999999999862,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=40 (13.6808,-37.5877)→(10.3528,-38.637)",
+   "n_nodes": 6,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.08726646259975368,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     6.330935775622493e-12,
+     -1.532640681034536e-11
+    ],
+    "entity_tags": [
+     304
+    ],
+    "fit_residual": 1.1842378929335004e-14,
+    "fit_residual_max": 1.4210854715202004e-14,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 39.999999999983444,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=40 (16.9047,-36.2523)→(13.6808,-37.5877)",
+   "n_nodes": 6,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.08726646259972082,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     1.3500311979441904e-12,
+     -1.7195134205394424e-12
+    ],
+    "entity_tags": [
+     307
+    ],
+    "fit_residual": 2.3684757858670005e-15,
+    "fit_residual_max": 7.105427357601002e-15,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 39.99999999999782,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=40 (25.7115,-30.6418)→(22.9431,-32.7661)",
+   "n_nodes": 6,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.08726646259971993,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     1.0089706847793423e-12,
+     -1.0551559626037488e-12
+    ],
+    "entity_tags": [
+     308
+    ],
+    "fit_residual": 3.552713678800501e-15,
+    "fit_residual_max": 7.105427357601002e-15,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 39.99999999999854,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=40 (28.2843,-28.2843)→(25.7115,-30.6418)",
+   "n_nodes": 6,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.08726646259971815,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     2.4868995751603507e-14,
+     -9.094947017729282e-13
+    ],
+    "entity_tags": [
+     300
+    ],
+    "fit_residual": 7.105427357601002e-15,
+    "fit_residual_max": 7.105427357601002e-15,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 39.9999999999991,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=40 (3.48623,-39.8478)→(2.44921e-15,-40)",
+   "n_nodes": 6,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.08726646259971993,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     1.0587086762825493e-12,
+     -9.059419880941277e-13
+    ],
+    "entity_tags": [
+     309
+    ],
+    "fit_residual": 8.289665250534503e-15,
+    "fit_residual_max": 1.4210854715202004e-14,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 39.999999999998614,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=40 (30.6418,-25.7115)→(28.2843,-28.2843)",
+   "n_nodes": 6,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.08726646259973592,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     7.467804152838653e-12,
+     -4.742872761198669e-12
+    ],
+    "entity_tags": [
+     311
+    ],
+    "fit_residual": 3.552713678800501e-15,
+    "fit_residual_max": 7.105427357601002e-15,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 39.99999999999116,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=40 (34.641,-20)→(32.7661,-22.9431)",
+   "n_nodes": 6,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.0872664625997226,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     2.4584778657299466e-12,
+     -1.3606893389805919e-12
+    ],
+    "entity_tags": [
+     312
+    ],
+    "fit_residual": 3.552713678800501e-15,
+    "fit_residual_max": 7.105427357601002e-15,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 39.99999999999719,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=40 (36.2523,-16.9047)→(34.641,-20)",
+   "n_nodes": 6,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.08726646259971993,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     1.5418777365994174e-12,
+     -3.4994229736184934e-13
+    ],
+    "entity_tags": [
+     315
+    ],
+    "fit_residual": 3.552713678800501e-15,
+    "fit_residual_max": 7.105427357601002e-15,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 39.999999999998415,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=40 (39.3923,-6.94593)→(38.637,-10.3528)",
+   "n_nodes": 6,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.08726646259972703,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     4.654054919228656e-12,
+     -2.1049828546892968e-13
+    ],
+    "entity_tags": [
+     317
+    ],
+    "fit_residual": 2.3684757858670005e-15,
+    "fit_residual_max": 7.105427357601002e-15,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 39.999999999995346,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=40 (40,-0)→(39.8478,-3.48623)",
+   "n_nodes": 6,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 0.08726646259973236,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     8.784084570834239e-13,
+     -6.920686246303376e-12
+    ],
+    "entity_tags": [
+     301
+    ],
+    "fit_residual": 5.921189464667502e-15,
+    "fit_residual_max": 7.105427357601002e-15,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "radius": 39.99999999999302,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 圆角 R=40 (6.94593,-39.3923)→(3.48623,-39.8478)",
+   "n_nodes": 6,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 9.648858713887502e-13,
+    "curvature_mean": 0.025000317312629944,
+    "curvature_std": 2.41224529551922e-14,
+    "entity_tags": [
+     305
+    ],
+    "equivalent_radius": 39.99949230623599,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 3.4906141993495763,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~39.9995",
+   "n_nodes": 6,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 1.001723707507195e-12,
+    "curvature_mean": 0.025000317312628487,
+    "curvature_std": 2.5043410547262523e-14,
+    "entity_tags": [
+     306
+    ],
+    "equivalent_radius": 39.999492306238324,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 3.4906141993495714,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~39.9995",
+   "n_nodes": 6,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 5.181923006441779e-13,
+    "curvature_mean": 0.025000317312626773,
+    "curvature_std": 1.2954971945064536e-14,
+    "entity_tags": [
+     310
+    ],
+    "equivalent_radius": 39.999492306241066,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 3.4906141993495727,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~39.9995",
+   "n_nodes": 6,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 5.553932063344154e-13,
+    "curvature_mean": 0.02500031731262342,
+    "curvature_std": 1.3885006391635718e-14,
+    "entity_tags": [
+     313
+    ],
+    "equivalent_radius": 39.99949230624643,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 3.490614199349579,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~39.9995",
+   "n_nodes": 6,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 2.7731332282262557e-13,
+    "curvature_mean": 0.0250003173126253,
+    "curvature_std": 6.9329210655841346e-15,
+    "entity_tags": [
+     314
+    ],
+    "equivalent_radius": 39.999492306243425,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 3.4906141993495714,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~39.9995",
+   "n_nodes": 6,
+   "type": "curve"
+  },
+  {
+   "closed": false,
+   "info": {
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "closed": false,
+    "curvature_cv": 4.745729430275561e-13,
+    "curvature_mean": 0.025000317312630065,
+    "curvature_std": 1.1864474163677613e-14,
+    "entity_tags": [
+     316
+    ],
+    "equivalent_radius": 39.9994923062358,
+    "geometry": "general",
+    "inflection_count": 0,
+    "is_outer": true,
+    "length": 3.490614199349573,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "source": "gmsh_cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 类圆 R~39.9995",
+   "n_nodes": 6,
+   "type": "curve"
+  }
+ ]
+}

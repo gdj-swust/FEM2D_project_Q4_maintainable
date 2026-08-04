@@ -1,0 +1,157 @@
+{
+ "boundary_edges": 1156,
+ "n_boundary_edges": 1156,
+ "n_segments": 7,
+ "normals": 1156,
+ "normals_consistent": true,
+ "print_output": "\n  [带孔/槽矩形板 | 含内孔 | 内R6.00@20.00,20.00 | 内R4.00@45.00,20.00 | 内R5.00@70.00,20.00 | 100.00×40.00m]\n  7 条边界:\n  [1] ━ 外边 直边 (100,40)→(0,40)  (251点)\n  [2] ━ 外边 直边 (0,0)→(100,0)  (251点)\n  [3] ━ 外边 直边 (100,0)→(100,40)  (101点)\n  [4] ━ 外边 直边 (0,40)→(0,0)  (101点)\n  [5] ⌒ 内孔 整圆 R=6  (169点)  |  中心: (20, 20)  R=6  角度=360.0°\n  [6] ⌒ 内孔 整圆 R=4  (145点)  |  中心: (45, 20)  R=4  角度=360.0°\n  [7] ⌒ 内孔 整圆 R=5  (145点)  |  中心: (70, 20)  R=5  角度=360.0°\n  外边: 1,2,3,4\n  内孔: 5,6,7\n  直边: 1,2,3,4\n  圆弧: 5,6,7\n",
+ "segments": [
+  {
+   "closed": false,
+   "info": {
+    "axis": "y",
+    "end": [
+     0.0,
+     40.0
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "pos": 40.0,
+    "start": [
+     100.0,
+     40.0
+    ]
+   },
+   "label": "外边 直边 (100,40)→(0,40)",
+   "n_nodes": 251,
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "y",
+    "end": [
+     100.0,
+     0.0
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "pos": 0.0,
+    "start": [
+     0.0,
+     0.0
+    ]
+   },
+   "label": "外边 直边 (0,0)→(100,0)",
+   "n_nodes": 251,
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "x",
+    "end": [
+     100.0,
+     40.0
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "pos": 100.0,
+    "start": [
+     100.0,
+     0.0
+    ]
+   },
+   "label": "外边 直边 (100,0)→(100,40)",
+   "n_nodes": 101,
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "x",
+    "end": [
+     0.0,
+     0.0
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "pos": 0.0,
+    "start": [
+     0.0,
+     40.0
+    ]
+   },
+   "label": "外边 直边 (0,40)→(0,0)",
+   "n_nodes": 101,
+   "type": "line"
+  },
+  {
+   "closed": true,
+   "info": {
+    "angle": 6.283185307179586,
+    "center": [
+     20.0,
+     20.0
+    ],
+    "coarse_fit": false,
+    "fit_residual": 2.517827216560623e-16,
+    "fit_residual_max": 8.881784197001252e-16,
+    "is_outer": false,
+    "loop_depth": 1,
+    "loop_id": 1,
+    "primitive_samples": 168,
+    "radius": 5.999999999999998
+   },
+   "label": "内孔 整圆 R=6",
+   "n_nodes": 169,
+   "type": "arc"
+  },
+  {
+   "closed": true,
+   "info": {
+    "angle": 6.283185307179586,
+    "center": [
+     45.0,
+     20.0
+    ],
+    "coarse_fit": false,
+    "fit_residual": 8.380641859496841e-16,
+    "fit_residual_max": 2.220446049250313e-15,
+    "is_outer": false,
+    "loop_depth": 1,
+    "loop_id": 2,
+    "primitive_samples": 144,
+    "radius": 3.9999999999999973
+   },
+   "label": "内孔 整圆 R=4",
+   "n_nodes": 145,
+   "type": "arc"
+  },
+  {
+   "closed": true,
+   "info": {
+    "angle": 6.283185307179586,
+    "center": [
+     70.0,
+     20.000000000000004
+    ],
+    "coarse_fit": false,
+    "fit_residual": 7.123931074678088e-16,
+    "fit_residual_max": 2.4424906541753444e-15,
+    "is_outer": false,
+    "loop_depth": 1,
+    "loop_id": 3,
+    "primitive_samples": 144,
+    "radius": 4.999999999999998
+   },
+   "label": "内孔 整圆 R=5",
+   "n_nodes": 145,
+   "type": "arc"
+  }
+ ]
+}

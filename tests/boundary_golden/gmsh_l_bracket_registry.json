@@ -1,0 +1,210 @@
+{
+ "boundary_edges": 112,
+ "n_boundary_edges": 112,
+ "n_segments": 6,
+ "normals": 112,
+ "normals_consistent": true,
+ "print_output": "\n  [多边形板 | 1.00×1.00m]\n  6 条边界:\n  [1] ━ 外边 直边 (0,0)→(1,0)  (26点)\n  [2] ━ 左边_固定 | 外边 直边 (0,1)→(0,0)  (26点)\n  [3] ━ 外边 直边 (0.5,0.5)→(0.5,1)  (19点)\n  [4] ━ 外边 直边 (1,0.5)→(0.5,0.5)  (19点)\n  [5] ━ 右边_拉力 | 外边 直边 (1,0)→(1,0.5)  (14点)\n  [6] ━ 外边 直边 (0.5,1)→(0,1)  (14点)\n  外边: 1,2,3,4,5,6\n  直边: 1,2,3,4,5,6\n",
+ "segments": [
+  {
+   "closed": false,
+   "info": {
+    "axis": "y",
+    "cad_entity_types": [
+     "Line"
+    ],
+    "end": [
+     1.0,
+     0.0
+    ],
+    "entity_tags": [
+     1
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "pos": 0.0,
+    "source": "gmsh_cad+geometry",
+    "start": [
+     0.0,
+     0.0
+    ],
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 直边 (0,0)→(1,0)",
+   "n_nodes": 26,
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "x",
+    "cad_entity_types": [
+     "Line"
+    ],
+    "end": [
+     0.0,
+     0.0
+    ],
+    "entity_tags": [
+     6
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "physical_name": "左边_固定",
+    "physical_names": [
+     "左边_固定"
+    ],
+    "physical_tags": [
+     101
+    ],
+    "pos": 0.0,
+    "source": "gmsh_api+cad+geometry",
+    "start": [
+     0.0,
+     1.0
+    ],
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "左边_固定 | 外边 直边 (0,1)→(0,0)",
+   "n_nodes": 26,
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "x",
+    "cad_entity_types": [
+     "Line"
+    ],
+    "end": [
+     0.5,
+     1.0
+    ],
+    "entity_tags": [
+     4
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "pos": 0.5,
+    "source": "gmsh_cad+geometry",
+    "start": [
+     0.5,
+     0.5
+    ],
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 直边 (0.5,0.5)→(0.5,1)",
+   "n_nodes": 19,
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "y",
+    "cad_entity_types": [
+     "Line"
+    ],
+    "end": [
+     0.5,
+     0.5
+    ],
+    "entity_tags": [
+     3
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "pos": 0.5,
+    "source": "gmsh_cad+geometry",
+    "start": [
+     1.0,
+     0.5
+    ],
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 直边 (1,0.5)→(0.5,0.5)",
+   "n_nodes": 19,
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "x",
+    "cad_entity_types": [
+     "Line"
+    ],
+    "end": [
+     1.0,
+     0.5
+    ],
+    "entity_tags": [
+     2
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "physical_name": "右边_拉力",
+    "physical_names": [
+     "右边_拉力"
+    ],
+    "physical_tags": [
+     102
+    ],
+    "pos": 1.0,
+    "source": "gmsh_api+cad+geometry",
+    "start": [
+     1.0,
+     0.0
+    ],
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "右边_拉力 | 外边 直边 (1,0)→(1,0.5)",
+   "n_nodes": 14,
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "y",
+    "cad_entity_types": [
+     "Line"
+    ],
+    "end": [
+     0.0,
+     1.0
+    ],
+    "entity_tags": [
+     5
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "pos": 1.0,
+    "source": "gmsh_cad+geometry",
+    "start": [
+     0.5,
+     1.0
+    ],
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "外边 直边 (0.5,1)→(0,1)",
+   "n_nodes": 14,
+   "type": "line"
+  }
+ ]
+}

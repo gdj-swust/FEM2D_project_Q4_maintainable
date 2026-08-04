@@ -1,0 +1,356 @@
+{
+ "boundary_edges": [
+  [
+   0,
+   1
+  ],
+  [
+   0,
+   3
+  ],
+  [
+   1,
+   2
+  ],
+  [
+   2,
+   3
+  ],
+  [
+   4,
+   5
+  ],
+  [
+   4,
+   7
+  ],
+  [
+   5,
+   6
+  ],
+  [
+   6,
+   7
+  ]
+ ],
+ "n_boundary_edges": 8,
+ "n_segments": 8,
+ "normals": [
+  {
+   "api_normal": [
+    0.0,
+    -1.0
+   ],
+   "edge": [
+    0,
+    1
+   ],
+   "segment_normal": [
+    0.0,
+    -1.0
+   ]
+  },
+  {
+   "api_normal": [
+    1.0,
+    -0.0
+   ],
+   "edge": [
+    1,
+    2
+   ],
+   "segment_normal": [
+    1.0,
+    -0.0
+   ]
+  },
+  {
+   "api_normal": [
+    0.0,
+    1.0
+   ],
+   "edge": [
+    2,
+    3
+   ],
+   "segment_normal": [
+    0.0,
+    1.0
+   ]
+  },
+  {
+   "api_normal": [
+    -1.0,
+    -0.0
+   ],
+   "edge": [
+    3,
+    0
+   ],
+   "segment_normal": [
+    -1.0,
+    -0.0
+   ]
+  },
+  {
+   "api_normal": [
+    0.0,
+    -1.0
+   ],
+   "edge": [
+    7,
+    6
+   ],
+   "segment_normal": [
+    0.0,
+    -1.0
+   ]
+  },
+  {
+   "api_normal": [
+    -1.0,
+    -0.0
+   ],
+   "edge": [
+    6,
+    5
+   ],
+   "segment_normal": [
+    -1.0,
+    -0.0
+   ]
+  },
+  {
+   "api_normal": [
+    0.0,
+    1.0
+   ],
+   "edge": [
+    5,
+    4
+   ],
+   "segment_normal": [
+    0.0,
+    1.0
+   ]
+  },
+  {
+   "api_normal": [
+    1.0,
+    -0.0
+   ],
+   "edge": [
+    4,
+    7
+   ],
+   "segment_normal": [
+    1.0,
+    -0.0
+   ]
+  }
+ ],
+ "normals_consistent": true,
+ "print_output": "\n  [多边形板 | 含内孔 | 8.00×8.00m]\n  8 条边界:\n  [1] ━ 外边 直边 (0,0)→(8,0)  (2点)\n  [2] ━ 外边 直边 (8,0)→(8,8)  (2点)\n  [3] ━ 外边 直边 (8,8)→(0,8)  (2点)\n  [4] ━ 外边 直边 (0,8)→(0,0)  (2点)\n  [5] ━ 内孔 直边 (2,6)→(6,6)  (2点)\n  [6] ━ 内孔 直边 (6,6)→(6,2)  (2点)\n  [7] ━ 内孔 直边 (6,2)→(2,2)  (2点)\n  [8] ━ 内孔 直边 (2,2)→(2,6)  (2点)\n  外边: 1,2,3,4\n  内孔: 5,6,7,8\n  直边: 1,2,3,4,5,6,7,8\n",
+ "segments": [
+  {
+   "closed": false,
+   "info": {
+    "axis": "y",
+    "end": [
+     8.0,
+     0.0
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "pos": 0.0,
+    "start": [
+     0.0,
+     0.0
+    ]
+   },
+   "label": "外边 直边 (0,0)→(8,0)",
+   "n_nodes": 2,
+   "nodes": [
+    0,
+    1
+   ],
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "x",
+    "end": [
+     8.0,
+     8.0
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "pos": 8.0,
+    "start": [
+     8.0,
+     0.0
+    ]
+   },
+   "label": "外边 直边 (8,0)→(8,8)",
+   "n_nodes": 2,
+   "nodes": [
+    1,
+    2
+   ],
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "y",
+    "end": [
+     0.0,
+     8.0
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "pos": 8.0,
+    "start": [
+     8.0,
+     8.0
+    ]
+   },
+   "label": "外边 直边 (8,8)→(0,8)",
+   "n_nodes": 2,
+   "nodes": [
+    2,
+    3
+   ],
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "x",
+    "end": [
+     0.0,
+     0.0
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "pos": 0.0,
+    "start": [
+     0.0,
+     8.0
+    ]
+   },
+   "label": "外边 直边 (0,8)→(0,0)",
+   "n_nodes": 2,
+   "nodes": [
+    3,
+    0
+   ],
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "y",
+    "end": [
+     6.0,
+     6.0
+    ],
+    "is_outer": false,
+    "loop_depth": 1,
+    "loop_id": 1,
+    "pos": 6.0,
+    "start": [
+     2.0,
+     6.0
+    ]
+   },
+   "label": "内孔 直边 (2,6)→(6,6)",
+   "n_nodes": 2,
+   "nodes": [
+    7,
+    6
+   ],
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "x",
+    "end": [
+     6.0,
+     2.0
+    ],
+    "is_outer": false,
+    "loop_depth": 1,
+    "loop_id": 1,
+    "pos": 6.0,
+    "start": [
+     6.0,
+     6.0
+    ]
+   },
+   "label": "内孔 直边 (6,6)→(6,2)",
+   "n_nodes": 2,
+   "nodes": [
+    6,
+    5
+   ],
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "y",
+    "end": [
+     2.0,
+     2.0
+    ],
+    "is_outer": false,
+    "loop_depth": 1,
+    "loop_id": 1,
+    "pos": 2.0,
+    "start": [
+     6.0,
+     2.0
+    ]
+   },
+   "label": "内孔 直边 (6,2)→(2,2)",
+   "n_nodes": 2,
+   "nodes": [
+    5,
+    4
+   ],
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "x",
+    "end": [
+     2.0,
+     6.0
+    ],
+    "is_outer": false,
+    "loop_depth": 1,
+    "loop_id": 1,
+    "pos": 2.0,
+    "start": [
+     2.0,
+     2.0
+    ]
+   },
+   "label": "内孔 直边 (2,2)→(2,6)",
+   "n_nodes": 2,
+   "nodes": [
+    4,
+    7
+   ],
+   "type": "line"
+  }
+ ]
+}

@@ -1,0 +1,141 @@
+{
+ "boundary_edges": [
+  [
+   0,
+   1
+  ],
+  [
+   0,
+   2
+  ],
+  [
+   1,
+   2
+  ]
+ ],
+ "n_boundary_edges": 3,
+ "n_segments": 3,
+ "normals": [
+  {
+   "api_normal": [
+    0.0,
+    -1.0
+   ],
+   "edge": [
+    0,
+    1
+   ],
+   "segment_normal": [
+    0.0,
+    -1.0
+   ]
+  },
+  {
+   "api_normal": [
+    0.7071067811865475,
+    0.7071067811865475
+   ],
+   "edge": [
+    1,
+    2
+   ],
+   "segment_normal": [
+    0.7071067811865475,
+    0.7071067811865475
+   ]
+  },
+  {
+   "api_normal": [
+    -1.0,
+    -0.0
+   ],
+   "edge": [
+    2,
+    0
+   ],
+   "segment_normal": [
+    -1.0,
+    -0.0
+   ]
+  }
+ ],
+ "normals_consistent": true,
+ "print_output": "\n  [一般二维截面 | 1.00×1.00m]\n  3 条边界:\n  [1] ━ 外边 直边 (0,0)→(1,0)  (2点)\n  [2] ━ 外边 直边 (1,0)→(0,1)  (2点)\n  [3] ━ 外边 直边 (0,1)→(0,0)  (2点)\n  外边: 1,2,3\n  直边: 1,2,3\n",
+ "segments": [
+  {
+   "closed": false,
+   "info": {
+    "axis": "y",
+    "end": [
+     1.0,
+     0.0
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "pos": 0.0,
+    "start": [
+     0.0,
+     0.0
+    ]
+   },
+   "label": "外边 直边 (0,0)→(1,0)",
+   "n_nodes": 2,
+   "nodes": [
+    0,
+    1
+   ],
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "tilted",
+    "end": [
+     0.0,
+     1.0
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "pos": 1.0,
+    "start": [
+     1.0,
+     0.0
+    ]
+   },
+   "label": "外边 直边 (1,0)→(0,1)",
+   "n_nodes": 2,
+   "nodes": [
+    1,
+    2
+   ],
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "x",
+    "end": [
+     0.0,
+     0.0
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "pos": 0.0,
+    "start": [
+     0.0,
+     1.0
+    ]
+   },
+   "label": "外边 直边 (0,1)→(0,0)",
+   "n_nodes": 2,
+   "nodes": [
+    2,
+    0
+   ],
+   "type": "line"
+  }
+ ]
+}

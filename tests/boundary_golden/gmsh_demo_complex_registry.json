@@ -1,0 +1,447 @@
+{
+ "boundary_edges": 558,
+ "n_boundary_edges": 558,
+ "n_segments": 11,
+ "normals": 558,
+ "normals_consistent": true,
+ "print_output": "\n  [带孔/槽矩形板 | 含内孔 | 外R0.35@0.80,-1.50 | 外R0.30@1.70,1.20 | 外R0.30@1.70,-1.20 | 外R0.30@-1.70,1.20 | 外R0.30@-1.70,-1.20 | 4.00×3.00m]\n  11 条边界:\n  [1] ━ 顶部 | 外边 直边 (1.7,1.5)→(-1.7,1.5)  (115点)\n  [2] ━ left | 外边 直边 (-2,1.2)→(-2,-1.2)  (81点)\n  [3] ━ right | 外边 直边 (2,-1.2)→(2,1.2)  (81点)\n  [4] ━ 底部 | 外边 直边 (-1.7,-1.5)→(0.45,-1.5)  (73点)\n  [5] ⌒ 凹弧 | 外边 圆弧 R=0.35 (0.45,-1.5)→(1.15,-1.5)  (41点)  |  中心: (0.8, -1.5)  R=0.35  角度=180.0°\n  [6] ━ 底部 | 外边 直边 (1.15,-1.5)→(1.7,-1.5)  (21点)\n  [7] ⌒ 右上圆角 | 外边 圆弧 R=0.3 (2,1.2)→(1.7,1.5)  (17点)  |  中心: (1.7, 1.2)  R=0.3  角度=90.0°\n  [8] ⌒ 右下圆角 | 外边 圆弧 R=0.3 (1.7,-1.5)→(2,-1.2)  (17点)  |  中心: (1.7, -1.2)  R=0.3  角度=90.0°\n  [9] ⌒ 左上圆角 | 外边 圆弧 R=0.3 (-1.7,1.5)→(-2,1.2)  (17点)  |  中心: (-1.7, 1.2)  R=0.3  角度=90.0°\n  [10] ⌒ 左下圆角 | 外边 圆弧 R=0.3 (-2,-1.2)→(-1.7,-1.5)  (17点)  |  中心: (-1.7, -1.2)  R=0.3  角度=90.0°\n  [11] O 椭圆孔 | 内孔 椭圆 a=0.4 b=0.2  (89点)  |  中心: (0.3, 0.15)  a=0.4  b=0.2\n  外边: 1,2,3,4,5,6,7,8,9,10\n  内孔: 11\n  直边: 1,2,3,4,6\n  圆弧: 5,7,8,9,10\n",
+ "segments": [
+  {
+   "closed": false,
+   "info": {
+    "axis": "y",
+    "cad_entity_types": [
+     "Line"
+    ],
+    "end": [
+     -1.7,
+     1.5
+    ],
+    "entity_tags": [
+     7
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "physical_name": "顶部",
+    "physical_names": [
+     "顶部"
+    ],
+    "physical_tags": [
+     104
+    ],
+    "pos": 1.5,
+    "source": "gmsh_api+cad+geometry",
+    "start": [
+     1.7,
+     1.5
+    ],
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "顶部 | 外边 直边 (1.7,1.5)→(-1.7,1.5)",
+   "n_nodes": 115,
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "x",
+    "cad_entity_types": [
+     "Line"
+    ],
+    "end": [
+     -2.0,
+     -1.2
+    ],
+    "entity_tags": [
+     9
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "physical_name": "left",
+    "physical_names": [
+     "left"
+    ],
+    "physical_tags": [
+     101
+    ],
+    "pos": -2.0,
+    "source": "gmsh_api+cad+geometry",
+    "start": [
+     -2.0,
+     1.2
+    ],
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "left | 外边 直边 (-2,1.2)→(-2,-1.2)",
+   "n_nodes": 81,
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "x",
+    "cad_entity_types": [
+     "Line"
+    ],
+    "end": [
+     2.0,
+     1.2
+    ],
+    "entity_tags": [
+     5
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "physical_name": "right",
+    "physical_names": [
+     "right"
+    ],
+    "physical_tags": [
+     102
+    ],
+    "pos": 2.0,
+    "source": "gmsh_api+cad+geometry",
+    "start": [
+     2.0,
+     -1.2
+    ],
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "right | 外边 直边 (2,-1.2)→(2,1.2)",
+   "n_nodes": 81,
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "y",
+    "cad_entity_types": [
+     "Line"
+    ],
+    "end": [
+     0.45000000000000007,
+     -1.5
+    ],
+    "entity_tags": [
+     1
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "physical_name": "底部",
+    "physical_names": [
+     "底部"
+    ],
+    "physical_tags": [
+     103
+    ],
+    "pos": -1.5,
+    "source": "gmsh_api+cad+geometry",
+    "start": [
+     -1.7,
+     -1.5
+    ],
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "底部 | 外边 直边 (-1.7,-1.5)→(0.45,-1.5)",
+   "n_nodes": 73,
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 3.141592653589793,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     0.8,
+     -1.5
+    ],
+    "entity_tags": [
+     2,
+     11
+    ],
+    "fit_residual": 1.1102230246251565e-16,
+    "fit_residual_max": 2.7755575615628914e-16,
+    "is_outer": true,
+    "join_turn_limit_degrees": 40.0,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "merged_cad_entities": true,
+    "merged_entity_count": 2,
+    "merged_segment_count": 2,
+    "physical_name": "凹弧",
+    "physical_names": [
+     "凹弧"
+    ],
+    "physical_tags": [
+     107
+    ],
+    "radius": 0.3499999999999999,
+    "source": "gmsh_api+cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "凹弧 | 外边 圆弧 R=0.35 (0.45,-1.5)→(1.15,-1.5)",
+   "n_nodes": 41,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "axis": "y",
+    "cad_entity_types": [
+     "Line"
+    ],
+    "end": [
+     1.7,
+     -1.5
+    ],
+    "entity_tags": [
+     3
+    ],
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "physical_name": "底部",
+    "physical_names": [
+     "底部"
+    ],
+    "physical_tags": [
+     103
+    ],
+    "pos": -1.5,
+    "source": "gmsh_api+cad+geometry",
+    "start": [
+     1.15,
+     -1.5
+    ],
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "底部 | 外边 直边 (1.15,-1.5)→(1.7,-1.5)",
+   "n_nodes": 21,
+   "type": "line"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 1.570796326794908,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     1.7000000000000015,
+     1.2000000000000017
+    ],
+    "entity_tags": [
+     6
+    ],
+    "fit_residual": 1.9918707206510162e-16,
+    "fit_residual_max": 5.551115123125783e-16,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "physical_name": "右上圆角",
+    "physical_names": [
+     "右上圆角"
+    ],
+    "physical_tags": [
+     109
+    ],
+    "radius": 0.29999999999999793,
+    "source": "gmsh_api+cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "右上圆角 | 外边 圆弧 R=0.3 (2,1.2)→(1.7,1.5)",
+   "n_nodes": 17,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 1.5707963267949046,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     1.700000000000001,
+     -1.2000000000000013
+    ],
+    "entity_tags": [
+     4
+    ],
+    "fit_residual": 1.5347200634524222e-16,
+    "fit_residual_max": 4.440892098500626e-16,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "physical_name": "右下圆角",
+    "physical_names": [
+     "右下圆角"
+    ],
+    "physical_tags": [
+     108
+    ],
+    "radius": 0.2999999999999985,
+    "source": "gmsh_api+cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "右下圆角 | 外边 圆弧 R=0.3 (1.7,-1.5)→(2,-1.2)",
+   "n_nodes": 17,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 1.5707963267949046,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     -1.700000000000001,
+     1.2000000000000013
+    ],
+    "entity_tags": [
+     8
+    ],
+    "fit_residual": 1.5347200634524222e-16,
+    "fit_residual_max": 4.440892098500626e-16,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "physical_name": "左上圆角",
+    "physical_names": [
+     "左上圆角"
+    ],
+    "physical_tags": [
+     110
+    ],
+    "radius": 0.2999999999999985,
+    "source": "gmsh_api+cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "左上圆角 | 外边 圆弧 R=0.3 (-1.7,1.5)→(-2,1.2)",
+   "n_nodes": 17,
+   "type": "arc"
+  },
+  {
+   "closed": false,
+   "info": {
+    "angle": 1.5707963267949072,
+    "cad_entity_types": [
+     "Circle"
+    ],
+    "center": [
+     -1.7000000000000015,
+     -1.2000000000000017
+    ],
+    "entity_tags": [
+     10
+    ],
+    "fit_residual": 1.9918707206510162e-16,
+    "fit_residual_max": 5.551115123125783e-16,
+    "is_outer": true,
+    "loop_depth": 0,
+    "loop_id": 0,
+    "physical_name": "左下圆角",
+    "physical_names": [
+     "左下圆角"
+    ],
+    "physical_tags": [
+     111
+    ],
+    "radius": 0.29999999999999793,
+    "source": "gmsh_api+cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "左下圆角 | 外边 圆弧 R=0.3 (-2,-1.2)→(-1.7,-1.5)",
+   "n_nodes": 17,
+   "type": "arc"
+  },
+  {
+   "closed": true,
+   "info": {
+    "angle": 3.141592653589793,
+    "cad_entity_types": [
+     "Line"
+    ],
+    "center": [
+     0.3000000000000001,
+     0.15
+    ],
+    "coarse_fit": false,
+    "entity_tags": [
+     300,
+     301,
+     302,
+     303,
+     304,
+     305,
+     306,
+     307,
+     308,
+     309,
+     310,
+     311,
+     312,
+     313,
+     314,
+     315,
+     316,
+     317,
+     318,
+     319
+    ],
+    "fit_residual": 0.007764895825820472,
+    "fit_residual_max": 0.01231165940486234,
+    "is_outer": false,
+    "join_turn_limit_degrees": 40.0,
+    "loop_depth": 1,
+    "loop_id": 1,
+    "merged_cad_entities": true,
+    "merged_entity_count": 20,
+    "merged_segment_count": 20,
+    "physical_name": "椭圆孔",
+    "physical_names": [
+     "椭圆孔"
+    ],
+    "physical_tags": [
+     112
+    ],
+    "primitive_samples": 20,
+    "semi_major": 0.39999999999999986,
+    "semi_minor": 0.19999999999999998,
+    "source": "gmsh_api+cad+geometry",
+    "surface_entity_tags": [
+     1
+    ]
+   },
+   "label": "椭圆孔 | 内孔 椭圆 a=0.4 b=0.2",
+   "n_nodes": 89,
+   "type": "ellipse"
+  }
+ ]
+}
