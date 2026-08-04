@@ -98,6 +98,10 @@ def parse_args(argv=None):
     p.add_argument('--self-test', action='store_true', default=None,
                    help='求解前运行当前单元的 patch test (仅开发/CI)')
     p.add_argument('--save', '-o', default=None, help='保存云图到文件')
+    p.add_argument(
+        '--output-dir', default=None,
+        help='生成物输出目录 (.msh 与临时文件; 默认: 输入文件同目录)。'
+             '只读示例目录/共享目录可用此参数指定可写位置')
     p.add_argument('--band-min', type=float, default=None, help='Isoband 应力带下限 (Pa)')
     p.add_argument('--band-max', type=float, default=None, help='Isoband 应力带上限 (Pa)')
     p.add_argument('--band-step', type=float, default=None, help='Isoband 应力带步长 (Pa)')
