@@ -384,7 +384,7 @@
   {
    "closed": true,
    "info": {
-    "angle": 3.14159265359,
+    "angle": 0.0,
     "cad_entity_types": [
      "Line"
     ],

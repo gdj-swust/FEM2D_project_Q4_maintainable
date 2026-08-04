@@ -19,12 +19,17 @@ import io
 import json
 import math
 import os
+import re
 from contextlib import redirect_stdout
 from pathlib import Path
 
 import numpy as np
 
 from fem2d.boundary.naming import print_segments
+
+# 标签文本中的浮点 token (检测器 %.6g 格式, 含指数形式)
+_LABEL_FLOAT_RE = re.compile(
+    r"[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?")
 
 GOLDEN_DIR = Path(__file__).resolve().parent / "boundary_golden"
 UPDATE_GOLDEN = os.environ.get("FEM2D_UPDATE_GOLDEN") == "1"
@@ -69,16 +74,67 @@ def _canonical_value(value, floor):
     return str(value)
 
 
+def _normalize_label_text(label, floor):
+    """标签文本浮点 token 规范化: |v| < 地板 → 0, 其余 %.6g 重格式.
+
+    标签含链端点坐标的 6g 文本 (如整圆/圆弧端点 ~1e-17 的近零坐标),
+    其末位随平台 libm/gmsh 漂移 → 文本逐位不同 (CI 实测)。规范化后
+    近零坐标跨平台逐位一致; 真实差异 (第 6 位以内) 保留。
+    """
+    def _fmt(match):
+        try:
+            value = float(match.group(0))
+        except ValueError:
+            return match.group(0)
+        if not math.isfinite(value):
+            return match.group(0)
+        if abs(value) < floor:
+            return "0"
+        return f"{value:.6g}"
+    return _LABEL_FLOAT_RE.sub(_fmt, str(label))
+
+
+def _canonicalize_ellipse_info(info):
+    """椭圆参数规范化 (快照层): 半轴排序 + 方向角 mod π.
+
+    椭圆的方向角 θ 与 θ+π 是同一椭圆的等价表示 — fit_ellipse 的
+    B 系数符号在跨平台末位翻转时输出 π 或 0 (CI 实测)。规范化:
+    a ≥ b 强制 + θ mod π (半轴交换时 θ 补 π/2, mod π 后一致)。
+    弧/整圆 (有 radius 无 semi_major) 不受影响 — 其 angle 是跨度。
+    """
+    if not (
+            isinstance(info, dict)
+            and "semi_major" in info
+            and "semi_minor" in info
+            and "angle" in info):
+        return info
+    semi_major = float(info["semi_major"])
+    semi_minor = float(info["semi_minor"])
+    angle = float(info["angle"])
+    if semi_minor > semi_major:
+        semi_major, semi_minor = semi_minor, semi_major
+        angle += np.pi / 2.0
+    angle = angle % np.pi
+    return {
+        **info,
+        "semi_major": semi_major,
+        "semi_minor": semi_minor,
+        "angle": angle,
+    }
+
+
 def segments_snapshot(segments, *, include_nodes=True, floor):
     """段集合快照: 排序键后的 JSON 安全列表."""
     result = []
     for seg in segments:
+        info = _canonicalize_ellipse_info(
+            _canonical_value(seg.get("info", {}), floor))
         entry = {
             "type": str(seg["type"]),
             "closed": bool(seg.get("closed", False)),
-            "label": str(seg["label"]),
+            "label": _normalize_label_text(seg["label"], floor),
             "n_nodes": int(len(seg["nodes"])),
-            "info": _canonical_value(seg.get("info", {}), floor),
+            "info": info,
         }
         if include_nodes:
             entry["nodes"] = [int(node) for node in seg["nodes"]]
@@ -139,8 +195,10 @@ def print_snapshot(segments, floor):
     normalized = []
     for segment in segments:
         copy_seg = dict(segment)
-        copy_seg["info"] = _canonical_value(
-            segment.get("info", {}), floor)
+        copy_seg["label"] = _normalize_label_text(
+            segment.get("label", ""), floor)
+        copy_seg["info"] = _canonicalize_ellipse_info(
+            _canonical_value(segment.get("info", {}), floor))
         normalized.append(copy_seg)
     buffer = io.StringIO()
     with redirect_stdout(buffer):
