@@ -17,7 +17,7 @@ import numpy as np
 from scipy.sparse import diags
 from scipy.sparse.linalg import LinearOperator, cg, spilu, splu
 
-from .checks import require_dof_index_array
+from .checks import require_dof_index_array, require_finite_scalar
 
 # ═══════════════════════════════════════════════════════════════
 # 1. 消去法 — Bathe §4.2.2 Eq 4.42-4.45 (推荐)
@@ -230,11 +230,13 @@ def apply_penalty(K, F, fixed_dofs, prescribed_vals=None, penalty=None,
     max_diag = diag.max() if diag.max() > 0 else 1.0
     if penalty is None:
         penalty = max_diag * 1e8
-    elif not np.isfinite(penalty) or penalty < max_diag * 1e4:
-        raise ValueError(
-            f"Penalty factor {penalty!r} must be finite and >= "
-            f"1e4 * max|K_ii| = {max_diag*1e4:.3e} "
-            f"(max|K_ii| = {max_diag:.3e}; 建议自动值 {max_diag*1e8:.3e})")
+    else:
+        penalty = require_finite_scalar(penalty, "apply_penalty: penalty")
+        if penalty < max_diag * 1e4:
+            raise ValueError(
+                f"apply_penalty: penalty={penalty!r} — must be >= "
+                f"1e4 * max|K_ii| = {max_diag*1e4:.3e} "
+                f"(max|K_ii| = {max_diag:.3e}; 建议自动值 {max_diag*1e8:.3e})")
 
     # 加法式: K_ii += k_penalty (量纲一致, 不平方)
     penalty_vals = np.zeros(n_dof)

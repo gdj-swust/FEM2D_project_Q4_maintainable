@@ -113,6 +113,20 @@ def test_nodes_on_edge_invalid_tol():
         m.nodes_on_edge("x", "min", tol=float("nan"))
 
 
+def test_nodes_on_edge_tol_non_numeric_has_context():
+    m = _mesh()
+    # 判别性: 旧实现 np.isfinite 对 str/容器裸 TypeError (无函数名上下文)
+    with pytest.raises(TypeError, match="nodes_on_edge: tol"):
+        m.nodes_on_edge("x", "min", tol="bad")
+    with pytest.raises(TypeError, match="nodes_on_edge: tol"):
+        m.nodes_on_edge("x", "min", tol=[1e-8])
+    # 消息格式锁定 (旧实现无 "nodes_on_edge: " 前缀)
+    with pytest.raises(ValueError, match="nodes_on_edge: tol=nan"):
+        m.nodes_on_edge("x", "min", tol=float("nan"))
+    with pytest.raises(ValueError, match="nodes_on_edge: tol=-1.0"):
+        m.nodes_on_edge("x", "min", tol=-1.0)
+
+
 def test_nodes_on_edge_valid():
     m = _mesh()
     left = m.nodes_on_edge("x", "min")

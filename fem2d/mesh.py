@@ -225,6 +225,10 @@ class Mesh:
             self.fixed_dofs, "fixed_dofs", n_dof=n_dof)
         fixed = np.unique(fixed)
         # 校验 prescribed_vals 的键都在 fixed_dofs 中
+        if not isinstance(self.prescribed_vals, dict):
+            raise ValueError(
+                f"prescribed_vals must be a dict mapping DOF -> value, "
+                f"got {type(self.prescribed_vals).__name__}")
         extra_keys = set(self.prescribed_vals.keys()) - set(fixed.tolist())
         if extra_keys:
             raise ValueError(
@@ -411,14 +415,16 @@ class Mesh:
                 f"fixed_dofs 含重复 DOF: {dup.tolist()} — "
                 "同一 DOF 只能约束一次")
         fixed_set = set(fixed.tolist())
+        if not isinstance(self.prescribed_vals, dict):
+            raise ValueError(
+                f"prescribed_vals must be a dict mapping DOF -> value, "
+                f"got {type(self.prescribed_vals).__name__}")
         extra_keys = set(self.prescribed_vals.keys()) - fixed_set
         if extra_keys:
             raise ValueError(
                 f"prescribed_vals keys {extra_keys} are not in fixed_dofs")
         for d, v in self.prescribed_vals.items():
-            if not np.isfinite(v):
-                raise ValueError(
-                    f"prescribed_vals[{d}] = {v} — must be finite")
+            require_finite_scalar(v, f"prescribed_vals[{d}]")
 
     def _validate_loads_state(self):
         # 载荷 schema 校验 (P2-4): 形状错误在求解前响亮失败 — 曾
@@ -809,8 +815,11 @@ class Mesh:
             raise ValueError(f"axis must be 'x' or 'y', got '{axis}'")
         if edge not in ("min", "max"):
             raise ValueError(f"edge must be 'min' or 'max', got '{edge}'")
-        if tol is not None and (not np.isfinite(tol) or tol < 0):
-            raise ValueError(f"tol={tol} must be finite and non-negative")
+        if tol is not None:
+            tol = require_finite_scalar(tol, "nodes_on_edge: tol")
+            if tol < 0:
+                raise ValueError(
+                    f"nodes_on_edge: tol={tol!r} — must be non-negative")
         col = 0 if axis == "x" else 1
         val = self.nodes[:, col].min() if edge == "min" else self.nodes[:, col].max()
         span = max(np.ptp(self.nodes[:, 0]), np.ptp(self.nodes[:, 1]))

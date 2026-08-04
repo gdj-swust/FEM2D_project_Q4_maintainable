@@ -129,6 +129,39 @@ def test_mesh_constructor_material_scalars():
         m.validate_state()
 
 
+# ── prescribed_vals 入口 (契约 A0; 旧实现: 非 dict 裸 AttributeError / 值字符串裸 TypeError) ──
+
+def test_prescribed_vals_non_dict_rejected():
+    nodes = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    elems = np.array([[0, 1, 2]])
+    # 构造期 + validate_state (构造后可重写) 都拦截
+    with pytest.raises(ValueError, match="prescribed_vals must be a dict"):
+        Mesh(nodes, elems, fixed_dofs=[0], prescribed_vals=[1.0])
+    m = Mesh(nodes, elems, fixed_dofs=[0], prescribed_vals={0: 1.0})
+    m.prescribed_vals = [1.0]
+    with pytest.raises(ValueError, match="prescribed_vals must be a dict"):
+        m.validate_state()
+
+
+def test_prescribed_vals_non_int_key_rejected():
+    nodes = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    elems = np.array([[0, 1, 2]])
+    with pytest.raises(ValueError, match="prescribed_vals keys"):
+        Mesh(nodes, elems, fixed_dofs=[0], prescribed_vals={"x": 1.0})
+
+
+def test_prescribed_vals_value_checks_have_context():
+    nodes = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    elems = np.array([[0, 1, 2]])
+    # 判别性: 旧实现 np.isfinite 对 str 裸 TypeError (无上下文), NaN 消息带空格
+    m = Mesh(nodes, elems, fixed_dofs=[0], prescribed_vals={0: "abc"})
+    with pytest.raises(TypeError, match=r"prescribed_vals\[0\]='abc'"):
+        m.validate_state()
+    m2 = Mesh(nodes, elems, fixed_dofs=[0], prescribed_vals={0: float("nan")})
+    with pytest.raises(ValueError, match=r"prescribed_vals\[0\]=nan"):
+        m2.validate_state()
+
+
 # ── 材料 API ──
 
 def test_D_matrix_non_numeric_has_context():
