@@ -202,35 +202,86 @@ def nodal_L2_projection(mesh, elem_stress):
                 flat, weights=local_rhs[:, :, component].ravel(),
                 minlength=n_nodes)
     else:
-        # 逐单元兼容路径 (外部内核无批量恢复规则)
-        rows, cols, values = [], [], []
-        rhs = np.zeros((n_nodes, n_comp))
+        # 逐单元兼容路径 (外部内核无批量恢复规则)。先收集全部恢复规则:
+        # nqp/N 形状逐单元一致时堆叠批量计算 — CST/Q4R 的 L2 质量阵
+        # 积分规则逐单元相同 (仅 dA 随单元面积变化), 200k 单元曾
+        # 8~13 s 的 Python 三层循环 + 数百万 list append 降为向量化
+        # einsum + COO scatter。逐单元收缩序与散点顺序均不变 →
+        # 局部质量/右端与全局散点逐位一致 (else 分支逐位等价)。
+        N_list, dA_list = [], []
+        nqp, n_shape, uniform = None, None, True
         for eid in range(mesh.n_elements):
-            conn_e = conn[eid]
             N, dA_e = kernel.recovery_quadrature(mesh, eid)
-            local_mass = np.einsum("qi,qj,q->ij", N, N, dA_e)
+            if N is None or dA_e is None:
+                uniform = False
+            elif nqp is None:
+                nqp, n_shape = len(dA_e), N.shape
+            elif len(dA_e) != nqp or N.shape != n_shape:
+                uniform = False
+            N_list.append(N)
+            dA_list.append(dA_e)
+        if uniform and nqp is not None:
+            N_all = np.stack(N_list)                     # (ne, nqp, npe)
+            dA_all = np.stack(dA_list)                   # (ne, nqp)
             if elem_stress.ndim == 2:
                 stress_qp = np.broadcast_to(
-                    elem_stress[eid], (len(dA_e), n_comp))
+                    elem_stress[:, None, :], (ne, nqp, n_comp))
             else:
-                stress_qp = elem_stress[eid]
-                if stress_qp.shape[0] == 1 and len(dA_e) != 1:
+                stress_qp = elem_stress
+                if stress_qp.shape[1] == 1 and nqp != 1:
                     stress_qp = np.broadcast_to(
-                        stress_qp[0], (len(dA_e), n_comp))
-                elif stress_qp.shape[0] != len(dA_e):
+                        stress_qp[:, 0, :][:, None, :],
+                        (ne, nqp, n_comp))
+                elif stress_qp.shape[1] != nqp:
                     raise ValueError(
-                        f"Element {eid}: {stress_qp.shape[0]} stress "
-                        f"samples, but {len(dA_e)} quadrature samples "
-                        "are required")
-            local_rhs = np.einsum("qi,qc,q->ic", N, stress_qp, dA_e)
-            for p, ni in enumerate(conn_e):
-                for q, nj in enumerate(conn_e):
-                    rows.append(int(ni))
-                    cols.append(int(nj))
-                    values.append(local_mass[p, q])
-                rhs[ni] += local_rhs[p]
-        mass = coo_matrix(
-            (values, (rows, cols)), shape=(n_nodes, n_nodes)).tocsr()
+                        f"{stress_qp.shape[1]} stress samples, but "
+                        f"{nqp} quadrature samples are required")
+            local_mass = np.einsum("eqi,eqj,eq->eij", N_all, N_all, dA_all)
+            local_rhs = np.einsum("eqi,eqc,eq->eic", N_all, stress_qp,
+                                  dA_all)
+            rows = np.broadcast_to(
+                conn[:, None, :], (ne, npe, npe)).ravel()
+            cols = np.broadcast_to(
+                conn[:, :, None], (ne, npe, npe)).ravel()
+            mass = coo_matrix(
+                (local_mass.ravel(), (rows, cols)),
+                shape=(n_nodes, n_nodes)).tocsr()
+            rhs = np.zeros((n_nodes, n_comp))
+            for component in range(n_comp):
+                rhs[:, component] = np.bincount(
+                    conn.ravel(),
+                    weights=local_rhs[:, :, component].ravel(),
+                    minlength=n_nodes)
+        else:
+            # nqp/N 逐单元变化 (第三方内核): 逐单元处理
+            rows, cols, values = [], [], []
+            rhs = np.zeros((n_nodes, n_comp))
+            for eid in range(mesh.n_elements):
+                conn_e = conn[eid]
+                N, dA_e = N_list[eid], dA_list[eid]
+                local_mass = np.einsum("qi,qj,q->ij", N, N, dA_e)
+                if elem_stress.ndim == 2:
+                    stress_qp = np.broadcast_to(
+                        elem_stress[eid], (len(dA_e), n_comp))
+                else:
+                    stress_qp = elem_stress[eid]
+                    if stress_qp.shape[0] == 1 and len(dA_e) != 1:
+                        stress_qp = np.broadcast_to(
+                            stress_qp[0], (len(dA_e), n_comp))
+                    elif stress_qp.shape[0] != len(dA_e):
+                        raise ValueError(
+                            f"Element {eid}: {stress_qp.shape[0]} stress "
+                            f"samples, but {len(dA_e)} quadrature samples "
+                            "are required")
+                local_rhs = np.einsum("qi,qc,q->ic", N, stress_qp, dA_e)
+                for p, ni in enumerate(conn_e):
+                    for q, nj in enumerate(conn_e):
+                        rows.append(int(ni))
+                        cols.append(int(nj))
+                        values.append(local_mass[p, q])
+                    rhs[ni] += local_rhs[p]
+            mass = coo_matrix(
+                (values, (rows, cols)), shape=(n_nodes, n_nodes)).tocsr()
 
     from scipy.sparse.linalg import splu
     orphan = np.flatnonzero(np.asarray(mass.diagonal()) == 0.0)
