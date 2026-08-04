@@ -16,6 +16,10 @@ circle_label 是阶段 3 的测试内注册示例, 不在此默认注册 (其判
 """
 from ..detectors import register_detector
 
+from .arc_curvature import ArcCurvatureDetector
 from .ellipse_group_label import EllipseGroupLabelDetector
 
+# 更保守者优先: register_detector 插入注册表前端 → arc_curvature
+# 必须最后注册 (开链先裁决, 永不当椭圆)
 register_detector(EllipseGroupLabelDetector())
+register_detector(ArcCurvatureDetector())

@@ -156,12 +156,15 @@ def test_penalty_strength_minimum_1e4():
 
 def test_micro_scale_arc_label_scientific():
     """微尺度开放圆弧标签必须科学计数 — 曾 .3f 显示 R=0.000
-    (第四轮外部审查: geometry/bc_apply/naming 的 .3f/.4f)."""
+    (第四轮外部审查: geometry/bc_apply/naming 的 .3f/.4f).
+    轮 2 插件 3 起开放圆弧标签格式为 ρ=.. (spec: "圆弧 ρ=..,
+    圆心(..,..)") — 断言 token 同步更新, 意图 (科学计数 + 无 0.000)
+    不变."""
     from fem2d.boundary.geometry import classify
     R = 1e-16
     theta = np.linspace(0, np.pi, 17)
     coords = np.column_stack([R * np.cos(theta), R * np.sin(theta)])
     seg_type, label, _ = classify(coords, R, True)
     assert seg_type == "arc", f"半圆弧误判为 {seg_type}: {label}"
-    assert "R=1e-16" in label, f"标签未用科学计数: {label}"
+    assert "ρ=1e-16" in label, f"标签未用科学计数: {label}"
     assert "0.000" not in label, f"标签精度塌缩: {label}"

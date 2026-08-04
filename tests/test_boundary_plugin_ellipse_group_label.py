@@ -140,7 +140,6 @@ def test_plugin_1_registered_in_default_pipeline():
     """
     names = [detector.name for detector in default_registry()._detectors]
     assert "ellipse_group_label" in names
-    assert "arc_curvature" not in names  # 插件 3 随其提交注册
     # 前端优先: 插件须在 line 之前 (闭合链先经插件判定)
     assert names.index("ellipse_group_label") < names.index("line")
 

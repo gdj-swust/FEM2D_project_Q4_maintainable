@@ -15,13 +15,13 @@
   F         材料与单元注册                  9 (全部行)
   G         边界                           10 (契约 6 行全覆盖)
   G2        识别器注册表与插件接口         7 (阶段 2/3 新增契约)
-  G3        边界识别正式插件 (轮 2)        7 (插件 1 双路径+严格门+
+  G3        边界识别正式插件 (轮 2)        10 (插件 1 双路径+严格门+
                                             默认注册; 插件 2 @组名
                                             展开/组缺失/混用; 插件 3
-                                            随其提交)
+                                            代数圆弧/短弧保护)
   H         配置与质量                     11 (全部行)
   I         装配                            2 (契约 2 行全覆盖)
-  合计: 143 项探针 (可用 AST 统计 probe() 调用数核对)。
+  合计: 146 项探针 (可用 AST 统计 probe() 调用数核对)。
 每组的"全部行"以契约表行数为准; 行内无具体误用错误声明的
 (如 I 组"非对称内核 → RuntimeError") 以合法输入不抛为探针内容。
 """
@@ -49,6 +49,7 @@ from fem2d.boundary.detectors import Detector
 from fem2d.boundary.plugins.circle_label import (
     NativeCircleLabelDetector,
 )
+from fem2d.boundary.plugins.arc_curvature import ArcCurvatureDetector
 from fem2d.boundary.plugins.ellipse_group_label import (
     EllipseGroupLabelDetector,
 )
@@ -317,7 +318,7 @@ print("== G2 识别器注册表与插件接口 (阶段 2/3 新增) ==")
 def _probe_default_order():
     names = [d.name for d in default_registry().detectors()]
     assert names == [
-        "ellipse_group_label",
+        "arc_curvature", "ellipse_group_label",
         "line", "circle", "ellipse", "general",
     ], names
 probe("default registry order", _probe_default_order, None)
@@ -472,6 +473,48 @@ def _probe_group_selection_mixing():
                  "info": {"physical_names": ("组A",)}}]
     _resolve_edge_indices("12,@组A", segments, RegionRegistry())
 probe("@group number mixing", _probe_group_selection_mixing, ValueError)
+
+
+def _probe_arc_curvature_algebraic():
+    """插件 3 代数圆弧: κ 恒定链 → ρ/圆心 精确标签 (token 级, 禁止拟合)."""
+    plugin = ArcCurvatureDetector()
+    phi = np.linspace(0, np.pi / 2, 32)
+    chain = np.column_stack([
+        1.2 + 1.5 * np.cos(phi), -0.7 + 1.5 * np.sin(phi)])
+    detection = plugin.detect(
+        chain, scale=2.0, is_outer=True, closed=False)
+    assert detection is not None
+    assert detection.type == "arc"
+    assert "ρ=1.5" in detection.label
+    assert "圆心(1.2,-0.7)" in detection.label
+    assert abs(detection.params["radius"] - 1.5) < 1e-9
+probe("arc_curvature algebraic arc", _probe_arc_curvature_algebraic, None)
+
+
+def _probe_arc_curvature_short_arc_guard():
+    """插件 3 短弧保护: 1/8 椭圆弧 (覆盖不足) → 曲线类, 不得标椭圆."""
+    plugin = ArcCurvatureDetector()
+    phi = np.linspace(0, np.pi / 4, 16)
+    chain = np.column_stack([2.0 * np.cos(phi), 1.0 * np.sin(phi)])
+    detection = plugin.detect(
+        chain, scale=2.0, is_outer=True, closed=False)
+    assert detection is not None
+    assert detection.type == "curve"
+    assert "椭圆" not in detection.label
+probe("arc_curvature short arc guard", _probe_arc_curvature_short_arc_guard, None)
+
+
+def _probe_arc_curvature_deferral():
+    """插件 3 让位: 直边 → None (LineDetector); 闭合链 → None (插件 1/内置)."""
+    plugin = ArcCurvatureDetector()
+    line = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]])
+    assert plugin.detect(
+        line, scale=2.0, is_outer=True, closed=False) is None
+    phi = 2.0 * np.pi * np.arange(32) / 32
+    circle = np.column_stack([1.5 * np.cos(phi), 1.5 * np.sin(phi)])
+    assert plugin.detect(
+        circle, scale=2.0, is_outer=True, closed=True) is None
+probe("arc_curvature deferral", _probe_arc_curvature_deferral, None)
 
 print("== I 装配 ==")
 probe("assemble_sparse ok", lambda: F.assemble_sparse(_mesh()), None)
