@@ -3,7 +3,31 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
-## 9.23.0 (2026-08-04) — 边界层插件化重构 (阶段 1: 金标准快照)
+## 9.23.0 (2026-08-04) — 边界层插件化重构 (阶段 2: 识别器注册表)
+
+### 阶段 2 — 显式管线 + 识别器注册表 (行为逐位不变)
+
+- **新增 `fem2d/boundary/detectors.py`**: 识别器注册表 —
+  `Detection` (类型/参数/标签/置信度/残差) + `Detector` 接口 (点链 +
+  可选原生实体信息 + 尺度 → Detection|None) + `DetectorRegistry`
+  (有序, 首个非 None 胜出, 兜底 general 恒返回) + `default_registry`
+  单例 + `register_detector` 插件接入点
+- **注册表顺序 = 旧 classify 探测顺序**: line → circle (整圆/圆弧,
+  段类型 arc) → ellipse (整环/开放, 段类型 ellipse) → general 兜底;
+  分类判定门槛与标签文本逐位迁移 — 金标准快照逐位一致验证
+- **原生实体信息一等公民**: Gmsh 实体类型 (line/circle/ellipse/
+  bspline) 经 segment_builder/conic_merge → classify native_entities
+  参数传入探测器不丢失 (内置探测器不消费, 插件接口用)
+- **段 schema 稳定化**: `validation.validate_segment_schema`
+  (type/nodes/coords/label/info 必要键 + type 受控枚举), 在
+  build_boundary_segments 管线出口执行; validate_boundary_segments
+  保持部分 dict 覆盖检查契约不变
+- **测试**: `tests/test_boundary_detector_registry.py` 12 项 —
+  注册表顺序/接口契约/优先级/生命周期/原生实体信息管线传递 (真实
+  gmsh 网格 spy 探测器)/schema 门禁位置契约
+- 全量 pytest: 1027 passed 0 failed; ruff/mypy/vulture/compileall 全过
+
+
 
 ### 阶段 1 — 边界输出行为锁定基线
 

@@ -18,6 +18,7 @@ from .segment_utils import (
 )
 from .selectors import resolve_boundary_selector
 from .topology import detect
+from .validation import validate_segment_schema
 
 _FATAL_CAD_CODES = frozenset({
     "cad_curve_empty",
@@ -37,7 +38,13 @@ _segment_is_outer = segment_is_outer
 # ═══════════════════════════════════════════════════════════════
 
 def validate_boundary_segments(mesh, segments):
-    """验证边界分段覆盖了所有边界边, 每条边恰好一次."""
+    """验证边界分段覆盖了所有边界边, 每条边恰好一次.
+
+    本 API 允许只含 nodes 的部分段 dict (覆盖检查契约, 见
+    test_boundary_joint::test_validate_boundary_segments_canonicalizes_edge_keys);
+    段 schema 稳定化 (type/nodes/coords/label/info) 由
+    build_boundary_segments 在管线出口执行.
+    """
     mesh.build_connectivity()
     expected = {canonical_edge(a, b) for a, b in mesh.boundary_edges}
 
@@ -459,6 +466,9 @@ def build_boundary_segments(
             diagnostics=diagnostics)
     if segments is None:
         segments = detect(mesh)
+    # 段 schema 稳定化: 管线出口的段必须完整 (type/nodes/coords/
+    # label/info) — 残缺段会在载荷链中被静默消费, 先于覆盖检查拒绝.
+    validate_segment_schema(segments)
     validate_boundary_segments(mesh, segments)
     for segment in segments:
         diagnostics.register_mapped(

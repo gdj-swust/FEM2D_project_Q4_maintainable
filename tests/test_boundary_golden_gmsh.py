@@ -17,7 +17,6 @@ from tests.conftest import GMSH_AVAILABLE, GMSH_UNAVAILABLE_REASON
 from tests.boundary_snapshot import (
     build_snapshot,
     compare_golden,
-    edge_coverage_check,
 )
 
 from fem2d import Mesh, build_boundary_segments, detect_boundaries

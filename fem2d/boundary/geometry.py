@@ -349,84 +349,24 @@ def segment_by_curvature(kappa, coords=None, scale=None):
 
 
 # ═══════════════════════════════════════════════════════════════
-# 段分类 + 几何拟合
+# 段分类 — 显式识别器注册表 (detectors.py), 本模块保留 facade
 # ═══════════════════════════════════════════════════════════════
 
-def classify(coords, scale, is_outer, closed=None):
+def classify(coords, scale, is_outer, closed=None, *, native_entities=()):
     """Classify one boundary chain as line, arc, ellipse or curve.
 
     ``closed`` is topology truth when supplied.  Standalone callers use a
     tight, scale-aware coordinate comparison so a nearly complete open arc is
     never promoted to a full circle accidentally.
+
+    实现 = detectors.DetectorRegistry 有序判定 (line → circle → ellipse
+    → general, 与旧探测顺序逐位一致); 原生实体信息经 native_entities
+    传入不丢失 (内置探测器不消费, 插件接口用).
     """
-    prefix = "外边 " if is_outer else "内孔 "
-    tolerance = compute_tolerance(coords)
-
-    line = _classify_line(coords, tolerance, prefix)
-    if line is not None:
-        return line
-
-    is_closed = _segment_is_closed(coords, tolerance, closed)
-    detectors = (
-        lambda: _classify_closed_conic(coords, is_closed, prefix),
-        lambda: _classify_open_arc(
-            coords, scale, tolerance, is_closed, prefix),
-        lambda: _classify_open_ellipse(coords, is_closed, prefix),
-    )
-    for detector in detectors:
-        result = detector()
-        if result is not None:
-            return result
-    return _classify_general_curve(coords, is_closed, prefix)
-
-
-def _segment_label(coords, prefix, kind, extra=""):
-    """Build the stable user-facing primitive label."""
-    x0, y0 = map(float, coords[0])
-    x1, y1 = map(float, coords[-1])
-    base = f"{prefix}{kind}"
-    if extra:
-        base += f" {extra}"
-    return f"{base} ({x0:.6g},{y0:.6g})→({x1:.6g},{y1:.6g})"
-
-
-def _classify_line(coords, tolerance, prefix):
-    x, y = coords[:, 0], coords[:, 1]
-    delta_x = x[-1] - x[0]
-    delta_y = y[-1] - y[0]
-    length = float(np.hypot(delta_x, delta_y))
-    # 曾绝对 1e-15: 微尺度直边全被判零长 → 整环合并成单个 curve 段
-    #
-    if length <= tolerance or length <= _coords_ulp(coords):
-        return None
-
-    distances = [
-        abs(
-            (x[index] - x[0]) * delta_y
-            - (y[index] - y[0]) * delta_x
-        ) / length
-        for index in range(len(coords))
-    ]
-    if max(distances) >= tolerance * 5.0:
-        return None
-
-    angle = abs(np.degrees(np.arctan2(delta_y, delta_x)))
-    if angle < 10.0 or angle > 170.0:
-        axis = "y"
-    elif 80.0 < angle < 100.0:
-        axis = "x"
-    else:
-        axis = "tilted"
-    return (
-        "line",
-        _segment_label(coords, prefix, "直边"),
-        {
-            "start": (x[0], y[0]),
-            "end": (x[-1], y[-1]),
-            "pos": y[0] if axis == "y" else x[0],
-            "axis": axis,
-        },
-    )
+    from .detectors import default_registry  # 局部导入破环: detectors 依赖本模块拟合原语
+    return default_registry().classify(
+        coords, scale, is_outer, closed=closed,
+        native_entities=native_entities)
 
 
 def _segment_is_closed(coords, tolerance, closed):
@@ -447,41 +387,6 @@ def _segment_is_closed(coords, tolerance, closed):
     return bool(
         np.linalg.norm(coords[0] - coords[-1])
         <= closure_tolerance
-    )
-
-
-def _classify_closed_conic(coords, is_closed, prefix):
-    if len(coords) < 8 or not is_closed:
-        return None
-    ellipse, fit_info = fit_closed_ellipse(coords)
-    if not ellipse:
-        return None
-    if sharp_corner_indices(
-            coords,
-            angle_threshold_deg=_closed_conic_turn_limit_deg(
-                ellipse, fit_info)):
-        return None
-
-    center_x, center_y, semi_major, semi_minor, angle = ellipse
-    _ratio, is_circle = _axis_ratio(semi_major, semi_minor)
-    if is_circle:
-        radius = 0.5 * (semi_major + semi_minor)
-        return "arc", f"{prefix}整圆 R={radius:.3g}", {
-            "center": (center_x, center_y),
-            "radius": radius,
-            "angle": 2 * np.pi,
-            **fit_info,
-        }
-    return (
-        "ellipse",
-        f"{prefix}椭圆 {_semi_axis_label(semi_major, semi_minor)}",
-        {
-            "center": (center_x, center_y),
-            "semi_major": semi_major,
-            "semi_minor": semi_minor,
-            "angle": angle,
-            **fit_info,
-        },
     )
 
 
@@ -525,156 +430,6 @@ def _closed_conic_turn_limit_deg(ellipse, fit_info):
             < _CONIC_MAX_RESIDUAL_LIMIT):
         return _FINE_CONIC_TURN_LIMIT_DEG
     return _DEFAULT_CONIC_TURN_LIMIT_DEG
-
-
-def _classify_open_arc(coords, scale, tolerance, is_closed, prefix):
-    if len(coords) < 4 or is_closed:
-        return None
-    center_x, center_y, radius = fit_circle_least_squares(coords)
-    mean_residual, max_residual = circle_fit_residual(
-        coords, (center_x, center_y, radius))
-    fit_span = max(
-        float(np.ptp(coords[:, 0])),
-        float(np.ptp(coords[:, 1])),
-        tolerance,
-    )
-    residual_limit = max(
-        tolerance * 20.0,
-        fit_span * 1e-4,
-        np.spacing(max(np.max(np.abs(coords)), np.finfo(float).tiny)) * 64.0,
-    )
-    if not (
-            radius > 0.0
-            and radius < max(scale, fit_span) * 1e6
-            and mean_residual < residual_limit * 0.5
-            and max_residual < residual_limit):
-        return None
-
-    angles = np.arctan2(
-        coords[:, 1] - center_y,
-        coords[:, 0] - center_x,
-    )
-    arc_angle = _unwrap_angle_range(angles)
-    if arc_angle < np.deg2rad(5.0):
-        arc_angle = 0.0
-    if arc_angle <= 0.0:
-        return None
-    kind = "圆角" if arc_angle < np.deg2rad(30.0) else "圆弧"
-    return (
-        "arc",
-        _segment_label(coords, prefix, kind, f"R={radius:.6g}"),
-        {
-            "radius": radius,
-            "center": (center_x, center_y),
-            "angle": arc_angle,
-            "fit_residual": mean_residual,
-            "fit_residual_max": max_residual,
-        },
-    )
-
-
-def _classify_open_ellipse(coords, is_closed, prefix):
-    if len(coords) < 6 or is_closed:
-        return None
-    ellipse = fit_ellipse(coords)
-    if not ellipse:
-        return None
-
-    center_x, center_y, semi_major, semi_minor, angle = ellipse
-    mean_residual, max_residual = ellipse_fit_residual(
-        coords, ellipse)
-    if not (
-            semi_major > 0.0
-            and semi_minor > 0.0
-            and max(semi_major, semi_minor)
-            / (min(semi_major, semi_minor) + np.finfo(float).tiny) < 20.0
-            and mean_residual < 5e-4
-            and max_residual < 2e-3):
-        return None
-    return (
-        "ellipse",
-        f"{prefix}椭圆 {_semi_axis_label(semi_major, semi_minor)}",
-        {
-            "center": (center_x, center_y),
-            "semi_major": semi_major,
-            "semi_minor": semi_minor,
-            "angle": angle,
-            "fit_residual": mean_residual,
-            "fit_residual_max": max_residual,
-        },
-    )
-
-
-def _classify_general_curve(coords, is_closed, prefix):
-    # 曲率量纲 1/长度 — 绝对 1e-8/1e-14 阈值曾使大坐标 (1e12 级, R>1e8)
-    # 平滑曲线 κ<1e-8 被降级成"通用曲线"、拐点漏计。按 characteristic
-    # span 归一 (segment_by_curvature 的 1e-8/characteristic 同款模式):
-    # 阈值与坐标尺度成反比, 正常尺度 (span≈1) 数值与旧绝对阈值一致。
-    coordinate_scale = max(
-        float(np.ptp(coords[:, 0])),
-        float(np.ptp(coords[:, 1])),
-        np.finfo(float).tiny,
-    )
-    curvature_floor = 1e-8 / coordinate_scale
-    sign_floor = 1e-14 / coordinate_scale
-
-    values = curvature(coords, closed=is_closed)
-    evaluated = values if is_closed else values[1:-1]
-    if len(evaluated) == 0:
-        evaluated = np.zeros(1, dtype=float)
-    absolute = np.abs(evaluated)
-    mean = float(np.mean(absolute))
-    deviation = float(np.std(absolute))
-    variation = deviation / (mean + np.finfo(float).tiny)
-    length = float(np.sum(np.linalg.norm(
-        np.diff(coords, axis=0), axis=1)))
-    signs = np.sign(evaluated)
-    nonzero_signs = signs[
-        np.abs(evaluated) > max(mean * 1e-6, sign_floor)
-    ]
-    inflections = (
-        int(np.sum(nonzero_signs[1:] * nonzero_signs[:-1] < 0))
-        if len(nonzero_signs) > 1 else 0
-    )
-    common_info = {
-        "geometry": "general",
-        "closed": is_closed,
-        "length": length,
-        "curvature_mean": mean,
-        "curvature_std": deviation,
-        "curvature_cv": variation,
-        "inflection_count": inflections,
-    }
-    if variation < 0.15:
-        equivalent_radius = 1.0 / (mean + np.finfo(float).tiny)
-        return (
-            "curve",
-            f"{prefix}类圆 R~{equivalent_radius:.6g}",
-            {**common_info, "equivalent_radius": equivalent_radius},
-        )
-    if mean > curvature_floor and variation < 0.5:
-        minimum_radius = 1.0 / (absolute.max() + np.finfo(float).tiny)
-        maximum_radius = (
-            1.0 / (
-                absolute[absolute > curvature_floor].min()
-                + np.finfo(float).tiny)
-            if (absolute > curvature_floor).any()
-            else 1e9 * coordinate_scale
-        )
-        return (
-            "curve",
-            f"{prefix}曲线 R=[{minimum_radius:.6g},{maximum_radius:.6g}]",
-            {
-                **common_info,
-                "R_min": minimum_radius,
-                "R_max": maximum_radius,
-            },
-        )
-    return (
-        "curve",
-        f"{prefix}通用曲线 ({len(coords)}点)",
-        common_info,
-    )
 
 
 def fit_circle_least_squares(points):

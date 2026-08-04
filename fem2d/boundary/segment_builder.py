@@ -17,6 +17,7 @@ from .geometry import (
 from .segment_utils import (
     LoopContext,
     deduplicate_consecutive_nodes,
+    tuple_value,
 )
 from .topology import _signed_loop_area
 
@@ -45,12 +46,19 @@ class BoundarySegmentBuilder:
             name, edges, self.edge_context)
         closed = len(nodes) >= 4 and nodes[0] == nodes[-1]
 
+        # 原生实体信息 (Gmsh line/circle/ellipse/bspline) 沿管线传入
+        # 识别器 — 内置探测器不消费, 插件接口的一等公民输入.
+        native_entities = tuple(
+            str(entity) for entity in tuple_value(
+                (source_info or {}).get("cad_entity_types", ())))
+
         if name and allow_geometric_split:
             preview_type, _, _ = classify(
                 self.mesh.nodes[nodes],
                 self.scale,
                 context.is_outer,
                 closed=closed,
+                native_entities=native_entities,
             )
             # A conic already passed strict all-point residual checks. Keep it
             # intact even if Gmsh represented it with several CAD entities.
@@ -73,6 +81,7 @@ class BoundarySegmentBuilder:
             self.scale,
             context.is_outer,
             closed=closed,
+            native_entities=native_entities,
         )
         info = dict(info)
         info.update({

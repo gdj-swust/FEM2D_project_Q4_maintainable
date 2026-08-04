@@ -180,6 +180,8 @@ class ConicSegmentMerger:
             mesh_scale(self.mesh.nodes),
             is_outer,
             closed=closed,
+            native_entities=self._collect_strings(
+                source_segments, "cad_entity_types"),
         )
         cad_kind = self._single_cad_kind(source_segments)
         if (

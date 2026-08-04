@@ -32,16 +32,17 @@ def _square_loop_coords(scale):
 def test_boundary_micro_scale_square_still_lines():
     """1e-16 尺度方形边界必须仍识别为直边 — 曾 1e-15 绝对零长判据
     使每条边都被判退化, 整环合并成 arc."""
-    from fem2d.boundary.geometry import (
-        _classify_line, compute_tolerance, sharp_corner_indices)
+    from fem2d.boundary.detectors import LineDetector
+    from fem2d.boundary.geometry import sharp_corner_indices
     for scale in (1.0, 1e-9, 1e-16):
         coords = _square_loop_coords(scale)
-        tol = compute_tolerance(coords)
         # 闭合环的每条边: 取角点切分 (方形角 = 90° 转角)
         corners = sharp_corner_indices(coords)
         assert len(corners) == 4, \
             f"scale={scale}: 角点 {len(corners)} ≠ 4 (曾微尺度全跳过)"
-        # 角点间段应分类为 line (闭合环切分需 wrap 拼接)
+        # 角点间段应分类为 line (闭合环切分需 wrap 拼接);
+        # 旧 _classify_line 私有函数已迁移为 detectors.LineDetector
+        line_detector = LineDetector()
         n_line = 0
         for i, c in enumerate(corners):
             nxt = corners[(i + 1) % len(corners)]
@@ -49,7 +50,8 @@ def test_boundary_micro_scale_square_still_lines():
                 chain = coords[c:nxt + 1]
             else:
                 chain = np.concatenate([coords[c:], coords[:nxt + 1]])
-            cls = _classify_line(chain, tol, "t")
+            cls = line_detector.detect(
+                chain, scale=1.0, is_outer=True, closed=False)
             n_line += 1 if cls else 0
         assert n_line == 4, f"scale={scale}: 仅 {n_line}/4 段识别为直边"
 
