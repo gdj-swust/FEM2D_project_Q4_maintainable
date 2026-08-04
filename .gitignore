@@ -27,3 +27,4 @@ wt_*/
 # 生成 PDF (tex 源已在库)
 architecture.pdf
 scripts/convergence/
+perf_results.json
