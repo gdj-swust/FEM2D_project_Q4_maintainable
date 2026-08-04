@@ -576,7 +576,7 @@ def resolve_input_file(fp, config, ask=None):
         raise CliError(
             '[ERROR] Abaqus .inp 输入已移除 — 请提供 .geo (Gmsh 几何)、'
             '.msh (Gmsh 网格) 或 .spec。',
-            exit_code=2)
+            exit_code=1)
 
     # .geo → 询问网格密度（CLI全参数时跳过), 跑 Gmsh 生成 .msh
     quad_applied = False

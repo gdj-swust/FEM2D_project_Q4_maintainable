@@ -152,7 +152,7 @@ def test_unknown_extension_rejected(tmp_path):
     bad.write_text("x", encoding="ascii")
     with pytest.raises(CliError) as exc:
         _run(str(bad))
-    assert exc.value.exit_code == 2
+    assert exc.value.exit_code == 1
 
 
 def test_final_path_not_msh_rejected(tmp_path, monkeypatch):
