@@ -15,9 +15,11 @@
   F         材料与单元注册                  9 (全部行)
   G         边界                           10 (契约 6 行全覆盖)
   G2        识别器注册表与插件接口         7 (阶段 2/3 新增契约)
+  G3        边界识别正式插件 (轮 2)        4 (插件 1 双路径+严格门+
+                                            默认注册; 插件 2/3 随其提交)
   H         配置与质量                     11 (全部行)
   I         装配                            2 (契约 2 行全覆盖)
-  合计: 136 项探针 (可用 AST 统计 probe() 调用数核对)。
+  合计: 140 项探针 (可用 AST 统计 probe() 调用数核对)。
 每组的"全部行"以契约表行数为准; 行内无具体误用错误声明的
 (如 I 组"非对称内核 → RuntimeError") 以合法输入不抛为探针内容。
 """
@@ -44,6 +46,9 @@ from fem2d.boundary import (
 from fem2d.boundary.detectors import Detector
 from fem2d.boundary.plugins.circle_label import (
     NativeCircleLabelDetector,
+)
+from fem2d.boundary.plugins.ellipse_group_label import (
+    EllipseGroupLabelDetector,
 )
 from fem2d.config import AnalysisConfig
 from fem2d.error_est import (
@@ -309,7 +314,10 @@ print("== G2 识别器注册表与插件接口 (阶段 2/3 新增) ==")
 
 def _probe_default_order():
     names = [d.name for d in default_registry().detectors()]
-    assert names == ["line", "circle", "ellipse", "general"], names
+    assert names == [
+        "ellipse_group_label",
+        "line", "circle", "ellipse", "general",
+    ], names
 probe("default registry order", _probe_default_order, None)
 
 
@@ -365,6 +373,64 @@ def _probe_register_duplicate():
 probe("register_detector duplicate", _probe_register_duplicate, ValueError)
 
 probe("register_detector non-detector", lambda: register_detector("x"), TypeError)
+
+print("== G3 边界识别正式插件 (轮 2) ==")
+
+
+def _probe_plugin_default_registration():
+    """生产默认注册: import fem2d.boundary 即启用 (注册即生效, 挑剔点 1)."""
+    names = [d.name for d in default_registry().detectors()]
+    assert "ellipse_group_label" in names
+    # 插件判定优先: 必须先于内置 line
+    assert names.index("ellipse_group_label") < names.index("line")
+probe("plugin default registration", _probe_plugin_default_registration, None)
+
+
+def _probe_ellipse_group_label_native():
+    """插件 1 ①原生实体直读: 真 Ellipse 链 (粗采样, 内置角点门必拒)
+    → 组级椭圆标签 (零拟合门, CAD 真值)."""
+    plugin = EllipseGroupLabelDetector()
+    phi = 2.0 * np.pi * np.arange(12) / 12
+    chain = np.column_stack([2.0 * np.cos(phi), 1.0 * np.sin(phi)])
+    detection = plugin.detect(
+        chain, scale=2.0, is_outer=True, closed=True,
+        native_entities=("Ellipse",))
+    assert detection is not None
+    assert detection.type == "ellipse"
+    assert "椭圆 a=2 b=1" in detection.label
+    # 无原生实体同链 → 兜底路径角点门拒 → 让位 (宁缺毋滥)
+    assert plugin.detect(
+        chain, scale=2.0, is_outer=True, closed=True) is None
+probe("ellipse_group_label native direct", _probe_ellipse_group_label_native, None)
+
+
+def _probe_ellipse_group_label_strict_gate():
+    """插件 1 ②严格门 (相对偏差 <2%): 残差超门的闭合链 → 保守曲线
+    标签, 标签不得含"椭圆" (宁缺毋滥)."""
+    plugin = EllipseGroupLabelDetector()
+    phi = 2.0 * np.pi * np.arange(40) / 40
+    base = np.column_stack([2.0 * np.cos(phi), 1.0 * np.sin(phi)])
+    radius = np.linalg.norm(base, axis=1)
+    chain = base * (1.0 + 0.04 * np.sin(3.0 * phi + 0.7))[:, None]
+    detection = plugin.detect(
+        chain, scale=2.0, is_outer=True, closed=True)
+    assert detection is not None
+    assert detection.type == "curve"
+    assert "椭圆" not in detection.label
+probe("ellipse_group_label strict gate", _probe_ellipse_group_label_strict_gate, None)
+
+
+def _probe_ellipse_group_label_circle_deferral():
+    """插件 1 圆链让位: 闭合整圆 (含原生 Circle) → None (整圆标签优先)."""
+    plugin = EllipseGroupLabelDetector()
+    phi = 2.0 * np.pi * np.arange(32) / 32
+    chain = np.column_stack([1.5 * np.cos(phi), 1.5 * np.sin(phi)])
+    assert plugin.detect(
+        chain, scale=2.0, is_outer=True, closed=True,
+        native_entities=("Circle",)) is None
+    assert plugin.detect(
+        chain, scale=2.0, is_outer=True, closed=True) is None
+probe("ellipse_group_label circle deferral", _probe_ellipse_group_label_circle_deferral, None)
 
 print("== I 装配 ==")
 probe("assemble_sparse ok", lambda: F.assemble_sparse(_mesh()), None)

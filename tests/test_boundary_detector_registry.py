@@ -53,9 +53,17 @@ class _SpyDetector(Detector):
 
 
 def test_default_registry_order():
-    """注册表顺序 = 旧 classify 探测顺序: line → circle → ellipse → general."""
+    """注册表顺序 = 正式插件优先 + 旧 classify 探测顺序.
+
+    轮 2 起默认注册: ellipse_group_label (插件 1, 闭合整椭圆) →
+    line → circle → ellipse → general (插件 3 arc_curvature 随
+    轮 2 第 3 插件提交注册, 顺序见 docs/boundary_plugins.md).
+    插件判定优先, 未命中让位内置."""
     names = [detector.name for detector in default_registry()._detectors]
-    assert names == ["line", "circle", "ellipse", "general"]
+    assert names == [
+        "ellipse_group_label",
+        "line", "circle", "ellipse", "general",
+    ]
 
 
 def test_registry_classify_equals_geometry_facade():

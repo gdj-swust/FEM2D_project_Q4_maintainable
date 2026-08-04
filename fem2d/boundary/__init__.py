@@ -24,6 +24,7 @@ from .detectors import (
     default_registry,
     register_detector,
 )
+from . import plugins  # noqa: F401  — 正式插件默认注册 (轮 2, 注册即生效)
 from .model import BoundaryDiagnostics, BoundaryIssue
 from .naming import (
     _resolve_edge_indices,
