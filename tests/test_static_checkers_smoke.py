@@ -9,8 +9,6 @@ import subprocess
 import sys
 import tempfile
 
-import pytest
-
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -111,7 +109,6 @@ def _fstring_expression_backslashes(path):
     token 内; 字面文本 (FSTRING_MIDDLE) 的反斜杠 3.9-3.11 合法, 不报。
     <3.12 解释器无 FSTRING_* token, 返回 [] (由调用方走真语法检查)。
     """
-    import io
     import tokenize
     if not hasattr(tokenize, "FSTRING_START"):
         return []
