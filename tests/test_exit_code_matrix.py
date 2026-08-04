@@ -207,3 +207,32 @@ def test_matrix_unknown_exception_returns_two(monkeypatch, msh_file,
         runner_mod, "build_boundary_segments",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("internal")))
     assert _process_exit_code([msh_file, "--no-plot"]) == 2
+
+
+# ═══════════════════════════════════════════════════════════════
+# 审查修复包第 3 项: 非法载荷解析 → 1 (曾泄漏 ValueError → 2)
+# ═══════════════════════════════════════════════════════════════
+
+def test_matrix_bad_traction_spec_returns_one(monkeypatch, msh_file,
+                                              fake_msh):
+    """--traction right:bad (分量无法解析) → 1 (用户错误).
+
+    曾 parse_traction 裸 ValueError 泄漏到顶层 except Exception →
+    归为内部错误 2; 判别性: 放回旧实现 (不转 CliError) 必须失败。
+    """
+    fake_msh(_fake_msh_import())
+    assert _process_exit_code(
+        [msh_file, "--no-plot", "--traction", "right:bad"]) == 1
+
+
+def test_matrix_nan_concentrated_force_returns_one(monkeypatch, msh_file,
+                                                   fake_msh):
+    """--force 0,nan,0 (非有限分量) → 1 (用户错误).
+
+    float("nan") 不抛 ValueError — nan 曾直达 mesh.add_force 的
+    require_finite_scalar 裸 ValueError → 退出码 2; 判别性: 放回旧实现
+    (无 isfinite 检查) 必须失败。
+    """
+    fake_msh(_fake_msh_import())
+    assert _process_exit_code(
+        [msh_file, "--no-plot", "--force", "0,nan,0"]) == 1

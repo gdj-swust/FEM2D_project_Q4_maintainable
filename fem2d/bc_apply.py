@@ -222,7 +222,13 @@ def _apply_tractions(config, mesh, segs, batch_mode, region_registry=None):
 
     is_batch_traction = bool(config.traction)  # CLI/.spec 模式, 错误边名应终止
     for t_spec in traction_specs:
-        edge_str, tx, ty, profile = parse_traction(t_spec)
+        try:
+            edge_str, tx, ty, profile = parse_traction(t_spec)
+        except ValueError as error:
+            # 解析错误 (如 right:bad) 曾裸 ValueError 泄漏到顶层兜底 →
+            # 退出码 2 (内部错误); 非法面力规格是用户错误 → 1
+            raise CliError(f"  [FATAL] 面力规格无效: {error}",
+                           exit_code=1) from error
         if edge_str is None:
             # 无 ':' 前缀 (如 --traction "1e6,0"): 曾报"未找到边 'None'"
             # 把用户引向检查边名, 真正问题是缺 edge: 前缀
@@ -286,6 +292,14 @@ def _apply_concentrated_forces(config, mesh, region_registry, node_id_map,
         raise CliError(
             f"  [FATAL] --force 载荷分量无法解析: '{parts[1]},{parts[2]}' "
             f"— 需要两个数值 (例: --force 5,1e6,0)",
+            exit_code=1)
+    if not (np.isfinite(fx) and np.isfinite(fy)):
+        # float("nan")/float("1e999") 不抛 ValueError — nan/inf 曾直达
+        # mesh.add_force 的 require_finite_scalar 裸 ValueError → 退出码 2;
+        # 非有限载荷分量是用户错误 → 1
+        raise CliError(
+            f"  [FATAL] --force 载荷分量必须为有限数值: "
+            f"'{parts[1]},{parts[2]}'",
             exit_code=1)
     point_regions = (
         region_registry.by_name(target, dimension=0)
