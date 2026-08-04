@@ -3,6 +3,39 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
+## 9.22.0 (2026-08-04) — 文档数字统刷 + 交接归档 (pkg7)
+
+### 文档数字全面实测刷新 (数字均来自实测输出, 非猜测)
+- **PROJECT_SUMMARY / README / docs/ci.md**: 版本 9.17.0→9.21.1、测试数、
+  文件数、模型数全部按 2026-08-04 实测刷新:
+  - 有 gmsh 本机: **939 collected → 937 passed + 2 skipped, 0 失败**
+    (2 skip 恒为 test_geo_models 无捆绑 gmsh.exe 项)
+  - 无 gmsh 全新 venv 实测: **918 collected → 898 passed + 20 skipped, 0 失败**
+    (numpy 2.5.1 / scipy 1.18.0 / matplotlib 3.11.1 / pytest 9.1.1)
+  - tests/ 74 个测试文件 + conftest.py; models/ 21 .geo + 7 .spec + 3 .txt
+    (原 5 .txt 为过期值); scripts/ 12 .py + 1 .sh (原 8 个为过期值);
+    fem2d/ 30 模块 + boundary/ 13 + element/ 7 = 50 .py (原 26 为过期值)
+  - docs/ci.md §3 skip 明细表: 20 项全部实测列明, 新增
+    test_output_dir_policy.py:439 (9.21.0 --output-dir 用例) 一项;
+    无法复测的数字 (无 gmsh 环境/ numpy 地板组合) 改为
+    "以实测为准 + 复现命令" 表述, 不再写死
+- **docs/api_contract.md** C 节标题修正: `fem2d/loads/__init__`
+  (该包不存在) → `fem2d/loads.py, fem2d/loads_core.py`
+
+### 交接归档
+- `NEXT_SESSION_HANDOFF.md` git mv → `NEXT_SESSION_HANDOFF_ARCHIVED.md`,
+  文件头标注 "历史交接（2026-08-03），已被 COMMANDER_HANDOFF_20260804.md 取代",
+  并清除其中过期版本/测试数字 (9.17.0 / 504 等)
+- `COMMANDER_HANDOFF_20260804.md` (主会话生成, 此前 untracked) git add 入库 —
+  仓库根唯一有效交接文档
+
+### 配置
+- .gitignore 补 `.venv*/` (.coverage / wt_* / models/*.msh / __pycache__ 已覆盖)
+
+### 验收
+- 全量 pytest **939 collected → 0 失败** (937 passed + 2 skipped); 纯文档改动,
+  无代码/测试文件被触碰; CHANGELOG 历史节零改动
+
 ## 9.21.1 (2026-08-04) — 审查 9.0 轮收尾
 
 ### 发版阻断修复

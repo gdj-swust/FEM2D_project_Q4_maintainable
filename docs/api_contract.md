@@ -95,7 +95,7 @@
 
 ---
 
-## C. 载荷 (fem2d/loads_core.py, fem2d/loads/__init__)
+## C. 载荷 (fem2d/loads.py, fem2d/loads_core.py)
 
 | API | 签名 | 参数合法形状 | 误用清单 → 应有错误 | 现状 |
 |-----|------|-------------|---------------------|------|
