@@ -3,9 +3,44 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
-## 9.22.0 (2026-08-04) — pkg8 审计工具自证力补强
+## 9.22.0 (2026-08-04) — 并行批次 1 (pkg7_docsync 文档 + pkg8_tools 工具)
 
-### 探针 (scripts/audit_contract_probe.py): 101 → 129 项
+### pkg7 文档数字统刷 + 交接归档
+
+#### 文档数字全面实测刷新 (数字均来自实测输出, 非猜测)
+- **PROJECT_SUMMARY / README / docs/ci.md**: 版本 9.17.0→9.21.1、测试数、
+  文件数、模型数全部按 2026-08-04 实测刷新:
+  - 有 gmsh 本机: **939 collected → 937 passed + 2 skipped, 0 失败**
+    (2 skip 恒为 test_geo_models 无捆绑 gmsh.exe 项)
+  - 无 gmsh 全新 venv 实测: **918 collected → 898 passed + 20 skipped, 0 失败**
+    (numpy 2.5.1 / scipy 1.18.0 / matplotlib 3.11.1 / pytest 9.1.1)
+  - tests/ 74 个测试文件 + conftest.py; models/ 21 .geo + 7 .spec + 3 .txt
+    (原 5 .txt 为过期值); scripts/ 12 .py + 1 .sh (原 8 个为过期值);
+    fem2d/ 30 模块 + boundary/ 13 + element/ 7 = 50 .py (原 26 为过期值)
+  - docs/ci.md §3 skip 明细表: 20 项全部实测列明, 新增
+    test_output_dir_policy.py:439 (9.21.0 --output-dir 用例) 一项;
+    无法复测的数字 (无 gmsh 环境/ numpy 地板组合) 改为
+    "以实测为准 + 复现命令" 表述, 不再写死
+- **docs/api_contract.md** C 节标题修正: `fem2d/loads/__init__`
+  (该包不存在) → `fem2d/loads.py, fem2d/loads_core.py`
+
+#### 交接归档
+- `NEXT_SESSION_HANDOFF.md` git mv → `NEXT_SESSION_HANDOFF_ARCHIVED.md`,
+  文件头标注 "历史交接（2026-08-03），已被 COMMANDER_HANDOFF_20260804.md 取代",
+  并清除其中过期版本/测试数字 (9.17.0 / 504 等)
+- `COMMANDER_HANDOFF_20260804.md` (主会话生成, 此前 untracked) git add 入库 —
+  仓库根唯一有效交接文档
+
+#### 配置
+- .gitignore 补 `.venv*/` (.coverage / wt_* / models/*.msh / __pycache__ 已覆盖)
+
+#### 验收
+- 全量 pytest **939 collected → 0 失败** (937 passed + 2 skipped); 纯文档改动,
+  无代码/测试文件被触碰; CHANGELOG 历史节零改动
+
+### pkg8 审计工具自证力补强
+
+#### 探针 (scripts/audit_contract_probe.py): 101 → 129 项
 - **assemble_loads 期望收紧**: 实测当前行为已抛 ValueError (9.19.0 修过
   n_dof 裸 IndexError), 期望从 (IndexError, ValueError) 收紧为只 ValueError —
   判别性: 注入裸 IndexError 回归 → 探针 FAIL (smoke 锁定)
@@ -19,7 +54,7 @@
 - **覆盖声明非纸面**: docstring 附组↔探针数对照表 (合计 129, 可 AST 核对),
   smoke 测试断言声明数与实际 probe() 调用数一致
 
-### combo_fuzz (scripts/combo_fuzz.py)
+#### combo_fuzz (scripts/combo_fuzz.py)
 - **静默零解判定**: 曾只查 isfinite, 全零解通过 — 新增相对尺度
   u_char = max|F|/median|K_diag| (量纲=长度, 微尺度自动跟随, 无绝对阈值),
   max|u| ≤ u_char×1e-10 → 报"静默零解"。判别性: 注入"solve 载荷装配丢载荷"
@@ -29,7 +64,7 @@
 - **平衡检查**: Σ(K·u) ≈ 0 (外载荷+支反力自平衡), 相对 Σ|F| > 1e-6 → 报
   "平衡残差" (载荷方向/位置错误时 isfinite 与零解检查均通过)
 
-### fuzz_api (scripts/fuzz_api.py): 值类别非法输入不再整体豁免
+#### fuzz_api (scripts/fuzz_api.py): 值类别非法输入不再整体豁免
 - 14 个 silent_ok=True 改为**按生成值过滤**: 仅该值确实合法 (有限实数对
   压力/位移值, 有限正数对 E, ≥1e4 对罚因子, 0..3 对 nid, (2,) 对
   spr_recovery 等) 才允许静默成功; complex/NaN/str/容器等非法类别照常
@@ -38,7 +73,7 @@
   (约束消失无提示) → mesh.py 增加 str node_list 守卫 ValueError (最小修复);
   放回旧实现 → fuzz 500 轮报出, exit 1
 
-### 测试
+#### 测试
 - 新增 tests/test_tools_smoke.py (11 项): 探针/fuzz_api/combo_fuzz/
   regression_compare/perf_benchmark 各"运行干净 + 已知 FAIL 必被抓出"
   (注入模式参照 test_static_checkers_smoke 断裂 import); 全部无 gmsh 依赖

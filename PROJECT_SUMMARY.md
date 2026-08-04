@@ -35,17 +35,17 @@ FEM2D_project_Q4_maintainable/
 │   ├── runner.py             # 主流程编排（5 阶段）
 │   ├── wizard.py / errors.py # 交互向导 / 领域异常（CliError）
 ├── scripts/                  # geo_spec / gmsh_runner / convergence 等工具
-├── tests/                    # 48 测试文件 + conftest.py，569 测试
-├── models/                   # 算例库（21 .geo + 7 .spec + 5 .txt）
+├── tests/                    # 74 测试文件 + conftest.py，939 测试
+├── models/                   # 算例库（21 .geo + 7 .spec + 3 .txt）
 └── tools/                    # gmsh-4.15.2 Windows 可执行文件（打包内含，GPL v2+）
 ```
 
 ## 当前状态
 
-- **测试**：`python -m pytest` 本机实测 **569 collected → 0 失败**（2026-08-03 包 5 后；无 Gmsh 依赖环境的 collected/skip 数会减少，以 `pytest --collect-only` 实测为准）
-- **静态**：ruff（E/F）干净、mypy 48 文件干净、死代码 0 候选
+- **测试**：`python -m pytest` 本机实测 **939 collected → 0 失败**（2026-08-04 pkg7 复核，937 passed + 2 skipped；无 Gmsh 依赖环境的 collected/skip 数会减少，以 `pytest --collect-only` 实测为准）
+- **静态**：ruff（E/F）干净、mypy 50 文件干净、死代码 0 候选
 - **数值验证**：四单元族 patch test 机器精度、Kirsch K_t≈3.04、Cook 膜收敛、悬臂梁 vs Timoshenko、微尺度全链路
-- **版本**：9.17.0；文档：README / CHANGELOG / NEXT_SESSION_HANDOFF.md（含历轮修复记录）
+- **版本**：9.21.1；文档：README / CHANGELOG / COMMANDER_HANDOFF_20260804.md（唯一有效交接；旧交接已归档）
 - **打包**（用户惯例）：`FEM2D_project_Q4_YYYYMMDD_HHMMSS_maintainable.zip` 放 Downloads，不含 `tools/`、缓存、`*.egg-info`（gmsh 可执行文件另行分发，分发时保留其 GPL v2+ 声明）
 
 ## 已知边界（诚实清单）

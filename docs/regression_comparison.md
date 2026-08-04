@@ -1,6 +1,6 @@
 # 数值漂移对照 — 早期 baseline vs 当前 main (终轮回归)
 
-> 日期: 2026-08-03 | 早期 baseline: `7ee65fc` (v9.17.0 + 3 项修复, 契约清账前)
+> 日期: 2026-08-03 | 早期 baseline: `7ee65fc` (契约清账前 + 3 项修复)
 > 当前: `9577731` (main, 契约清账 + 复查轮后)
 > 方法: `git worktree add` 隔离检出早期版本, 同一份对照脚本
 > (scripts/regression_compare.py) 在两个版本上运行 — 左边 (x=min) 全节点
