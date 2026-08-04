@@ -726,7 +726,7 @@
   }
  ],
  "normals_consistent": true,
- "print_output": "\n  [一般二维截面 | 4.00×2.00m]\n  1 条边界:\n  [1] O 外边 椭圆 a=2 b=1  (41点)  |  中心: (6.15849e-17, 2.77469e-17)  a=2  b=1\n  外边: 1\n",
+ "print_output": "\n  [一般二维截面 | 4.00×2.00m]\n  1 条边界:\n  [1] O 外边 椭圆 a=2 b=1  (41点)  |  中心: (0, 0)  a=2  b=1\n  外边: 1\n",
  "segments": [
   {
    "closed": true,

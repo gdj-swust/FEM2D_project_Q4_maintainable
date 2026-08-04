@@ -128,11 +128,23 @@ def normals_snapshot(mesh, segments):
     return entries, consistent
 
 
-def print_snapshot(segments):
-    """print_segments 的完整打印输出 (CLI 用户可见文本)."""
+def print_snapshot(segments, floor):
+    """print_segments 的完整打印输出 (CLI 用户可见文本).
+
+    打印文本含 info 浮点的 6g/2f 格式 (如整圆中心 ~1e-17 的坐标) —
+    近零噪声值的格式化文本随平台漂移 (CI 实测). 打印前先对段 info
+    应用与快照相同的规范化 (噪声地板 + 12g), 使打印文本跨平台
+    逐位一致; 段结构/标签文本原样保留.
+    """
+    normalized = []
+    for segment in segments:
+        copy_seg = dict(segment)
+        copy_seg["info"] = _canonical_value(
+            segment.get("info", {}), floor)
+        normalized.append(copy_seg)
     buffer = io.StringIO()
     with redirect_stdout(buffer):
-        print_segments(segments)
+        print_segments(normalized)
     return buffer.getvalue()
 
 
@@ -160,7 +172,7 @@ def build_snapshot(mesh, segments, *, include_nodes=True):
         "normals": (
             normal_entries
             if include_nodes else len(normal_entries)),
-        "print_output": print_snapshot(segments),
+        "print_output": print_snapshot(segments, floor),
     }
     return _canonical_value(snapshot, floor)
 
