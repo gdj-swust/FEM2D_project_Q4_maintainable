@@ -143,7 +143,7 @@ def test_inp_entry_rejected(tmp_path):
     inp.write_text("*NODE\n", encoding="ascii")
     with pytest.raises(CliError) as exc:
         _run(str(inp))
-    assert exc.value.exit_code == 2
+    assert exc.value.exit_code == 1
     assert ".inp" in str(exc.value)
 
 

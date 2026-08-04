@@ -382,7 +382,7 @@ def test_main_missing_file_returns_one():
 
 
 def test_main_rejects_inp_input(monkeypatch):
-    """Abaqus .inp 输入口已移除 — main 必须明确拒绝 (返回 2)."""
+    """Abaqus .inp 输入口已移除 — main 必须明确拒绝 (用户错误 1)."""
     import tempfile
 
     from fem2d import input_source
@@ -397,7 +397,7 @@ def test_main_rejects_inp_input(monkeypatch):
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             code = main([handle.name, "--no-plot"])
-        assert code == 2
+        assert code == 1
     finally:
         os.unlink(handle.name)
 
