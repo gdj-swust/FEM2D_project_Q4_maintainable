@@ -4,12 +4,74 @@ GOLDEN 是重构前 (2026-08-03 基线) 对代表性模型 (单元族 x 求解�
 微尺度 x 大坐标 x 纯 Dirichlet) 抓取的精确输出: stdout 日志序列 + 完整
 result dict。重构只允许等价拆分, 不允许任何数值/日志/键集合变化 --
 逐值精确比较 (非 allclose)。生成脚本: 仓库外 gen_solve_golden.py。
+
+环境敏感例外 (2026-08-04 CI 首跑确认): Residual / ΣF / ΣM 行与 result
+的 residual / force_balance / moment_balance 键是 backward-error 与
+力/力矩平衡残差 — 浮点舍入噪声级 (Linux OpenBLAS 与 Windows 求和序
+不同 → 最后一位不同, 观测 4.15e-17 vs 2.07e-17, 恰 2×)。这些行/键
+改为相对容差比较 (rtol=2.0 覆盖 2× 观测 + atol=1e-12 覆盖近零分量,
+如 ΣF -5.68e-14 vs 0.0); 其余 stdout 行与 result 键保持逐字符/逐值。
 """
 import io
+import re
 import warnings
 from contextlib import redirect_stdout
 
 import numpy as np
+import pytest
+
+# 环境敏感诊断行 — 结构必须逐字符匹配 (regex 锚定整行), 数值容差比较
+_RESID_RE = re.compile(
+    r"\[OK\] Residual = ([0-9.eE+-]+) \(backward error\)\n")
+_SIGF_RE = re.compile(
+    r"\[Solver\] ΣF = \(([0-9.eE+-]+), ([0-9.eE+-]+)\) N  "
+    r"\(rel: ([0-9.eE+-]+)\)\n")
+_SIGM_RE = re.compile(
+    r"\[Solver\] ΣM = ([0-9.eE+-]+) N·m  \(rel: ([0-9.eE+-]+)\)\n")
+_DIAG_RE = (_RESID_RE, _SIGF_RE, _SIGM_RE)
+_BALANCE_KEYS = ("residual", "force_balance", "moment_balance")
+# rtol=2.0: 观测到 2× 舍入差异 (4.15e-17 vs 2.07e-17); atol=1e-12:
+# 覆盖近零分量 (如 0.0 vs -5.68e-14) — 微尺度模型 (1e-166) 亦远小于此
+_DIAG_RTOL, _DIAG_ATOL = 2.0, 1e-12
+
+
+def _compare_stdout(name, out, golden_out):
+    """逐字符比较, 环境敏感诊断行剥离后容差比较."""
+    for pattern in _DIAG_RE:
+        om, gm = pattern.search(out), pattern.search(golden_out)
+        assert om is not None or gm is None, (
+            f"[{name}] 金标准无 {pattern.pattern[:24]}... 行但当前输出有")
+        assert gm is not None or om is None, (
+            f"[{name}] 金标准有 {pattern.pattern[:24]}... 行但当前输出缺失")
+        if om is None:
+            continue
+        for a, g in zip(om.groups(), gm.groups()):
+            assert np.isclose(float(a), float(g), rtol=_DIAG_RTOL,
+                              atol=_DIAG_ATOL), (
+                f"[{name}] {pattern.pattern[:16]}: 数值漂移 "
+                f"{a!r} vs 金标准 {g!r}")
+        out = out[:om.start()] + out[om.end():]
+        golden_out = golden_out[:gm.start()] + golden_out[gm.end():]
+    assert out == golden_out, (
+        "[" + name + "] stdout 与金标准不一致 (诊断行已剥离), 前 400 字符: "
+        + repr(out[:400]))
+
+
+def _compare_result(name, result, golden_result):
+    assert sorted(result) == sorted(golden_result), (
+        "[" + name + "] result 与金标准不一致, 键差: "
+        + repr(sorted(result) ^ sorted(golden_result)))
+    for key, gv in golden_result.items():
+        av = result[key]
+        if key in _BALANCE_KEYS:
+            ga, aa = np.asarray(gv, dtype=float), np.asarray(av, dtype=float)
+            assert ga.shape == aa.shape, (
+                f"[{name}] result[{key}] 形状漂移: {aa.shape} vs {ga.shape}")
+            assert np.all(np.isclose(aa, ga, rtol=_DIAG_RTOL,
+                                     atol=_DIAG_ATOL)), (
+                f"[{name}] result[{key}] 数值漂移: {aa!r} vs {ga!r}")
+        else:
+            assert av == gv, f"[{name}] result[{key}] 与金标准不一致"
 
 from fem2d import Mesh
 from fem2d.solver import solve
@@ -80,9 +142,25 @@ GOLDEN = {'cst': {'stdout': '[Solver] 约束: 4 DOFs, 4 free DOFs\n[Solver] 组�
 def test_solve_behavior_identical_to_golden():
     for name, mesh, kwargs in MODELS:
         out, result = _run(mesh, kwargs)
-        assert out == GOLDEN[name]["stdout"], (
-            "[" + name + "] stdout 与金标准不一致, 前 400 字符: "
-            + repr(out[:400]))
-        assert result == GOLDEN[name]["result"], (
-            "[" + name + "] result 与金标准不一致, 键差: "
-            + repr(sorted(result) ^ sorted(GOLDEN[name]["result"])))
+        _compare_stdout(name, out, GOLDEN[name]["stdout"])
+        _compare_result(name, result, GOLDEN[name]["result"])
+
+
+def test_residual_tolerance_accepts_2x_platform_noise():
+    """容差逻辑判别性 (本地即生效): CI 观测的 2× 舍入差异必须接受,
+    真漂移 (1e-10) 必须拒绝. 若改回逐字符比较, 2× 用例在此失败."""
+    cst_out = GOLDEN["cst"]["stdout"]
+    _compare_stdout("cst", cst_out.replace("4.15e-17", "2.07e-17"),
+                    cst_out)                        # Linux 2× → 接受
+    for drift in ("1.00e-10", "5.00e-12"):
+        with pytest.raises(AssertionError):
+            _compare_stdout("cst", cst_out.replace("4.15e-17", drift),
+                            cst_out)                # 真漂移 → 拒绝
+
+
+def test_residual_line_structure_still_locked():
+    """诊断行结构仍必须逐字符锁定 — 行格式/单位/前缀变了必须红."""
+    out, _ = _run(*MODELS[0][1:])
+    assert "[OK] Residual = " in out and "backward error" in out
+    assert "ΣF = (" in out and "N  (rel:" in out
+    assert "ΣM = " in out and "N·m  (rel:" in out
