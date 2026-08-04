@@ -342,6 +342,33 @@ def test_curvature_micro_scale_not_all_zero():
     assert kappa[10] > 0, f"微尺度曲率为零: {kappa[10]}"
 
 
+def _stress_query_mesh():
+    from fem2d import Mesh
+    return Mesh(nodes=np.array([[0., 0.], [1., 0.], [0., 1.], [1., 1.]]),
+                elements=np.array([[0, 1, 3], [0, 3, 2]]), E=1e6, nu=0.3,
+                thickness=1.0)
+
+
+def test_stress_at_point_array_coord_rejected():
+    """数组/列表当标量坐标必须报领域错误 — numpy<=2.0 上
+    float(np.array([0.5])) 静默折叠成 0.5, 点查询静默返回应力
+    (fuzz 抓到, 违反标量位置契约)."""
+    from fem2d.stress import point_in_element, stress_at_point
+    m = _stress_query_mesh()
+    for bad in (np.array([0.5]), [0.5], (0.5,)):
+        with pytest.raises(ValueError, match="标量"):
+            point_in_element(m, bad, 0.5)
+        with pytest.raises(ValueError, match="标量"):
+            stress_at_point(m, {"stress": np.ones((2, 3))}, bad, 0.5)
+    # 标量行为与修复前一致: 不抛异常, 返回所在单元代表应力原值
+    eid = point_in_element(m, 0.5, 0.5)
+    assert eid >= 0
+    stress = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    got = stress_at_point(m, {"stress": stress}, 0.5, 0.5)
+    assert np.array_equal(got, stress[eid]), \
+        f"标量查询被改动: {got!r} vs 原值 {stress[eid]!r}"
+
+
 def test_gouraud_micro_field_range_not_collapsed():
     """微尺度近常场 (span 1e-16 绝对单位) 的 gouraud 色标必须保持场
     尺度 — 曾绝对 1e-15 阈值 + 1.0 pad, 色标变 [1e-12, 1.0] 单色塌缩

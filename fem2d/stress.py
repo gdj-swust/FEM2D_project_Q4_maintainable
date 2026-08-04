@@ -291,6 +291,12 @@ def nodal_L2_projection(mesh, elem_stress):
 
 def point_in_element(mesh, x, y):
     """Return the id of the element containing ``(x,y)``, or ``-1``."""
+    if np.ndim(x) != 0 or np.ndim(y) != 0:
+        # 数组/列表当标量坐标曾静默折叠 (float(np.array([0.5])) → 0.5,
+        # numpy<=2.0 静默转换) — 标量位置契约, 必须显式拒绝
+        raise ValueError(
+            f"point_in_element: (x, y)=({x!r}, {y!r}) — "
+            f"坐标必须为有限标量, 收到容器类型")
     try:
         x, y = float(x), float(y)
         finite = bool(np.isfinite(x) and np.isfinite(y))
