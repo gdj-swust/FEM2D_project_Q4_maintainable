@@ -48,11 +48,16 @@ _patch_checked = set()
 # ═══════════════════════════════════════════════════════════════
 
 def _ensure_patch_test(elem_type="CPS3", plane="stress"):
+    """每个进程对每种 (单元, 平面) 组合运行一次分片检验.
+
+    契约: 通过 → 缓存该组合 (同进程后续调用直接返回);
+    失败 → 抛 CliError **且不缓存** — 同进程下一次调用必须重新
+    运行并再次失败, 不能静默放行 (失败只属于本次运行, 不是可复用的结果).
+    """
     global _patch_checked
     key = (elem_type, plane)
     if key in _patch_checked:
         return
-    _patch_checked.add(key)
     print(f"\n{'='*55}")
     print(f"  {elem_type} Patch Test — Bathe §5.3.3 "
           f"(自动, plane={plane})")
@@ -62,6 +67,7 @@ def _ensure_patch_test(elem_type="CPS3", plane="stress"):
         raise CliError(
             "[FATAL] Patch test failed! Fix element code before solving.",
             exit_code=1)
+    _patch_checked.add(key)
 
 
 def _standalone_self_test() -> int:

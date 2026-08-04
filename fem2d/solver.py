@@ -649,7 +649,7 @@ def solve(
     _check_solution_finite(u, reactions, method)
 
     # ── 4. 残差检查 (Bathe §8.2.6: backward error, 一致范数) ──
-    residual, residual_abs = _compute_residual(
+    residual, _residual_abs = _compute_residual(
         K, F, K_mod, F_mod, u, free_dofs,
         method, _dirichlet_only, log)
 
