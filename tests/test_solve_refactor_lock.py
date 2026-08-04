@@ -35,9 +35,13 @@ _BALANCE_KEYS = ("residual", "force_balance", "moment_balance")
 # rtol=2.0: 观测到 2× 舍入差异 (4.15e-17 vs 2.07e-17); atol=1e-12:
 # 覆盖近零分量 (如 0.0 vs -5.68e-14) — 微尺度模型 (1e-166) 亦远小于此
 _DIAG_RTOL, _DIAG_ATOL = 2.0, 1e-12
-# 数值派生键 (u/stress/reactions/...): 跨平台 ±1 ulp 噪声 (观测 1 ulp)
-# rtol=1e-10 留 1e4 倍余量 — 真回归 (1e-8 相对+) 必被抓住
+# 数值派生键 (u/stress/reactions/...): 跨平台 ±1 ulp 噪声 (观测 1 ulp);
+# 近零分量 (理论为 0 的 τxy 等) 是积分求和序噪声 (观测 2.27e-12 vs
+# 4.09e-12, 应力尺度 1e5 的 ~1e-17 相对) — rtol 对近零值失效, 补
+# 键内尺度相对 atol = max|键值| × 1e-12 (留 1e4 倍余量, 微尺度 1e-150
+# 模型同样安全 — 尺度随键自动缩放, 非绝对阈值)
 _NUM_RTOL = 1e-10
+_NUM_ATOL_FACTOR = 1e-12
 
 
 def _compare_stdout(name, out, golden_out):
@@ -62,29 +66,44 @@ def _compare_stdout(name, out, golden_out):
         + repr(out[:400]))
 
 
-def _compare_numeric(name, key, av, gv):
-    """递归数值容差比较: list/tuple/dict/数值标量按 rtol 比较, 其他逐值.
+def _key_scale(value):
+    """键内最大绝对值 — 相对 atol 的尺度基准 (递归, 键内共用).
 
-    数值标量含 np 标量 (金标准里 residual 是 np.float64). bool 是 int
-    子类但语义逐值 — 0/1 的 isclose 与逐值等价, 无放行差异.
+    scale=0 (全零键) → atol=0: 任何非零漂移都被拒, 无放行缺口.
     """
+    if isinstance(value, dict):
+        return max((_key_scale(v) for v in value.values()), default=0.0)
+    if isinstance(value, (list, tuple)):
+        return max((_key_scale(v) for v in value), default=0.0)
+    if isinstance(value, (float, int, np.floating, np.integer)):
+        return float(abs(value))
+    return 0.0
+
+
+def _compare_numeric(name, key, av, gv, scale=None):
+    """递归数值容差比较: list/tuple/dict/数值标量按 rtol + 键内尺度 atol,
+    其他逐值. bool 是 int 子类但语义逐值 — 0/1 的 isclose 与逐值等价.
+    """
+    if scale is None:
+        scale = _key_scale(gv)
     if isinstance(gv, dict):
         assert isinstance(av, dict) and sorted(av) == sorted(gv), (
             f"[{name}] result[{key}] 结构漂移: {av!r} vs {gv!r}")
         for sub in gv:
-            _compare_numeric(name, f"{key}.{sub}", av[sub], gv[sub])
+            _compare_numeric(name, f"{key}.{sub}", av[sub], gv[sub], scale)
         return
     if isinstance(gv, (list, tuple)):
         assert isinstance(av, (list, tuple)) and len(av) == len(gv), (
             f"[{name}] result[{key}] 结构漂移: {av!r} vs {gv!r}")
         for i, (a, g) in enumerate(zip(av, gv)):
-            _compare_numeric(name, f"{key}[{i}]", a, g)
+            _compare_numeric(name, f"{key}[{i}]", a, g, scale)
         return
     if isinstance(gv, (float, int, np.floating, np.integer)):
         assert isinstance(av, (float, int, np.floating, np.integer)), (
             f"[{name}] result[{key}] 类型漂移: {type(av).__name__} "
             f"vs {type(gv).__name__}")
-        assert np.isclose(float(av), float(gv), rtol=_NUM_RTOL, atol=0.0), (
+        assert np.isclose(float(av), float(gv), rtol=_NUM_RTOL,
+                          atol=scale * _NUM_ATOL_FACTOR), (
             f"[{name}] result[{key}] 数值漂移: {av!r} vs {gv!r}")
         return
     assert av == gv, f"[{name}] result[{key}] 与金标准不一致: {av!r} vs {gv!r}"
@@ -213,6 +232,16 @@ def test_result_numeric_tolerance_1ulp_accepted_drift_rejected():
     broken["u"][0] = 1.0                                    # 约束 DOF 非零 → 拒绝
     with pytest.raises(AssertionError):
         _compare_result("cst", broken, cst)
+    # 近零分量 (理论为 0 的 τxy, CI 观测 2.27e-12 vs 4.09e-12) → 接受
+    q4 = GOLDEN["q4"]["result"]
+    q4_noisy = dict(q4)
+    q4_noisy["stress"] = [[-9926.47058823529, -100000.0, 4.092726157978177e-12]]
+    _compare_result("q4", q4_noisy, q4)
+    # 同一分量真漂移 (1e-6, 超出键尺度 atol=1e-7) → 拒绝
+    q4_drift = dict(q4)
+    q4_drift["stress"] = [[-9926.47058823529, -100000.0, 1.0e-6]]
+    with pytest.raises(AssertionError):
+        _compare_result("q4", q4_drift, q4)
 
 
 def test_residual_line_structure_still_locked():
