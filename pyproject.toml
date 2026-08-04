@@ -15,7 +15,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fem2d-q4"
-version = "9.22.0"
+version = "9.24.0"
 description = "2D displacement FEM solver — CST/Q4/Q4R/Q4I, plane stress/strain, Gmsh mesh input"
 readme = "README.md"
 requires-python = ">=3.9"

@@ -164,6 +164,17 @@
 | segments_from_physical_curves / segments_from_region_registry | (mesh, ...) | Mesh + 源 | 未映射 → 空/诊断 | ✅ |
 | semantic_coverage | (mesh, segments, diagnostics=None) | — | 覆盖不完整 → 诊断对象 | ✅ |
 
+### G2. 识别器注册表与正式插件 (轮 2, 2026-08-05 — 契约见 docs/boundary_plugins.md)
+
+| API | 签名 | 参数合法形状 | 误用清单 → 应有错误 | 现状 |
+|-----|------|-------------|---------------------|------|
+| register_detector | (detector: Detector) | Detector 实例, name 全局唯一 | 非 Detector → TypeError; name 重复 → ValueError | ✅ |
+| default_registry | () → DetectorRegistry | — | 顺序 = 插件优先 + line→circle→ellipse→general | ✅ |
+| DetectorRegistry.classify | (coords, scale, is_outer, closed=None, native_entities=()) | 点链 + 原生实体类型元组 | 注册表空/无兜底 → AssertionError (响亮) | ✅ |
+| EllipseGroupLabelDetector (插件 1) | detect(points, *, scale, is_outer, closed, native_entities) | 闭合链 | 严格门失败 → 保守曲线标签 (不得含"椭圆"); 开链 → None; 整圆 → None (让位) | ✅ |
+| ArcCurvatureDetector (插件 3) | detect(points, *, scale, is_outer, closed, native_entities) | 开链 ≥4 点 | 短弧椭圆覆盖 <60% → 曲线类 (不得标椭圆); 直边/闭合 → None; 圆弧 → "圆弧 ρ=.., 圆心(..,..)" (代数, 禁止拟合) | ✅ |
+| _resolve_edge_indices | (edge_str, segs, region_registry=None) | 编号 / 名称 / "@组名" | "@组名" 组不存在 → ValueError (批处理转 CliError exit 1); 编号+@混用 → ValueError; 无注册表 → ValueError | ✅ (插件 2) |
+
 ---
 
 ## H. 配置与质量 (fem2d/config.py, fem2d/quality.py, fem2d/patch_test.py)
