@@ -257,6 +257,10 @@ def segments_from_physical_curves(
     """
     if edge_labels is None:
         edge_labels = {}
+    elif not isinstance(edge_labels, dict):
+        raise ValueError(
+            f"edge_labels 必须是 dict (Physical Curve 名称 → 边组), "
+            f"收到 {type(edge_labels).__name__}")
     edge_partitions = edge_partitions or {}
     edge_metadata = edge_metadata or {}
     diagnostics = (

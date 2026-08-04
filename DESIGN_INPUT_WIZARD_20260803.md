@@ -84,5 +84,5 @@ S7 保存模型为 .txt? [y] → 写回用户资产格式
 - **接线**: `--wizard` CLI 参数; 无 mesh + 终端 → 自动进入 (替代裸"输入文件:"提问); 向导入口含"使用已有文件"选项
 - **产物**: spec dict → generate_geo → 临时 .geo (含 @FEM) → 现有 resolve_geo 管线 (零新解析器)
 - **安全**: 每答即时校验重问 (负值/NaN/非法边名/重复边); EOF 默认值或干净退出 (无死循环); 临时文件 atexit 清理
-- **测试**: tests/test_wizard.py 15 个判别性测试 (完整流程/非法重问/边名白名单/双分量/EOF/round-trip/入口) + 端到端验证 (管道 locale 编码实测: fixed 22 DOFs, surf 10 segs, eta 11.5%)
+- **测试**: tests/test_wizard.py 22 个判别性测试 (完整流程/非法重问/边名白名单/双分量/EOF/round-trip/入口, 2026-08-04 实测 collected) + 端到端验证 (管道 locale 编码实测: fixed 22 DOFs, surf 10 segs, eta 11.5%)
 - 验收: `python run.py` (终端) 或 `python run.py --wizard`

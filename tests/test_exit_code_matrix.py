@@ -192,11 +192,11 @@ def test_matrix_wizard_missing_file_returns_one(monkeypatch):
 # 矩阵: 内部错误 2
 # ═══════════════════════════════════════════════════════════════
 
-def test_matrix_inp_input_rejected_returns_two(monkeypatch, tmp_path):
-    """.inp 输入口已移除 → 2 (内部/配置错误, 已迁移的 CliError 路径)."""
+def test_matrix_inp_input_rejected_returns_one(monkeypatch, tmp_path):
+    """.inp 输入口已移除 → 1 (用户错误: 传了不支持的文件类型)."""
     path = tmp_path / "old.inp"
     path.write_text("*NODE\n1,0,0\n", encoding="utf-8")
-    assert _process_exit_code([str(path), "--no-plot"]) == 2
+    assert _process_exit_code([str(path), "--no-plot"]) == 1
 
 
 def test_matrix_unknown_exception_returns_two(monkeypatch, msh_file,

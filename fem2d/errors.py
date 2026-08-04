@@ -21,6 +21,10 @@ def reconfigure_streams():
                 pass
 
 
+class UnderconstrainedError(RuntimeError):
+    """模型欠约束 (刚体模态未锁死) — 用户漏加 BC, CLI 应映射退出码 1."""
+
+
 class CliError(Exception):
     """CLI 输入/交互错误 — exit_code 由 CLI 层转换 (默认 1)."""
 

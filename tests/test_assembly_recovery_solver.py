@@ -140,7 +140,7 @@ def _reference_spr(mesh, sample_xy, sample_values):
                     design[:, 1] = xy[:, 0] - mesh.nodes[nid, 0]
                     design[:, 2] = xy[:, 1] - mesh.nodes[nid, 1]
                     scale = max(
-                        np.linalg.norm(design[:, 1:], axis=1).max(), 1e-30)
+                        np.linalg.norm(design[:, 1:], axis=1).max(), np.finfo(float).tiny)
                     design[:, 1:] /= scale
                     if (np.linalg.matrix_rank(design) == 3
                             and np.linalg.cond(design) <= 1e8):
@@ -162,7 +162,7 @@ def _reference_spr(mesh, sample_xy, sample_values):
         design = np.ones((len(xy), 3))
         design[:, 1] = xy[:, 0] - mesh.nodes[nid, 0]
         design[:, 2] = xy[:, 1] - mesh.nodes[nid, 1]
-        scale = max(np.linalg.norm(design[:, 1:], axis=1).max(), 1e-30)
+        scale = max(np.linalg.norm(design[:, 1:], axis=1).max(), np.finfo(float).tiny)
         design[:, 1:] /= scale
         if len(xy) < 3 or np.linalg.matrix_rank(design) < 3:
             recovered[nid] = values.mean(axis=0)

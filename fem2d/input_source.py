@@ -622,7 +622,7 @@ def resolve_input_file(fp, config, ask=None):
     else:
         raise CliError(
             f'[ERROR] 不支持的输入: {fp} — 仅支持 .spec/.geo/.txt/.msh',
-            exit_code=2)
+            exit_code=1)
 
     # 检查 resolve 后的 fp (已生成/转换), 非输入扩展名 — 大小写不敏感
     if os.path.splitext(fp)[1].lower() != '.msh':

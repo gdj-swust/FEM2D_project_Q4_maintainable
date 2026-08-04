@@ -27,6 +27,7 @@ from .bc import (
     apply_elimination,
     apply_penalty,
 )
+from .errors import UnderconstrainedError
 from .loads import assemble as assemble_loads
 from .material import von_mises
 
@@ -448,7 +449,7 @@ def _check_rigid_body_constraints(mesh):
             f"  Component {iss['component']} ({nodes_str}): {iss['issue']}")
     lines.append(
         "Fix boundary conditions on all disconnected parts before solving.")
-    raise RuntimeError("\n".join(lines))
+    raise UnderconstrainedError("\n".join(lines))
 
 
 def _q4r_aspect_ratio_warning(mesh):

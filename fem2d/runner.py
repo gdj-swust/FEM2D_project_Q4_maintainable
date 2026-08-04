@@ -28,7 +28,7 @@ from .boundary import (
 from .cli import _resolve_plane_type, ask, is_batch_mode, parse_args
 from .config import AnalysisConfig
 from .element import get_element_kernel
-from .errors import CliError, reconfigure_streams
+from .errors import CliError, UnderconstrainedError, reconfigure_streams
 from .input_source import resolve_input_file
 from .preprocess import merge_geo_fem_config, parse_geo_fem_config, validate_mesh
 from .quality import report as report_mesh_quality
@@ -38,6 +38,9 @@ from .reporting import (
     print_result_summary,
 )
 from .wizard import run_wizard
+
+# 大网格自动切换 weighted 恢复的单元数阈值 (决策常量, 与装配批量无关)
+LARGE_MESH_ELEMENTS = 50000
 
 # ── 分片检验 (每个 Python 进程跑一次) ──
 _patch_checked = set()
@@ -314,7 +317,7 @@ def _analyze(mesh, config):
     )
     error_method = config.error_method
     if error_method == 'auto':
-        error_method = 'weighted' if mesh.n_elements >= 50000 else 'SPR'
+        error_method = 'weighted' if mesh.n_elements >= LARGE_MESH_ELEMENTS else 'SPR'
         if error_method == 'weighted':
             print(
                 "[Error] 大网格自动使用 weighted 恢复；"
@@ -586,6 +589,12 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         print("\n  [INFO] 已中断 (Ctrl-C)")
         return 130
+    except UnderconstrainedError as error:
+        # 欠约束模型 (刚体模态未锁死) — 用户漏加 BC, 属用户错误 → 1
+        if getattr(config, "debug", False):
+            raise
+        print(f"[ERROR] {error}")
+        return 1
     except Exception as error:
         # 顶层异常边界: 求解/模型/绘图阶段的任意领域异常
         # (含 Gmsh 依赖缺失时的 ImportError/OSError) 输出错误摘要而非整段

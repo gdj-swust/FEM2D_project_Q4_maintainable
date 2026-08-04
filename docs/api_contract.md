@@ -115,7 +115,7 @@
 | nodal_L2_projection | (mesh, elem_stress) | (n_elem, n_comp) 或 (n_elem, nqp, n_comp) | ndim ∉ {2,3} → ValueError; 首维 ≠ n_elem → ValueError; 采样数 ≠ nqp → ValueError; 孤立节点 → ValueError(一致质量阵奇异前置); NaN → ValueError | ✅ (K8) |
 | principal_stresses | (stress) | (n, 3) 有限数组 [σx, σy, τxy] | 形状 (n,2)/(n,)/(标量) → ValueError 带期望形状; NaN/Inf → ValueError "contains NaN/Inf" | ✅ (K3) |
 | stress_at_point | (mesh, result, x, y, mode="element") | mode ∈ {element,sides,average,recovered} | mode 非法 → ValueError(带可选值); 点不在网格 → ValueError; result 非 dict 或缺 "stress" → ValueError 带键名; x/y NaN → point_in_element 返回 -1 → ValueError(带坐标) | ✅ (K4) |
-| point_in_element | (mesh, x, y) | x,y 有限标量 | 返回 -1 (不在网格) — 调用方契约; NaN → 返回 -1 | ✅ |
+| point_in_element | (mesh, x, y) | x,y 有限标量 | 返回 -1 (不在网格) — 调用方契约; NaN/Inf/复数 → ValueError(带坐标上下文, 9.21.0 坐标守卫) | ✅ |
 | spr_recovery | (mesh, elem_stress) | (n_elem, n_comp) 或 (n_elem, nqp, n_comp) | 首维 ≠ n_elem → ValueError (入口校验); NaN → ValueError "contains NaN/Inf"; 孤立节点 → 无样点节点回退平均 (设计行为) | ✅ (K8) |
 | element_refinement_indicator | (mesh, result) | result: solve() dict | result 非 dict 或缺 "stress" → ValueError 带键名 (曾裸 KeyError) | ✅ (复查轮 66b3d8e) |
 | compute_traction_jumps | (mesh, elem_stress, sigma_ref=None) | elem_stress: (n_elem, 3); sigma_ref: 有限正数或 None | sigma_ref 非数值 (str/容器/None) → TypeError 带参数名; NaN/Inf/0/负值 → ValueError; 单单元网格 (无内部边) 非法 sigma_ref 仍报错 — 校验先于空数据快速返回 | ✅ (组C q4rest) |

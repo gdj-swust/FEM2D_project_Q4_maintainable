@@ -43,7 +43,8 @@ checkout → setup-python 3.13 → `pip install -e ".[dev]"` → compileall → 
 
 无 gmsh 时的 skip 行为 (已有守卫, 本文件第 3 节逐一列明; 2026-08-04 全新无 gmsh venv
 实测, 与 runner 镜像无关; numpy 2.5.1 / scipy 1.18.0 / matplotlib 3.11.1 / pytest 9.1.1):
-**918 collected → 898 passed + 20 skipped, 0 失败**。
+**以实测为准** (9.22.0 后 pkg12 skipif 迁移使无 gmsh 亦收集 boundary 四文件,
+旧值 918 collected → 898 passed + 20 skipped 已失效; 复现命令见 §4)。
 无 collection error, 无 ImportError 崩溃。
 
 ### test-full (一次, 有 gmsh)
@@ -83,7 +84,7 @@ import fem2d 正常。
 python -m venv .venv-ci                      # 本机 Python 3.13
 python -m pip install -e ".[dev]"            # 与 CI 同一条命令 (2026-08-03 已验证)
 python -m pytest                             # 有 gmsh: 939 collected → 937 passed + 2 skipped (2026-08-04 实测)
-python -m pip uninstall -y gmsh && python -m pytest   # 无 gmsh: 918 collected → 898 passed + 20 skipped (2026-08-04 实测)
+python -m pip uninstall -y gmsh && python -m pytest   # 无 gmsh: 以实测为准 (9.22.0 skipif 迁移后数字已变, 见 §2)
 ruff check fem2d/ scripts/ tests/ run.py run_demo.py
 mypy fem2d/
 python -m compileall -q fem2d scripts tests run.py run_demo.py
