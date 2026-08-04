@@ -41,6 +41,7 @@ import warnings
 import numpy as np
 
 from .. import material
+from ..checks import require_finite_positive
 from .base import register_element
 from .q4 import (
     GAUSS_POINTS,
@@ -91,12 +92,13 @@ def _affine_complement(coords):
 
 
 def validate_hourglass_coefficient(value):
-    """Q4R 沙漏系数必须为正且有限 — 负系数会生成负刚度/负稳定能,
-    曾只在标量路径校验, 批量路径 (生产路径) 静默接受."""
-    if not np.isfinite(value) or value <= 0.0:
-        raise ValueError(
-            f"Q4R hourglass coefficient must be positive and finite, "
-            f"got {value}")
+    """Q4R 沙漏系数必须为有限正数 — 负系数会生成负刚度/负稳定能.
+
+    统一标量校验 (checks.require_finite_positive): 字符串/容器/None
+    带参数名 TypeError, NaN/Inf/0/负值 ValueError; 标量与批量入口
+    (element_stiffness / stiffness_batch) 共用此校验.
+    """
+    return require_finite_positive(value, "hourglass_coefficient")
 
 
 def element_stiffness(coords, E, nu, t=1.0, plane="stress",
