@@ -2,8 +2,9 @@
 
 参照 tests/test_static_checkers_smoke.py 模式: 运行不崩溃 + 已知 FAIL
 场景必须被抓出 (判别性, 注入 bug 放回旧实现必须失败)。探针总数与
-docstring 覆盖声明核对 — 覆盖声明非纸面。全部无 gmsh 依赖
-(import_msh 对缺 gmsh 环境走文本解析回退, 不 skip)。
+docstring 覆盖声明核对 — 覆盖声明非纸面。gmsh 依赖仅 regression_compare
+测试 (import_msh 走 gmsh API 读 .msh) — 无 gmsh 环境必须 skip 而非失败
+(统一门: tests.conftest.GMSH_AVAILABLE)。
 """
 import ast
 import importlib.util
@@ -15,6 +16,9 @@ import sys
 import tempfile
 
 import numpy as np
+import pytest
+
+from tests.conftest import GMSH_AVAILABLE, GMSH_UNAVAILABLE_REASON
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = os.path.join(PROJECT_ROOT, "scripts")
@@ -188,6 +192,7 @@ def _regression_args(msh):
             "2.1e11", "0.3", "0.01", "1e6", "0.0", "elimination"]
 
 
+@pytest.mark.skipif(not GMSH_AVAILABLE, reason=GMSH_UNAVAILABLE_REASON)
 def test_regression_compare_runs_clean():
     d = tempfile.mkdtemp(prefix="fem2d_smoke_")
     try:
