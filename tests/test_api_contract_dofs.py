@@ -122,6 +122,20 @@ def test_apply_penalty_duplicate_same_value_idempotent():
     assert K_mod.shape == (4, 4)
 
 
+def test_apply_penalty_non_numeric_penalty_has_context():
+    K, F = _system()
+    # 判别性: 旧实现 np.isfinite 对 str/容器裸 TypeError (无函数名上下文)
+    with pytest.raises(TypeError, match="apply_penalty: penalty"):
+        apply_penalty(K, F, [0], [1.0], penalty="bad")
+    with pytest.raises(TypeError, match="apply_penalty: penalty"):
+        apply_penalty(K, F, [0], [1.0], penalty=[1e8])
+    # 消息格式锁定 (旧实现无 "apply_penalty: penalty=" 前缀)
+    with pytest.raises(ValueError, match=r"apply_penalty: penalty=nan"):
+        apply_penalty(K, F, [0], [1.0], penalty=float("nan"))
+    with pytest.raises(ValueError, match=r"apply_penalty: penalty=1\.0"):
+        apply_penalty(K, F, [0], [1.0], penalty=1.0)
+
+
 def test_apply_penalty_duplicate_diff_value_rejected():
     K, F = _system()
     with pytest.raises(ValueError, match="重复约束"):
