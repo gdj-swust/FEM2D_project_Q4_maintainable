@@ -26,6 +26,22 @@
 - 数值漂移: 优化前后 (4581971 vs 合并后) elimination/penalty 双求解器**逐位一致**
 - 契约探针 100 项 0 失败; fuzz 500 轮 0 裸异常
 
+## 9.21.0 (2026-08-03) — 第二轮五路并行 + fuzz 收紧闭环
+
+### 五路并行 (审查 8.8 分轮)
+- **组 A**: 压力 callable 返回非法类型裸异常 → 统一标量校验 + 边号/Gauss 点上下文; ast.Num 死代码分支删除
+- **组 B**: mesh prescribed_vals / nodes_on_edge(tol) / bc apply_penalty(penalty) 绕过统一校验器 → 收敛 require_finite_scalar 等 helper
+- **组 C**: q4r 沙漏系数非法值校验; error_est sigma_ref 字符串; compute_traction_jumps 参数校验先于空数据提前返回 (单单元网格静默接受非法参数修复)
+- **组 D**: 自检失败污染成功缓存 (patch_checked 先加后验 → 只在 all_passed 后缓存, 失败后同进程重试必须仍失败)
+- **组 E**: 审计脚本 sys.path 根目录注入统一 (按文档直接运行); fuzz_api 捕获过宽失真 → 只接受预期异常 + 消息非空; test_output_dir_policy 可移植性 (monkeypatch 代替 chmod / 捕获 (ImportError, OSError))
+
+### fuzz 收紧暴露并闭环
+- point_in_element/stress_at_point 坐标 inf/1e308 曾冒裸 OverflowError (kernel int 转换) → 坐标有限性 ValueError 带上下文 + AABB 域外快筛 (有限域外 → -1, 合法路径不变)
+- 收紧后 fuzz 500 轮 problems: 0 (原 5 个全部闭环)
+
+### 测试
+全量 pytest 0 失败 (含 5 组新增判别性测试); 双冒烟; 探针 FAILS:0; ruff 干净。
+
 ## 9.19.0 (2026-08-03) — API 契约清账 + 复查轮 + 终轮回归对照
 
 ### 契约清账 (3 轮)
