@@ -3,7 +3,7 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
-## 9.22.0 (2026-08-04) — 并行批次 1 (pkg7_docsync 文档 + pkg8_tools 工具 + pkg10_cliux CLI)
+## 9.22.0 (2026-08-04) — 并行批次 1+2 (pkg7 文档 + pkg8 工具 + pkg9 尺度 + pkg10 CLI + pkg11 去重 + pkg12 测试基建)
 
 ### pkg7 文档数字统刷 + 交接归档
 
@@ -130,6 +130,41 @@ K4 节点定位 / 色条标注 / WARN 回退 / band 提示 ×2 / _import_mesh �
 config 退出码更新)。全量 pytest 951 passed 2 skipped 0 失败; 冒烟
 (真实 .msh 输入 + --save) 正常。gmsh.exe 未随 worktree 分发, .txt/.geo
 子进程链路冒烟受环境限制 (与打包约定一致: gmsh 可执行文件另行分发)。
+
+### pkg9 尺度不变收尾 (pkg9_micro)
+
+#### 修复
+- **fit_closed_ellipse closure_tol 移除 1.0 物理尺度下限** (geometry.py):
+  微尺度模型 (跨度 ≲2e-13) 整环首末顶点间距恒 ≤ eps×1.0×32 ≈ 7.1e-15,
+  被误判"重复闭合点" → 静默 `coords[:-1]` 截掉末顶点, 被截顶点的拟合
+  残差不再被验证 (primitive_samples 63/64)。span 改为
+  `max(ptp_x, ptp_y, np.finfo(float).tiny)` — 与 `_segment_is_closed`
+  同款 ULP 相对化。
+- **_classify_general_curve 曲率阈值相对化** (geometry.py): 绝对
+  1e-8/1e-14 (量纲 1/长度) 改为 `1e-8/characteristic` 与
+  `1e-14/characteristic` (参照 segment_by_curvature 同款模式)。
+  大坐标 (1e12 级) 平滑曲线 κ<1e-8 曾降级成"通用曲线"、拐点漏计;
+  相对化后分类与拐点计数与模型尺度无关。R_max 兜底 1e9 同步改为
+  `1e9×coordinate_scale`。
+- **topology.py 两处 1.0 floor**: `_closed_conic_segment` 传 classify
+  的模型 scale (190-191) 与 `_general_position_ray` 的 magnitude/margin/
+  perturb (356-360) — 全部改为 `np.finfo(float).tiny` 兜底。后者曾使
+  微尺度 (跨度 <1) 模型的射线外推量/扰动被抬到 1.0 与 eps×1.0,
+  比多边形边长 (1e-15 级) 大 13+ 个量级。
+
+#### 判别性测试 (tests/test_micro_scale.py 新增 11 项)
+- 微尺度圆环 (跨度 1.2e-13) 与 1e-150 深档: 闭合检测不误判、
+  末顶点不被截 (primitive_samples=64, 旧 63)、残差路径全环验证
+- 大坐标 1e12 级 S 曲线/浅抛物线: 不降级成"通用曲线"、拐点不漏计
+- 四档尺度 (1e-150/1e-13/1e0/1e12): 分类、拐点数、κ̄×span、
+  R_min/max×span 比例恒定
+- 微尺度圆环 detect_boundaries + solve 全流程端到端
+- 判别性确认: revert 三处修复后本文件 7 failed / 4 passed
+
+#### 验收
+- 全量 pytest 948 collected 0 失败; ruff 干净
+- regression_compare 10 组合 (5 模型 × 消去/罚函数) 改动前后
+  **逐位一致 (相对差 0.0)** — 正常尺度模型行为未受影响
 
 ## 9.21.1 (2026-08-04) — 审查 9.0 轮收尾
 

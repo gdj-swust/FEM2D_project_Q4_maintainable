@@ -188,7 +188,7 @@ def _closed_conic_segment(nodes, loop, loop_id):
             nodes[loop.node_ids[0]],
         ]),
         max(float(np.ptp(nodes[:, 0])),
-            float(np.ptp(nodes[:, 1])), 1.0),
+            float(np.ptp(nodes[:, 1])), np.finfo(float).tiny),
         loop.is_outer,
         closed=True,
     )
@@ -348,14 +348,21 @@ def _general_position_ray(px, py, vertices, edges):
     vx = np.array([point[0] for point in vertices])
     vy = np.array([point[1] for point in vertices])
     span = max(float(np.ptp(vx)), float(np.ptp(vy)))
+    # 1.0 floor 曾使微尺度 (跨度 <1) 模型的射线外推量/扰动被抬到 1.0
+    # 与 eps×1.0 — 比多边形边长 (1e-15 级) 大 13+ 个量级, 射线斜率
+    # 与顶点量化尺度失配。扰动只需 > 顶点坐标 ULP 即可保证一般位置,
+    # tiny 兜底仅防全零坐标时出现 0。
     magnitude = max(
         float(np.max(np.abs(vx))), float(np.max(np.abs(vy))),
-        abs(float(px)), abs(float(py)), 1.0)
-    margin = max(span * 2.0, np.spacing(magnitude) * 64.0, 1.0)
+        abs(float(px)), abs(float(py)), np.finfo(float).tiny)
+    margin = max(
+        span * 2.0,
+        np.spacing(magnitude) * 64.0,
+        np.finfo(float).tiny)
     out_x = np.nextafter(float(np.max(vx)) + margin, np.inf)
     perturb = max(
         np.spacing(magnitude) * 8.0,
-        np.finfo(float).eps * max(span, 1.0) * 8.0)
+        np.finfo(float).eps * max(span, np.finfo(float).tiny) * 8.0)
 
     factors = (1.0, -1.0, np.sqrt(2.0), -np.sqrt(2.0),
                np.pi, -np.pi, np.e, -np.e)

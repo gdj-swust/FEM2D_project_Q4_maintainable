@@ -606,6 +606,18 @@ def _classify_open_ellipse(coords, is_closed, prefix):
 
 
 def _classify_general_curve(coords, is_closed, prefix):
+    # 曲率量纲 1/长度 — 绝对 1e-8/1e-14 阈值曾使大坐标 (1e12 级, R>1e8)
+    # 平滑曲线 κ<1e-8 被降级成"通用曲线"、拐点漏计。按 characteristic
+    # span 归一 (segment_by_curvature 的 1e-8/characteristic 同款模式):
+    # 阈值与坐标尺度成反比, 正常尺度 (span≈1) 数值与旧绝对阈值一致。
+    coordinate_scale = max(
+        float(np.ptp(coords[:, 0])),
+        float(np.ptp(coords[:, 1])),
+        np.finfo(float).tiny,
+    )
+    curvature_floor = 1e-8 / coordinate_scale
+    sign_floor = 1e-14 / coordinate_scale
+
     values = curvature(coords, closed=is_closed)
     evaluated = values if is_closed else values[1:-1]
     if len(evaluated) == 0:
@@ -618,7 +630,7 @@ def _classify_general_curve(coords, is_closed, prefix):
         np.diff(coords, axis=0), axis=1)))
     signs = np.sign(evaluated)
     nonzero_signs = signs[
-        np.abs(evaluated) > max(mean * 1e-6, 1e-14)
+        np.abs(evaluated) > max(mean * 1e-6, sign_floor)
     ]
     inflections = (
         int(np.sum(nonzero_signs[1:] * nonzero_signs[:-1] < 0))
@@ -640,11 +652,14 @@ def _classify_general_curve(coords, is_closed, prefix):
             f"{prefix}类圆 R~{equivalent_radius:.6g}",
             {**common_info, "equivalent_radius": equivalent_radius},
         )
-    if mean > 1e-8 and variation < 0.5:
+    if mean > curvature_floor and variation < 0.5:
         minimum_radius = 1.0 / (absolute.max() + np.finfo(float).tiny)
         maximum_radius = (
-            1.0 / (absolute[absolute > 1e-8].min() + np.finfo(float).tiny)
-            if (absolute > 1e-8).any() else 1e9
+            1.0 / (
+                absolute[absolute > curvature_floor].min()
+                + np.finfo(float).tiny)
+            if (absolute > curvature_floor).any()
+            else 1e9 * coordinate_scale
         )
         return (
             "curve",
@@ -813,8 +828,12 @@ def fit_closed_ellipse(points):
     if len(coords) < 8 or not np.all(np.isfinite(coords)):
         return None, {}
 
+    # 曾 1.0 物理尺度下限: 微尺度 (跨度 ≲2e-13) 整环首末顶点间距
+    # 恒 ≤ eps×1.0×32 ≈ 7.1e-15, 被误判"重复闭合点"→ 静默截掉末顶点,
+    # 被截顶点的拟合残差不再被验证。与 _segment_is_closed 同款 ULP
+    # 相对化 — 坐标尺度多大, 容差就多大。
     span = max(float(np.ptp(coords[:, 0])),
-               float(np.ptp(coords[:, 1])), 1.0)
+               float(np.ptp(coords[:, 1])), np.finfo(float).tiny)
     closure_tol = max(
         compute_tolerance(coords) * 10.0,
         np.finfo(float).eps * span * 32.0)
