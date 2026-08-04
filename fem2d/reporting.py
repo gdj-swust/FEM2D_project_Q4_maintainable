@@ -12,7 +12,9 @@ def displacement_scale(mesh, u):
     与 plot 层共享, 报告中也展示.
     """
     u2 = u.reshape(-1, 2)
-    mag = np.sqrt(u2[:, 0] ** 2 + u2[:, 1] ** 2)
+    # np.hypot: 平方和先平方再开方在 |u|~1e308 时溢出成 inf, 有限模长
+    # 被算成 inf → 放大系数退 0 (曾"变形图比例 0x"而无解可看)
+    mag = np.hypot(u2[:, 0], u2[:, 1])
     span = (mesh.nodes[:, 0].max() - mesh.nodes[:, 0].min()
             + mesh.nodes[:, 1].max() - mesh.nodes[:, 1].min()) / 2
     if mag.max() == 0.0:
@@ -40,7 +42,7 @@ def print_result_summary(config, mesh, result, z2, q, scale,
     """打印计算结果中文摘要 (位移 / 应力 / Z2 误差 / 网格质量)."""
     u = result['u']
     u2 = u.reshape(-1, 2)
-    mag = np.sqrt(u2[:, 0] ** 2 + u2[:, 1] ** 2)
+    mag = np.hypot(u2[:, 0], u2[:, 1])  # 同 displacement_scale: 防平方溢出
     vm_max = result['vm_stress'].max()
     vm_idx = int(np.argmax(result['vm_stress']))
     vm_x, vm_y = mesh.centroids[vm_idx]

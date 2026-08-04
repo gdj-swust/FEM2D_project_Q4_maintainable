@@ -653,7 +653,8 @@ def plot_three(mesh, result, tag='vm', scale=100, save=None,
     isoband_tag: 固定带宽仅当 tag==isoband_tag 时生效 (避免 Mises 范围误用于 S11)
                  为 None 时所有分量均使用固定带宽
     """
-    u = result["u"]; u2 = u.reshape(-1,2); u_mag = np.sqrt(u2[:,0]**2+u2[:,1]**2)
+    u = result["u"]; u2 = u.reshape(-1,2)
+    u_mag = np.hypot(u2[:,0], u2[:,1])  # 同 reporting: 防 |u|~1e308 平方溢出
     s = result["stress"]  # (n_elem, 3) — [σ_x, σ_y, τ_xy]
 
     is_stress = tag not in ("ux", "uy", "umag", "mesh", "loads")

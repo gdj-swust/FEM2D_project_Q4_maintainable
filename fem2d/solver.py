@@ -388,8 +388,9 @@ def _global_balance_check(mesh, K, F, u, reactions, fixed_dofs,
 
 def _small_deformation_check(mesh, u):
     """位移量级检查 — 大变形假设失效时警告."""
-    model_span = (np.ptp(mesh.nodes[:, 0])**2
-                  + np.ptp(mesh.nodes[:, 1])**2)**0.5
+    # np.hypot: 平方和再开方在跨度 ~1e308 时溢出成 inf, 位移比恒 0
+    model_span = float(np.hypot(
+        np.ptp(mesh.nodes[:, 0]), np.ptp(mesh.nodes[:, 1])))
     u2 = u.reshape(-1, 2)
     u_range = max(np.ptp(u2[:, 0]), np.ptp(u2[:, 1]))
     # 曾 model_span > 1e-30 绝对阈值: 跨度 1e-31 的模型位移比 20% 也不
