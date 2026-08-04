@@ -5,12 +5,14 @@ GOLDEN 是重构前 (2026-08-03 基线) 对代表性模型 (单元族 x 求解�
 result dict。重构只允许等价拆分, 不允许任何数值/日志/键集合变化 --
 逐值精确比较 (非 allclose)。生成脚本: 仓库外 gen_solve_golden.py。
 
-环境敏感例外 (2026-08-04 CI 首跑确认): Residual / ΣF / ΣM 行与 result
-的 residual / force_balance / moment_balance 键是 backward-error 与
-力/力矩平衡残差 — 浮点舍入噪声级 (Linux OpenBLAS 与 Windows 求和序
-不同 → 最后一位不同, 观测 4.15e-17 vs 2.07e-17, 恰 2×)。这些行/键
-改为相对容差比较 (rtol=2.0 覆盖 2× 观测 + atol=1e-12 覆盖近零分量,
-如 ΣF -5.68e-14 vs 0.0); 其余 stdout 行与 result 键保持逐字符/逐值。
+环境敏感例外 (2026-08-04 CI 确认): 跨平台 (Linux OpenBLAS vs Windows
+求和序) 使所有数值派生量漂移 ±1 ulp — Residual/ΣF/ΣM 行 (backward-error
+与平衡残差, 观测 4.15e-17 vs 2.07e-17 恰 2×)、result 的 u/stress/
+reactions 等数值键 (观测最后一位 ±1)。这些行/键改为相对容差比较
+(诊断行 rtol=2.0 + atol=1e-12 覆盖近零分量; 数值键 rtol=1e-10 覆盖
+±1 ulp 且留 1e4 倍余量, 真回归 1e-8+ 必被抓住); stdout 其余行逐字符,
+result 键集合/类型/bool/str 逐值。金标准是 Windows 录制 — Linux 上
+逐位相等本就不可能, 锁的意图是"同平台 solver 重构等价"。
 """
 import io
 import re
@@ -33,6 +35,9 @@ _BALANCE_KEYS = ("residual", "force_balance", "moment_balance")
 # rtol=2.0: 观测到 2× 舍入差异 (4.15e-17 vs 2.07e-17); atol=1e-12:
 # 覆盖近零分量 (如 0.0 vs -5.68e-14) — 微尺度模型 (1e-166) 亦远小于此
 _DIAG_RTOL, _DIAG_ATOL = 2.0, 1e-12
+# 数值派生键 (u/stress/reactions/...): 跨平台 ±1 ulp 噪声 (观测 1 ulp)
+# rtol=1e-10 留 1e4 倍余量 — 真回归 (1e-8 相对+) 必被抓住
+_NUM_RTOL = 1e-10
 
 
 def _compare_stdout(name, out, golden_out):
@@ -57,6 +62,34 @@ def _compare_stdout(name, out, golden_out):
         + repr(out[:400]))
 
 
+def _compare_numeric(name, key, av, gv):
+    """递归数值容差比较: list/tuple/dict/数值标量按 rtol 比较, 其他逐值.
+
+    数值标量含 np 标量 (金标准里 residual 是 np.float64). bool 是 int
+    子类但语义逐值 — 0/1 的 isclose 与逐值等价, 无放行差异.
+    """
+    if isinstance(gv, dict):
+        assert isinstance(av, dict) and sorted(av) == sorted(gv), (
+            f"[{name}] result[{key}] 结构漂移: {av!r} vs {gv!r}")
+        for sub in gv:
+            _compare_numeric(name, f"{key}.{sub}", av[sub], gv[sub])
+        return
+    if isinstance(gv, (list, tuple)):
+        assert isinstance(av, (list, tuple)) and len(av) == len(gv), (
+            f"[{name}] result[{key}] 结构漂移: {av!r} vs {gv!r}")
+        for i, (a, g) in enumerate(zip(av, gv)):
+            _compare_numeric(name, f"{key}[{i}]", a, g)
+        return
+    if isinstance(gv, (float, int, np.floating, np.integer)):
+        assert isinstance(av, (float, int, np.floating, np.integer)), (
+            f"[{name}] result[{key}] 类型漂移: {type(av).__name__} "
+            f"vs {type(gv).__name__}")
+        assert np.isclose(float(av), float(gv), rtol=_NUM_RTOL, atol=0.0), (
+            f"[{name}] result[{key}] 数值漂移: {av!r} vs {gv!r}")
+        return
+    assert av == gv, f"[{name}] result[{key}] 与金标准不一致: {av!r} vs {gv!r}"
+
+
 def _compare_result(name, result, golden_result):
     assert sorted(result) == sorted(golden_result), (
         "[" + name + "] result 与金标准不一致, 键差: "
@@ -64,6 +97,8 @@ def _compare_result(name, result, golden_result):
     for key, gv in golden_result.items():
         av = result[key]
         if key in _BALANCE_KEYS:
+            # 平衡残差: 舍入噪声级且可近零 (0.0 vs -5.68e-14) —
+            # 相对 rtol=2.0 + atol=1e-12 (微尺度 1e-166 亦远小于此)
             ga, aa = np.asarray(gv, dtype=float), np.asarray(av, dtype=float)
             assert ga.shape == aa.shape, (
                 f"[{name}] result[{key}] 形状漂移: {aa.shape} vs {ga.shape}")
@@ -71,7 +106,7 @@ def _compare_result(name, result, golden_result):
                                      atol=_DIAG_ATOL)), (
                 f"[{name}] result[{key}] 数值漂移: {aa!r} vs {ga!r}")
         else:
-            assert av == gv, f"[{name}] result[{key}] 与金标准不一致"
+            _compare_numeric(name, key, av, gv)
 
 from fem2d import Mesh
 from fem2d.solver import solve
@@ -156,6 +191,28 @@ def test_residual_tolerance_accepts_2x_platform_noise():
         with pytest.raises(AssertionError):
             _compare_stdout("cst", cst_out.replace("4.15e-17", drift),
                             cst_out)                # 真漂移 → 拒绝
+
+
+def test_result_numeric_tolerance_1ulp_accepted_drift_rejected():
+    """result 数值键容差判别性 (本地即生效): 1 ulp 平台噪声 (CI 观测
+    量级) 必须接受, 1e-6 相对真漂移必须拒绝. 若改回逐值比较,
+    1 ulp 用例在此失败 (Linux 语义下主测试本身也会失败)."""
+    cst = GOLDEN["cst"]["result"]
+    _compare_result("cst", cst, cst)                        # 恒等 → 过
+    noisy = dict(cst)
+    noisy["u"] = list(cst["u"])
+    noisy["u"][4] = cst["u"][4] + np.spacing(abs(cst["u"][4]))
+    _compare_result("cst", noisy, cst)                      # 1 ulp → 接受
+    drifted = dict(cst)
+    drifted["u"] = list(cst["u"])
+    drifted["u"][4] = cst["u"][4] * 1.000001
+    with pytest.raises(AssertionError):
+        _compare_result("cst", drifted, cst)                # 1e-6 漂移 → 拒绝
+    broken = dict(cst)
+    broken["u"] = list(cst["u"])
+    broken["u"][0] = 1.0                                    # 约束 DOF 非零 → 拒绝
+    with pytest.raises(AssertionError):
+        _compare_result("cst", broken, cst)
 
 
 def test_residual_line_structure_still_locked():
