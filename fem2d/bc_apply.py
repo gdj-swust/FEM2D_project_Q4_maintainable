@@ -22,10 +22,15 @@ def _fmt_comp(value):
     return "f(x,y)" if callable(value) else f"{value:.3e}"
 
 
-def _resolve_boundary_selection(selection, segs, *, fatal):
-    """Resolve one CLI/interactive selector with ambiguity diagnostics."""
+def _resolve_boundary_selection(selection, segs, *, fatal,
+                                region_registry=None):
+    """Resolve one CLI/interactive selector with ambiguity diagnostics.
+
+    region_registry (Gmsh 物理组) 供 @组名 批量选择展开 (插件 2).
+    """
     try:
-        return _resolve_edge_indices(selection, segs)
+        return _resolve_edge_indices(
+            selection, segs, region_registry=region_registry)
     except ValueError as error:
         if fatal:
             raise CliError(f"  [FATAL] {error}", exit_code=1)
@@ -39,7 +44,7 @@ def _each_edge(ns, apply):
         apply(int(a), int(b))
 
 
-def _interactive_edge_index(segs):
+def _interactive_edge_index(segs, region_registry=None):
     """交互收集边编号 (回车结束), 逐个产出匹配的边索引.
 
     fix 与 traction 交互共用 (曾各自实现相同的提问循环).
@@ -48,7 +53,8 @@ def _interactive_edge_index(segs):
         inp = ask("  边编号 (回车结束): ")
         if not inp:
             return
-        indices = _resolve_boundary_selection(inp, segs, fatal=False)
+        indices = _resolve_boundary_selection(
+            inp, segs, fatal=False, region_registry=region_registry)
         if not indices:
             print("    ? 无效编号")
             continue
@@ -79,9 +85,10 @@ def _print_segment_menu(segs):
         else:
             kind = '曲线'
         print(f"  [{i+1}] {kind} | {label}")
+    print("  输入编号 12,13 精细选择；输入 @组名 整组选择")
 
 
-def _apply_fix_bcs(config, mesh, segs, batch_mode):
+def _apply_fix_bcs(config, mesh, segs, batch_mode, region_registry=None):
     """边界约束 (CLI 预设 fix/fix_ux/fix_uy 或 交互逐边).
 
     batch_mode: 批处理判定与 traction/body 分支一致 (曾只按 config.fix
@@ -96,7 +103,8 @@ def _apply_fix_bcs(config, mesh, segs, batch_mode):
             edges = [e.strip() for e in
                      spec.replace(',', ';').split(';') if e.strip()]
             for e in edges:
-                matched = _resolve_boundary_selection(e, segs, fatal=True)
+                matched = _resolve_boundary_selection(
+                    e, segs, fatal=True, region_registry=region_registry)
                 if not matched:
                     raise CliError(
                         f"  [FATAL] 未找到边 '{e}' — 批处理模式终止. "
@@ -112,7 +120,7 @@ def _apply_fix_bcs(config, mesh, segs, batch_mode):
               "(模型可能欠约束)")
     else:
         # 交互模式: 逐条添加
-        for idx in _interactive_edge_index(segs):
+        for idx in _interactive_edge_index(segs, region_registry):
             ux_str = ask(f"    边{idx+1} Ux位移 [默认0]: ")
             uy_str = ask(f"    边{idx+1} Uy位移 [默认0]: ")
             ux = float(ux_str) if ux_str else 0.0
@@ -181,7 +189,7 @@ def _apply_traction_profile(mesh, segs, matched, edge_str, tx, ty, profile):
         f"[{profile_label}, {len(chains)} component(s)]")
 
 
-def _apply_tractions(config, mesh, segs, batch_mode):
+def _apply_tractions(config, mesh, segs, batch_mode, region_registry=None):
     """面力/压力 (CLI 预设 或 交互, 逐边添加)."""
     print("\n  --- 面力 (tx, ty [Pa]) ---")
     if config.traction:
@@ -191,7 +199,7 @@ def _apply_tractions(config, mesh, segs, batch_mode):
         traction_specs = []  # 批处理模式: 跳过交互式面力提问
     else:
         traction_specs = []
-        for idx in _interactive_edge_index(segs):
+        for idx in _interactive_edge_index(segs, region_registry):
             tx_str = ask(f"    边{idx+1} tx [Pa]: ")
             if not tx_str:
                 break
@@ -215,7 +223,8 @@ def _apply_tractions(config, mesh, segs, batch_mode):
                 print(f"  [WARN] {msg}")
             continue
         matched = _resolve_boundary_selection(
-            edge_str, segs, fatal=is_batch_traction)
+            edge_str, segs, fatal=is_batch_traction,
+            region_registry=region_registry)
         if not matched:
             msg = (f"未找到边 '{edge_str}' — 面力未施加. "
                    f"可用边: {', '.join(str(i+1) for i in range(len(segs)))}")
@@ -388,8 +397,8 @@ def apply_bcs(config, mesh, segs, region_registry, node_id_map,
     """
     batch_mode = is_batch_mode(config)
     _print_segment_menu(segs)
-    _apply_fix_bcs(config, mesh, segs, batch_mode)
-    _apply_tractions(config, mesh, segs, batch_mode)
+    _apply_fix_bcs(config, mesh, segs, batch_mode, region_registry)
+    _apply_tractions(config, mesh, segs, batch_mode, region_registry)
     _apply_concentrated_forces(
         config, mesh, region_registry, node_id_map, source_geo_path)
     return _apply_body_force(config, mesh, batch_mode)

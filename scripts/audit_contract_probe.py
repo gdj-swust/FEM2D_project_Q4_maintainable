@@ -15,11 +15,13 @@
   F         材料与单元注册                  9 (全部行)
   G         边界                           10 (契约 6 行全覆盖)
   G2        识别器注册表与插件接口         7 (阶段 2/3 新增契约)
-  G3        边界识别正式插件 (轮 2)        4 (插件 1 双路径+严格门+
-                                            默认注册; 插件 2/3 随其提交)
+  G3        边界识别正式插件 (轮 2)        7 (插件 1 双路径+严格门+
+                                            默认注册; 插件 2 @组名
+                                            展开/组缺失/混用; 插件 3
+                                            随其提交)
   H         配置与质量                     11 (全部行)
   I         装配                            2 (契约 2 行全覆盖)
-  合计: 140 项探针 (可用 AST 统计 probe() 调用数核对)。
+  合计: 143 项探针 (可用 AST 统计 probe() 调用数核对)。
 每组的"全部行"以契约表行数为准; 行内无具体误用错误声明的
 (如 I 组"非对称内核 → RuntimeError") 以合法输入不抛为探针内容。
 """
@@ -431,6 +433,45 @@ def _probe_ellipse_group_label_circle_deferral():
     assert plugin.detect(
         chain, scale=2.0, is_outer=True, closed=True) is None
 probe("ellipse_group_label circle deferral", _probe_ellipse_group_label_circle_deferral, None)
+
+
+def _probe_group_selection_expand():
+    """插件 2 @组名展开: 组内全部曲线段索引 (by_name dimension=1 语义)."""
+    from fem2d.boundary import _resolve_edge_indices
+    from fem2d.regions import CurveRegion
+    segments = [
+        {"type": "line", "label": "A", "nodes": [0, 1],
+         "info": {"physical_names": ("组A",)}},
+        {"type": "line", "label": "B", "nodes": [1, 2],
+         "info": {"physical_names": ("组B",)}},
+        {"type": "line", "label": "A2", "nodes": [2, 3],
+         "info": {"physical_names": ("组A",)}},
+    ]
+    registry = RegionRegistry(curves=[
+        CurveRegion(name="组A", physical_tag=1, entity_tags=(1, 2),
+                    entity_types=("Line",), node_ids=(0, 1, 2, 3),
+                    edge_pairs=((0, 1), (2, 3))),
+    ])
+    assert _resolve_edge_indices("@组A", segments, registry) == [0, 2]
+probe("@group expansion", _probe_group_selection_expand, None)
+
+
+def _probe_group_selection_missing():
+    """插件 2 锁定决策: 组名不存在 → ValueError (批处理转 CliError exit 1)."""
+    from fem2d.boundary import _resolve_edge_indices
+    segments = [{"type": "line", "label": "A", "nodes": [0, 1],
+                 "info": {"physical_names": ("组A",)}}]
+    _resolve_edge_indices("@不存在", segments, RegionRegistry())
+probe("@group not found", _probe_group_selection_missing, ValueError)
+
+
+def _probe_group_selection_mixing():
+    """插件 2 锁定决策: 编号与 @组名 混用 → ValueError."""
+    from fem2d.boundary import _resolve_edge_indices
+    segments = [{"type": "line", "label": "A", "nodes": [0, 1],
+                 "info": {"physical_names": ("组A",)}}]
+    _resolve_edge_indices("12,@组A", segments, RegionRegistry())
+probe("@group number mixing", _probe_group_selection_mixing, ValueError)
 
 print("== I 装配 ==")
 probe("assemble_sparse ok", lambda: F.assemble_sparse(_mesh()), None)

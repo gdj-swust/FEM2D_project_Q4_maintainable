@@ -232,13 +232,60 @@ def parse_edge_name(name: str, segs: list):
     return resolve_boundary_selector(name, segs)
 
 
-def _resolve_edge_indices(edge_str, segs):
-    """解析边编号/别名 → 段索引列表"""
+def _expand_group_name(group_name, segs, region_registry):
+    """@组名 → 该物理组全部曲线段索引 (插件 2, 组级批量选择).
+
+    组级语义: region_registry.by_name(name, dimension=1) 返回组内全部
+    曲线 (regions.py:195 底层已备); 段按 info["physical_names"] 精确
+    匹配 (大小写不敏感). 组不存在 → ValueError (批处理路径转 CliError
+    exit_code=1 — 锁定决策: 组名打错必须响亮报错, 不许静默落到别的边).
+    """
+    needle = str(group_name).strip()
+    if not needle:
+        raise ValueError(
+            "边界选择 '@' 后缺组名 — 格式: @组名 (例: @椭圆孔)")
+    if region_registry is None:
+        raise ValueError(
+            f"物理组 '@{needle}' 需要 Gmsh 物理曲线注册表 — "
+            "当前输入无 .geo/.msh 组信息, 请改用边编号")
+    if not region_registry.by_name(needle, dimension=1):
+        raise ValueError(
+            f"物理组 '{needle}' 不存在 — 可用组见 --list-boundaries "
+            "输出或 .geo 的 Physical Curve 声明")
+    folded = needle.casefold()
+    return sorted(
+        index
+        for index, segment in enumerate(segs)
+        if any(
+            name.casefold() == folded
+            for name in segment_physical_names(segment))
+    )
+
+
+def _resolve_edge_indices(edge_str, segs, region_registry=None):
+    """解析边编号/别名/@组名 → 段索引列表
+
+    @ 前缀 = 组级批量选择 (插件 2): 展开为该物理组全部曲线段.
+    锁定决策: 保留编号通道; 组名不存在 → ValueError; 不支持
+    编号与 @ 混用 (单个选择串内); 不做段编号稳定化.
+    """
     if edge_str is None:
         return []
     s = str(edge_str).strip()
     if not s:
         return []
+    if s.startswith("@"):
+        rest = s[1:]
+        if any(sep in rest for sep in (",", ";", "@")):
+            raise ValueError(
+                f"边界选择 '{s}': 不支持编号与 @组名 混用 — "
+                "@ 组名必须单独出现 (例: @椭圆孔); "
+                "多个选择用逗号/分号分隔")
+        return _expand_group_name(rest, segs, region_registry)
+    if "@" in s:
+        raise ValueError(
+            f"边界选择 '{s}': 不支持编号与 @组名 混用 — "
+            "@ 组名必须单独出现 (例: @椭圆孔); 多个选择用逗号/分号分隔")
     if s.isdigit():
         idx = int(s) - 1
         return [idx] if 0 <= idx < len(segs) else []

@@ -284,6 +284,7 @@ def _print_boundaries(config, mesh, segs):
     print("\n  用法示例:")
     print(f"    python run.py {os.path.basename(demo_fp)} --fix left --body 0,-78000")
     print(f"    python run.py {os.path.basename(demo_fp)} --fix left --traction right:1e6,0")
+    print("\n  输入 @组名 整组选择 (如 --traction '@椭圆孔:0,-2e6') — 编号仍可精细选择")
 
 
 # ═══════════════════════════════════════════════════════════════
