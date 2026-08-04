@@ -733,17 +733,17 @@
    "info": {
     "angle": 0.0,
     "center": [
-     9.264134149935372e-17,
-     1.239460207459286e-18
+     9.26413414994e-17,
+     1.23946020746e-18
     ],
     "coarse_fit": false,
-    "fit_residual": 3.0808688933348093e-16,
-    "fit_residual_max": 6.661338147750939e-16,
+    "fit_residual": 3.08086889333e-16,
+    "fit_residual_max": 6.66133814775e-16,
     "is_outer": true,
     "loop_depth": 0,
     "loop_id": 0,
     "primitive_samples": 40,
-    "semi_major": 1.9999999999999987,
+    "semi_major": 2.0,
     "semi_minor": 1.0
    },
    "label": "外边 椭圆 a=2 b=1",

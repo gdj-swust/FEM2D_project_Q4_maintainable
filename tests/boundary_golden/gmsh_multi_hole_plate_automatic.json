@@ -93,19 +93,19 @@
   {
    "closed": true,
    "info": {
-    "angle": 6.283185307179586,
+    "angle": 6.28318530718,
     "center": [
      20.0,
      20.0
     ],
     "coarse_fit": false,
-    "fit_residual": 2.517827216560623e-16,
-    "fit_residual_max": 8.881784197001252e-16,
+    "fit_residual": 2.51782721656e-16,
+    "fit_residual_max": 8.881784197e-16,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
     "primitive_samples": 168,
-    "radius": 5.999999999999998
+    "radius": 6.0
    },
    "label": "内孔 整圆 R=6",
    "n_nodes": 169,
@@ -114,19 +114,19 @@
   {
    "closed": true,
    "info": {
-    "angle": 6.283185307179586,
+    "angle": 6.28318530718,
     "center": [
      45.0,
      20.0
     ],
     "coarse_fit": false,
-    "fit_residual": 8.380641859496841e-16,
-    "fit_residual_max": 2.220446049250313e-15,
+    "fit_residual": 8.3806418595e-16,
+    "fit_residual_max": 2.22044604925e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
     "primitive_samples": 144,
-    "radius": 3.9999999999999973
+    "radius": 4.0
    },
    "label": "内孔 整圆 R=4",
    "n_nodes": 145,
@@ -135,19 +135,19 @@
   {
    "closed": true,
    "info": {
-    "angle": 6.283185307179586,
+    "angle": 6.28318530718,
     "center": [
      70.0,
-     20.000000000000004
+     20.0
     ],
     "coarse_fit": false,
-    "fit_residual": 7.123931074678088e-16,
-    "fit_residual_max": 2.4424906541753444e-15,
+    "fit_residual": 7.12393107468e-16,
+    "fit_residual_max": 2.44249065418e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
     "primitive_samples": 144,
-    "radius": 4.999999999999998
+    "radius": 5.0
    },
    "label": "内孔 整圆 R=5",
    "n_nodes": 145,

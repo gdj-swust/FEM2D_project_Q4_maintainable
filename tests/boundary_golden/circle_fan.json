@@ -587,19 +587,19 @@
   {
    "closed": true,
    "info": {
-    "angle": 6.283185307179586,
+    "angle": 6.28318530718,
     "center": [
-     -5.43317025659736e-17,
-     4.9989517359563235e-17
+     -5.4331702566e-17,
+     4.99895173596e-17
     ],
     "coarse_fit": false,
-    "fit_residual": 1.6653345369377348e-16,
-    "fit_residual_max": 2.220446049250313e-16,
+    "fit_residual": 1.66533453694e-16,
+    "fit_residual_max": 2.22044604925e-16,
     "is_outer": true,
     "loop_depth": 0,
     "loop_id": 0,
     "primitive_samples": 32,
-    "radius": 1.4999999999999998
+    "radius": 1.5
    },
    "label": "外边 整圆 R=1.5",
    "n_nodes": 33,

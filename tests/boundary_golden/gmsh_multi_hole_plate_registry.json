@@ -147,23 +147,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991429,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     20.00000000000017,
-     19.999999999999982
+     20.0,
+     20.0
     ],
     "entity_tags": [
      211
     ],
-    "fit_residual": 2.1094237467877974e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 2.10942374679e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000168,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -176,23 +176,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779915,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     19.999999999999986,
-     19.999999999999996
+     20.0,
+     20.0
     ],
     "entity_tags": [
      212
     ],
-    "fit_residual": 1.1102230246251565e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 1.11022302463e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 5.999999999999987,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -205,23 +205,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991447,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     20.000000000000092,
-     19.99999999999996
+     20.0,
+     20.0
     ],
     "entity_tags": [
      210
     ],
-    "fit_residual": 1.2212453270876722e-15,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 1.22124532709e-15,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000099,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -234,23 +234,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991438,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     20.000000000000124,
-     20.00000000000005
+     20.0,
+     20.0
     ],
     "entity_tags": [
      213
     ],
-    "fit_residual": 7.771561172376096e-16,
-    "fit_residual_max": 8.881784197001252e-16,
+    "fit_residual": 7.77156117238e-16,
+    "fit_residual_max": 8.881784197e-16,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000133,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -263,23 +263,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914025,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     20.000000000000174,
-     19.99999999999986
+     20.0,
+     20.0
     ],
     "entity_tags": [
      209
     ],
-    "fit_residual": 7.771561172376096e-16,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 7.77156117238e-16,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000219,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -292,23 +292,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.261799387799142,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     20.000000000000135,
-     20.000000000000103
+     20.0,
+     20.0
     ],
     "entity_tags": [
      214
     ],
-    "fit_residual": 8.881784197001252e-16,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 8.881784197e-16,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000169,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -321,23 +321,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779915624,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     19.999999999999908,
-     20.00000000000013
+     20.0,
+     20.0
     ],
     "entity_tags": [
      208
     ],
-    "fit_residual": 8.881784197001252e-16,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 8.881784197e-16,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 5.999999999999841,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -350,23 +350,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991438,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     20.00000000000007,
-     20.000000000000092
+     20.0,
+     20.0
     ],
     "entity_tags": [
      215
     ],
-    "fit_residual": 7.771561172376096e-16,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 7.77156117238e-16,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000116,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -379,23 +379,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991447,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     20.000000000000046,
-     19.99999999999988
+     20.0,
+     20.0
     ],
     "entity_tags": [
      207
     ],
-    "fit_residual": 9.992007221626409e-16,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 9.99200722163e-16,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000128,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -408,23 +408,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.261799387799158,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     19.99999999999992,
-     19.99999999999983
+     20.0,
+     20.0
     ],
     "entity_tags": [
      216
     ],
-    "fit_residual": 1.1102230246251565e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 1.11022302463e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 5.999999999999812,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -437,23 +437,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779915446,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     19.99999999999999,
-     20.000000000000114
+     20.0,
+     20.0
     ],
     "entity_tags": [
      206
     ],
-    "fit_residual": 1.3322676295501878e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 1.33226762955e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 5.999999999999885,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -466,23 +466,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991447,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     20.00000000000001,
-     20.000000000000096
+     20.0,
+     20.0
     ],
     "entity_tags": [
      217
     ],
-    "fit_residual": 3.3306690738754696e-16,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 3.33066907388e-16,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000095,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -495,23 +495,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991438,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     19.999999999999986,
-     19.999999999999844
+     20.0,
+     20.0
     ],
     "entity_tags": [
      205
     ],
-    "fit_residual": 6.661338147750939e-16,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 6.66133814775e-16,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000155,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -524,23 +524,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914824,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     19.999999999999993,
-     20.00000000000003
+     20.0,
+     20.0
     ],
     "entity_tags": [
      218
     ],
-    "fit_residual": 1.3322676295501878e-15,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 1.33226762955e-15,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.0000000000000275,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -553,23 +553,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991376,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     19.9999999999999,
-     19.999999999999744
+     20.0,
+     20.0
     ],
     "entity_tags": [
      204
     ],
-    "fit_residual": 2.3314683517128287e-15,
-    "fit_residual_max": 4.440892098500626e-15,
+    "fit_residual": 2.33146835171e-15,
+    "fit_residual_max": 4.4408920985e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000275,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -582,23 +582,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779913936,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     19.999999999999922,
-     20.000000000000213
+     20.0,
+     20.0
     ],
     "entity_tags": [
      219
     ],
-    "fit_residual": 1.2212453270876722e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 1.22124532709e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000224,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -611,23 +611,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914025,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     19.99999999999987,
-     19.99999999999984
+     20.0,
+     20.0
     ],
     "entity_tags": [
      203
     ],
-    "fit_residual": 6.661338147750939e-16,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 6.66133814775e-16,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000204,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -640,23 +640,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914824,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     19.99999999999999,
-     20.000000000000014
+     20.0,
+     20.0
     ],
     "entity_tags": [
      220
     ],
-    "fit_residual": 9.992007221626409e-16,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 9.99200722163e-16,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000019,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -669,23 +669,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991527,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     20.000000000000064,
-     20.000000000000043
+     20.0,
+     20.0
     ],
     "entity_tags": [
      202
     ],
-    "fit_residual": 1.1102230246251565e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 1.11022302463e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 5.9999999999999245,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -698,23 +698,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779913936,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     19.999999999999833,
-     20.00000000000013
+     20.0,
+     20.0
     ],
     "entity_tags": [
      221
     ],
-    "fit_residual": 1.4432899320127035e-15,
-    "fit_residual_max": 3.552713678800501e-15,
+    "fit_residual": 1.44328993201e-15,
+    "fit_residual_max": 3.5527136788e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000212,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -727,23 +727,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914114,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     19.999999999999826,
-     19.999999999999922
+     20.0,
+     20.0
     ],
     "entity_tags": [
      201
     ],
-    "fit_residual": 1.3322676295501878e-15,
-    "fit_residual_max": 3.552713678800501e-15,
+    "fit_residual": 1.33226762955e-15,
+    "fit_residual_max": 3.5527136788e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000187,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -756,23 +756,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991456,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     19.99999999999992,
-     20.000000000000032
+     20.0,
+     20.0
     ],
     "entity_tags": [
      222
     ],
-    "fit_residual": 6.661338147750939e-16,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 6.66133814775e-16,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.000000000000089,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -785,23 +785,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914913,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     19.99999999999998,
+     20.0,
      20.0
     ],
     "entity_tags": [
      200
     ],
-    "fit_residual": 8.881784197001252e-16,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 8.881784197e-16,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 6.00000000000002,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -814,23 +814,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991527,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     20.000000000000057,
-     19.999999999999993
+     20.0,
+     20.0
     ],
     "entity_tags": [
      223
     ],
-    "fit_residual": 1.1102230246251565e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 1.11022302463e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
-    "radius": 5.999999999999945,
+    "radius": 6.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -843,23 +843,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779915535,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     44.99999999999991,
-     20.00000000000001
+     45.0,
+     20.0
     ],
     "entity_tags": [
      511
     ],
-    "fit_residual": 2.5376526277146436e-15,
-    "fit_residual_max": 5.773159728050814e-15,
+    "fit_residual": 2.53765262771e-15,
+    "fit_residual_max": 5.77315972805e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 3.999999999999909,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -872,23 +872,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914114,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     45.00000000000013,
-     20.000000000000025
+     45.0,
+     20.0
     ],
     "entity_tags": [
      512
     ],
-    "fit_residual": 2.157004733557447e-15,
-    "fit_residual_max": 4.440892098500626e-15,
+    "fit_residual": 2.15700473356e-15,
+    "fit_residual_max": 4.4408920985e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 4.000000000000131,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -901,23 +901,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779917666,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     44.9999999999996,
-     20.000000000000163
+     45.0,
+     20.0
     ],
     "entity_tags": [
      510
     ],
-    "fit_residual": 2.157004733557447e-15,
-    "fit_residual_max": 4.440892098500626e-15,
+    "fit_residual": 2.15700473356e-15,
+    "fit_residual_max": 4.4408920985e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 3.9999999999995755,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -930,23 +930,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914735,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     45.00000000000003,
-     20.000000000000004
+     45.0,
+     20.0
     ],
     "entity_tags": [
      513
     ],
-    "fit_residual": 3.425831047414769e-15,
-    "fit_residual_max": 7.105427357601002e-15,
+    "fit_residual": 3.42583104741e-15,
+    "fit_residual_max": 7.1054273576e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 4.00000000000003,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -959,23 +959,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779915535,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     44.999999999999936,
-     20.00000000000005
+     45.0,
+     20.0
     ],
     "entity_tags": [
      509
     ],
-    "fit_residual": 3.1086244689504383e-15,
-    "fit_residual_max": 3.9968028886505635e-15,
+    "fit_residual": 3.10862446895e-15,
+    "fit_residual_max": 3.99680288865e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 3.9999999999999183,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -988,23 +988,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779915535,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     44.99999999999992,
-     19.99999999999995
+     45.0,
+     20.0
     ],
     "entity_tags": [
      514
     ],
-    "fit_residual": 9.516197353929913e-16,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 9.51619735393e-16,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 3.9999999999999094,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1017,23 +1017,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991429,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     45.000000000000064,
-     19.999999999999915
+     45.0,
+     20.0
     ],
     "entity_tags": [
      508
     ],
-    "fit_residual": 1.522591576628786e-15,
-    "fit_residual_max": 3.552713678800501e-15,
+    "fit_residual": 1.52259157663e-15,
+    "fit_residual_max": 3.5527136788e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 4.000000000000106,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1046,23 +1046,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779915357,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     44.999999999999964,
-     19.999999999999954
+     45.0,
+     20.0
     ],
     "entity_tags": [
      515
     ],
-    "fit_residual": 1.5860328923216523e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 1.58603289232e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 3.999999999999943,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1075,23 +1075,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991669,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     44.9999999999999,
-     20.000000000000234
+     45.0,
+     20.0
     ],
     "entity_tags": [
      507
     ],
-    "fit_residual": 1.0785023667787234e-15,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 1.07850236678e-15,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 3.9999999999997473,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1104,23 +1104,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991447,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     45.000000000000036,
-     20.000000000000085
+     45.0,
+     20.0
     ],
     "entity_tags": [
      516
     ],
-    "fit_residual": 1.522591576628786e-15,
-    "fit_residual_max": 4.440892098500626e-15,
+    "fit_residual": 1.52259157663e-15,
+    "fit_residual_max": 4.4408920985e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 4.00000000000009,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1133,23 +1133,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914647,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     45.00000000000001,
-     19.99999999999997
+     45.0,
+     20.0
     ],
     "entity_tags": [
      506
     ],
-    "fit_residual": 1.0150610510858574e-15,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 1.01506105109e-15,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 4.0000000000000275,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1162,23 +1162,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991607,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     44.99999999999997,
-     19.99999999999982
+     45.0,
+     20.0
     ],
     "entity_tags": [
      517
     ],
-    "fit_residual": 8.247371040072592e-16,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 8.24737104007e-16,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 3.9999999999998184,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1191,23 +1191,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991607,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     45.00000000000003,
-     20.00000000000018
+     45.0,
+     20.0
     ],
     "entity_tags": [
      505
     ],
-    "fit_residual": 7.61295788314393e-16,
-    "fit_residual_max": 2.220446049250313e-15,
+    "fit_residual": 7.61295788314e-16,
+    "fit_residual_max": 2.22044604925e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 3.999999999999818,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1220,23 +1220,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914647,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     44.99999999999999,
-     20.00000000000003
+     45.0,
+     20.0
     ],
     "entity_tags": [
      518
     ],
-    "fit_residual": 1.0150610510858574e-15,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 1.01506105109e-15,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 4.0000000000000275,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1249,23 +1249,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991447,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     44.999999999999964,
-     19.999999999999915
+     45.0,
+     20.0
     ],
     "entity_tags": [
      504
     ],
-    "fit_residual": 1.522591576628786e-15,
-    "fit_residual_max": 4.440892098500626e-15,
+    "fit_residual": 1.52259157663e-15,
+    "fit_residual_max": 4.4408920985e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 4.00000000000009,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1278,23 +1278,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991669,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     45.0000000000001,
-     19.999999999999762
+     45.0,
+     20.0
     ],
     "entity_tags": [
      519
     ],
-    "fit_residual": 1.0785023667787234e-15,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 1.07850236678e-15,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 3.9999999999997438,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1307,23 +1307,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991607,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     45.000000000000114,
-     20.000000000000135
+     45.0,
+     20.0
     ],
     "entity_tags": [
      503
     ],
-    "fit_residual": 2.220446049250313e-15,
-    "fit_residual_max": 3.552713678800501e-15,
+    "fit_residual": 2.22044604925e-15,
+    "fit_residual_max": 3.5527136788e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 3.999999999999828,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1336,23 +1336,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991429,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     44.999999999999936,
-     20.000000000000085
+     45.0,
+     20.0
     ],
     "entity_tags": [
      520
     ],
-    "fit_residual": 1.6494742080145183e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 1.64947420801e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 4.000000000000107,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1365,23 +1365,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991527,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     45.000000000000036,
-     20.000000000000025
+     45.0,
+     20.0
     ],
     "entity_tags": [
      502
     ],
-    "fit_residual": 2.220446049250313e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 2.22044604925e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 3.9999999999999614,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1394,23 +1394,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779917755,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     45.00000000000034,
-     19.99999999999972
+     45.0,
+     20.0
     ],
     "entity_tags": [
      521
     ],
-    "fit_residual": 1.522591576628786e-15,
-    "fit_residual_max": 3.1086244689504383e-15,
+    "fit_residual": 1.52259157663e-15,
+    "fit_residual_max": 3.10862446895e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 3.999999999999561,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1423,23 +1423,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914735,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     44.99999999999997,
-     19.999999999999996
+     45.0,
+     20.0
     ],
     "entity_tags": [
      501
     ],
-    "fit_residual": 3.425831047414769e-15,
-    "fit_residual_max": 7.105427357601002e-15,
+    "fit_residual": 3.42583104741e-15,
+    "fit_residual_max": 7.1054273576e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 4.00000000000003,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1452,23 +1452,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991358,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     44.99999999999982,
-     20.000000000000078
+     45.0,
+     20.0
     ],
     "entity_tags": [
      522
     ],
-    "fit_residual": 6.344131569286609e-16,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 6.34413156929e-16,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 4.00000000000019,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1481,23 +1481,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914114,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     44.99999999999987,
-     19.999999999999975
+     45.0,
+     20.0
     ],
     "entity_tags": [
      500
     ],
-    "fit_residual": 2.157004733557447e-15,
-    "fit_residual_max": 4.440892098500626e-15,
+    "fit_residual": 2.15700473356e-15,
+    "fit_residual_max": 4.4408920985e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 4.000000000000131,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1510,23 +1510,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914913,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     44.999999999999986,
-     20.000000000000014
+     45.0,
+     20.0
     ],
     "entity_tags": [
      523
     ],
-    "fit_residual": 1.1419436824715897e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 1.14194368247e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 2,
-    "radius": 4.000000000000015,
+    "radius": 4.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1539,23 +1539,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991296,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     70.00000000000037,
-     19.999999999999975
+     70.0,
+     20.0
     ],
     "entity_tags": [
      811
     ],
-    "fit_residual": 4.6946573612720904e-15,
-    "fit_residual_max": 7.105427357601002e-15,
+    "fit_residual": 4.69465736127e-15,
+    "fit_residual_max": 7.1054273576e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 5.000000000000373,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1568,23 +1568,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991571,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     69.99999999999984,
-     19.999999999999975
+     70.0,
+     20.0
     ],
     "entity_tags": [
      812
     ],
-    "fit_residual": 2.5376526277146436e-15,
-    "fit_residual_max": 6.217248937900877e-15,
+    "fit_residual": 2.53765262771e-15,
+    "fit_residual_max": 6.2172489379e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 4.999999999999845,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1597,23 +1597,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991367,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     70.00000000000018,
-     19.999999999999908
+     70.0,
+     20.0
     ],
     "entity_tags": [
      810
     ],
-    "fit_residual": 2.5376526277146436e-15,
-    "fit_residual_max": 6.217248937900877e-15,
+    "fit_residual": 2.53765262771e-15,
+    "fit_residual_max": 6.2172489379e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 5.000000000000206,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1626,23 +1626,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991349,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     70.00000000000024,
-     20.000000000000107
+     70.0,
+     20.0
     ],
     "entity_tags": [
      813
     ],
-    "fit_residual": 5.202187886815019e-15,
-    "fit_residual_max": 9.769962616701378e-15,
+    "fit_residual": 5.20218788682e-15,
+    "fit_residual_max": 9.7699626167e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 5.00000000000027,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1655,23 +1655,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991438,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     70.00000000000007,
-     19.999999999999908
+     70.0,
+     20.0
     ],
     "entity_tags": [
      809
     ],
-    "fit_residual": 2.157004733557447e-15,
-    "fit_residual_max": 4.440892098500626e-15,
+    "fit_residual": 2.15700473356e-15,
+    "fit_residual_max": 4.4408920985e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 5.000000000000112,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1684,23 +1684,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779917844,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     69.99999999999956,
-     19.99999999999967
+     70.0,
+     20.0
     ],
     "entity_tags": [
      814
     ],
-    "fit_residual": 2.791417890486108e-15,
-    "fit_residual_max": 6.217248937900877e-15,
+    "fit_residual": 2.79141789049e-15,
+    "fit_residual_max": 6.2172489379e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 4.999999999999453,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1713,23 +1713,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991598,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     69.99999999999987,
-     20.000000000000156
+     70.0,
+     20.0
     ],
     "entity_tags": [
      808
     ],
-    "fit_residual": 3.425831047414769e-15,
-    "fit_residual_max": 7.105427357601002e-15,
+    "fit_residual": 3.42583104741e-15,
+    "fit_residual_max": 7.1054273576e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 4.999999999999804,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1742,23 +1742,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914735,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     70.00000000000003,
-     20.000000000000043
+     70.0,
+     20.0
     ],
     "entity_tags": [
      815
     ],
-    "fit_residual": 5.709718412357948e-15,
-    "fit_residual_max": 7.993605777301127e-15,
+    "fit_residual": 5.70971841236e-15,
+    "fit_residual_max": 7.9936057773e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 5.000000000000054,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1771,23 +1771,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914913,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
      70.0,
-     19.999999999999993
+     20.0
     ],
     "entity_tags": [
      807
     ],
-    "fit_residual": 1.1419436824715897e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 1.14194368247e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 5.000000000000006,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1800,23 +1800,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991296,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     70.00000000000014,
-     20.000000000000345
+     70.0,
+     20.0
     ],
     "entity_tags": [
      816
     ],
-    "fit_residual": 1.1419436824715897e-15,
-    "fit_residual_max": 3.552713678800501e-15,
+    "fit_residual": 1.14194368247e-15,
+    "fit_residual_max": 3.5527136788e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 5.000000000000368,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1829,23 +1829,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991518,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
      70.0,
-     20.00000000000003
+     20.0
     ],
     "entity_tags": [
      806
     ],
-    "fit_residual": 1.1419436824715897e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 1.14194368247e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 4.9999999999999725,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1858,23 +1858,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991571,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     69.99999999999999,
-     19.999999999999858
+     70.0,
+     20.0
     ],
     "entity_tags": [
      817
     ],
-    "fit_residual": 1.2688263138573218e-15,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 1.26882631386e-15,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 4.99999999999986,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1887,23 +1887,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914647,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     69.99999999999999,
-     19.999999999999922
+     70.0,
+     20.0
     ],
     "entity_tags": [
      805
     ],
-    "fit_residual": 1.1419436824715897e-15,
-    "fit_residual_max": 1.7763568394002505e-15,
+    "fit_residual": 1.14194368247e-15,
+    "fit_residual_max": 1.7763568394e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 5.000000000000077,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1916,23 +1916,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779914025,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     69.99999999999997,
-     20.000000000000192
+     70.0,
+     20.0
     ],
     "entity_tags": [
      818
     ],
-    "fit_residual": 1.2688263138573218e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 1.26882631386e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 5.000000000000192,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1945,23 +1945,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.261799387799142,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     69.99999999999994,
-     19.99999999999988
+     70.0,
+     20.0
     ],
     "entity_tags": [
      804
     ],
-    "fit_residual": 1.6494742080145183e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 1.64947420801e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 5.00000000000013,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -1974,23 +1974,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779913936,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     69.99999999999993,
-     20.000000000000174
+     70.0,
+     20.0
     ],
     "entity_tags": [
      819
     ],
-    "fit_residual": 1.522591576628786e-15,
-    "fit_residual_max": 2.6645352591003757e-15,
+    "fit_residual": 1.52259157663e-15,
+    "fit_residual_max": 2.6645352591e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 5.0000000000001865,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -2003,23 +2003,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779916245,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     70.00000000000016,
-     20.000000000000192
+     70.0,
+     20.0
     ],
     "entity_tags": [
      803
     ],
-    "fit_residual": 2.791417890486108e-15,
-    "fit_residual_max": 6.217248937900877e-15,
+    "fit_residual": 2.79141789049e-15,
+    "fit_residual_max": 6.2172489379e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 4.999999999999756,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -2032,23 +2032,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991651,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     70.00000000000018,
-     19.99999999999976
+     70.0,
+     20.0
     ],
     "entity_tags": [
      820
     ],
-    "fit_residual": 1.1419436824715897e-15,
-    "fit_residual_max": 3.552713678800501e-15,
+    "fit_residual": 1.14194368247e-15,
+    "fit_residual_max": 3.5527136788e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 4.999999999999697,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -2061,23 +2061,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779913847,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     69.99999999999983,
-     19.999999999999854
+     70.0,
+     20.0
     ],
     "entity_tags": [
      802
     ],
-    "fit_residual": 3.425831047414769e-15,
-    "fit_residual_max": 7.105427357601002e-15,
+    "fit_residual": 3.42583104741e-15,
+    "fit_residual_max": 7.1054273576e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 5.000000000000222,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -2090,23 +2090,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779912604,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     69.99999999999966,
-     20.000000000000284
+     70.0,
+     20.0
     ],
     "entity_tags": [
      821
     ],
-    "fit_residual": 1.9032394707859826e-15,
-    "fit_residual_max": 4.440892098500626e-15,
+    "fit_residual": 1.90323947079e-15,
+    "fit_residual_max": 4.4408920985e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 5.000000000000443,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -2119,23 +2119,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991358,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     69.99999999999976,
-     19.999999999999893
+     70.0,
+     20.0
     ],
     "entity_tags": [
      801
     ],
-    "fit_residual": 4.567774729886359e-15,
-    "fit_residual_max": 8.881784197001252e-15,
+    "fit_residual": 4.56777472989e-15,
+    "fit_residual_max": 8.881784197e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 5.000000000000269,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -2148,23 +2148,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.26179938779918555,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     70.00000000000064,
-     19.99999999999973
+     70.0,
+     20.0
     ],
     "entity_tags": [
      822
     ],
-    "fit_residual": 3.045183153257572e-15,
-    "fit_residual_max": 5.329070518200751e-15,
+    "fit_residual": 3.04518315326e-15,
+    "fit_residual_max": 5.3290705182e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 4.999999999999313,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -2177,23 +2177,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.261799387799158,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     70.00000000000016,
-     20.000000000000025
+     70.0,
+     20.0
     ],
     "entity_tags": [
      800
     ],
-    "fit_residual": 2.5376526277146436e-15,
-    "fit_residual_max": 6.217248937900877e-15,
+    "fit_residual": 2.53765262771e-15,
+    "fit_residual_max": 6.2172489379e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 4.999999999999845,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1
@@ -2206,23 +2206,23 @@
   {
    "closed": false,
    "info": {
-    "angle": 0.2617993877991305,
+    "angle": 0.261799387799,
     "cad_entity_types": [
      "Circle"
     ],
     "center": [
-     69.99999999999963,
-     20.000000000000025
+     70.0,
+     20.0
     ],
     "entity_tags": [
      823
     ],
-    "fit_residual": 4.6946573612720904e-15,
-    "fit_residual_max": 7.105427357601002e-15,
+    "fit_residual": 4.69465736127e-15,
+    "fit_residual_max": 7.1054273576e-15,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 3,
-    "radius": 5.000000000000373,
+    "radius": 5.0,
     "source": "gmsh_cad+geometry",
     "surface_entity_tags": [
      1

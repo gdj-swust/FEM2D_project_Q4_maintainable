@@ -74,7 +74,7 @@
    "info": {
     "axis": "y",
     "end": [
-     0.45000000000000007,
+     0.45,
      -1.5
     ],
     "is_outer": true,
@@ -93,17 +93,17 @@
   {
    "closed": false,
    "info": {
-    "angle": 3.141592653589793,
+    "angle": 3.14159265359,
     "center": [
      0.8,
      -1.5
     ],
-    "fit_residual": 1.1102230246251565e-16,
-    "fit_residual_max": 2.7755575615628914e-16,
+    "fit_residual": 1.11022302463e-16,
+    "fit_residual_max": 2.77555756156e-16,
     "is_outer": true,
     "loop_depth": 0,
     "loop_id": 0,
-    "radius": 0.3499999999999999
+    "radius": 0.35
    },
    "label": "外边 圆弧 R=0.35 (0.45,-1.5)→(1.15,-1.5)",
    "n_nodes": 41,
@@ -133,17 +133,17 @@
   {
    "closed": false,
    "info": {
-    "angle": 1.5707963267949046,
+    "angle": 1.57079632679,
     "center": [
-     1.700000000000001,
-     -1.2000000000000013
+     1.7,
+     -1.2
     ],
-    "fit_residual": 1.5347200634524222e-16,
-    "fit_residual_max": 4.440892098500626e-16,
+    "fit_residual": 1.53472006345e-16,
+    "fit_residual_max": 4.4408920985e-16,
     "is_outer": true,
     "loop_depth": 0,
     "loop_id": 0,
-    "radius": 0.2999999999999985
+    "radius": 0.3
    },
    "label": "外边 圆弧 R=0.3 (1.7,-1.5)→(2,-1.2)",
    "n_nodes": 17,
@@ -152,17 +152,17 @@
   {
    "closed": false,
    "info": {
-    "angle": 1.570796326794908,
+    "angle": 1.57079632679,
     "center": [
-     1.7000000000000015,
-     1.2000000000000017
+     1.7,
+     1.2
     ],
-    "fit_residual": 1.9918707206510162e-16,
-    "fit_residual_max": 5.551115123125783e-16,
+    "fit_residual": 1.99187072065e-16,
+    "fit_residual_max": 5.55111512313e-16,
     "is_outer": true,
     "loop_depth": 0,
     "loop_id": 0,
-    "radius": 0.29999999999999793
+    "radius": 0.3
    },
    "label": "外边 圆弧 R=0.3 (2,1.2)→(1.7,1.5)",
    "n_nodes": 17,
@@ -171,17 +171,17 @@
   {
    "closed": false,
    "info": {
-    "angle": 1.5707963267949046,
+    "angle": 1.57079632679,
     "center": [
-     -1.700000000000001,
-     1.2000000000000013
+     -1.7,
+     1.2
     ],
-    "fit_residual": 1.5347200634524222e-16,
-    "fit_residual_max": 4.440892098500626e-16,
+    "fit_residual": 1.53472006345e-16,
+    "fit_residual_max": 4.4408920985e-16,
     "is_outer": true,
     "loop_depth": 0,
     "loop_id": 0,
-    "radius": 0.2999999999999985
+    "radius": 0.3
    },
    "label": "外边 圆弧 R=0.3 (-1.7,1.5)→(-2,1.2)",
    "n_nodes": 17,
@@ -190,17 +190,17 @@
   {
    "closed": false,
    "info": {
-    "angle": 1.5707963267949072,
+    "angle": 1.57079632679,
     "center": [
-     -1.7000000000000015,
-     -1.2000000000000017
+     -1.7,
+     -1.2
     ],
-    "fit_residual": 1.9918707206510162e-16,
-    "fit_residual_max": 5.551115123125783e-16,
+    "fit_residual": 1.99187072065e-16,
+    "fit_residual_max": 5.55111512313e-16,
     "is_outer": true,
     "loop_depth": 0,
     "loop_id": 0,
-    "radius": 0.29999999999999793
+    "radius": 0.3
    },
    "label": "外边 圆弧 R=0.3 (-2,-1.2)→(-1.7,-1.5)",
    "n_nodes": 17,
@@ -211,18 +211,18 @@
    "info": {
     "angle": 0.0,
     "center": [
-     0.29999999999999993,
+     0.3,
      0.15
     ],
     "coarse_fit": false,
-    "fit_residual": 0.007764895825820586,
-    "fit_residual_max": 0.012311659404863007,
+    "fit_residual": 0.00776489582582,
+    "fit_residual_max": 0.0123116594049,
     "is_outer": false,
     "loop_depth": 1,
     "loop_id": 1,
     "primitive_samples": 20,
-    "semi_major": 0.3999999999999996,
-    "semi_minor": 0.20000000000000012
+    "semi_major": 0.4,
+    "semi_minor": 0.2
    },
    "label": "内孔 椭圆 a=0.4 b=0.2",
    "n_nodes": 89,

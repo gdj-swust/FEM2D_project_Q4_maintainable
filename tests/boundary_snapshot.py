@@ -8,8 +8,9 @@
   print    — print_segments 打印输出 (CLI 用户看到的文本)
 
 金标准文件提交入库 (tests/boundary_golden/)。测试运行时重新生成并
-逐位对比; 环境变量 FEM2D_UPDATE_GOLDEN=1 重写金标准 (仅阶段 3 的
-快照更新步骤使用, 常规 CI 不设置)。
+对比 (浮点圆整到 12 位有效数字 — 结构/标签/边集合逐位一致, 拟合
+浮点值免疫跨平台 LAPACK 末位噪声); 环境变量 FEM2D_UPDATE_GOLDEN=1
+重写金标准 (仅阶段 3 的快照更新步骤使用, 常规 CI 不设置)。
 """
 from __future__ import annotations
 
@@ -39,7 +40,7 @@ def canonical_edges(segments):
 
 def _canonical_value(value):
     """JSON 安全规范化: numpy 标量 → Python 标量; tuple/list 保序转 list;
-    嵌套 dict 排序键; 浮点走 json 的 repr 往返 (float64 精确)."""
+    嵌套 dict 排序键; 浮点圆整到 12 位有效数字."""
     if isinstance(value, np.generic):
         return _canonical_value(value.item())
     if isinstance(value, dict):
@@ -51,7 +52,15 @@ def _canonical_value(value):
         return [_canonical_value(item) for item in value]
     if isinstance(value, (np.ndarray,)):
         return [_canonical_value(item) for item in value.tolist()]
-    if isinstance(value, (bool, int, float, str)) or value is None:
+    if isinstance(value, (bool, int, str)) or value is None:
+        return value
+    if isinstance(value, float):
+        # 圆锥拟合 (lstsq) 跨平台 LAPACK 有末位 (1 ULP) 舍入差 —
+        # 位级比较在 Linux CI vs Windows 本地必红 (实测 CI 首轮).
+        # 12 位有效数字 = 语义精度 1e-12, 远超任何行为级差异
+        # (段类型/标签/边集合变化在第 2-6 位), 同时免疫末位噪声.
+        if math.isfinite(value):
+            return float(f"{value:.12g}")
         return value
     return str(value)
 
