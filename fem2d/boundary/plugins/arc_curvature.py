@@ -163,34 +163,31 @@ class ArcCurvatureDetector(Detector):
 
     @staticmethod
     def _algebraic_center(coords: np.ndarray) -> Optional[np.ndarray]:
-        """最远点对 + 弧顶点的垂平分线交点 (纯代数, 无最小二乘).
+        """链首最远点 + 弧顶点的垂平分线交点 (O(n), 纯代数, 无最小二乘).
 
-        最远点对覆盖弧的两端 (跨 π 的优弧取直径对), 弧顶点 = 离
-        弦最远的点 — 三点张成的三角形最稳, 圆心得解最精确.
+        j = 离链首最远的点 (跨 π 的优弧取直径对, 短弧取另一端), 弧
+        顶点 k = 离弦 (i→j) 最远的点 — 三点张成的三角形最稳, 圆心
+        得解最精确. 曾 O(n²) 全对最远点: 细网格大弧 (1e5 节点) 变
+        成 1e10 次运算 — 分类是逐链调用, 必须线性.
         """
         n = len(coords)
-        farthest = (0, 0)
-        farthest_distance = -1.0
-        for index in range(n):
-            for other in range(index + 1, n):
-                distance = float(np.linalg.norm(
-                    coords[index] - coords[other]))
-                if distance > farthest_distance:
-                    farthest = (index, other)
-                    farthest_distance = distance
-        i, j = farthest
-        if farthest_distance <= 0.0:
+        i = 0
+        p_i = coords[i]
+        distances = np.linalg.norm(coords - p_i, axis=1)
+        j = int(np.argmax(distances))
+        chord = float(distances[j])
+        if chord <= 0.0:
             return None
-        p_i, p_j = coords[i], coords[j]
+        p_j = coords[j]
         # 弧顶点: 离弦 (i→j) 最远的点; 弓高门防近平直 (病态解)
         tangent = p_j - p_i
         relative = coords - p_i
         height = np.abs(
             tangent[0] * relative[:, 1]
-            - tangent[1] * relative[:, 0]) / farthest_distance
+            - tangent[1] * relative[:, 0]) / chord
         apex = int(np.argmax(height))
         sagitta = float(height[apex])
-        if apex in (i, j) or sagitta <= farthest_distance * MIN_SAGITTA_RATIO:
+        if apex in (i, j) or sagitta <= chord * MIN_SAGITTA_RATIO:
             return None
         p_k = coords[apex]
         u = p_j - p_i
