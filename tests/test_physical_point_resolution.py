@@ -9,22 +9,12 @@ from pathlib import Path
 
 import pytest
 
-try:
-    import gmsh as _gmsh
-except (ImportError, OSError):
-    _gmsh = None
+from tests.conftest import GMSH_AVAILABLE, GMSH_UNAVAILABLE_REASON
 
 pytestmark = pytest.mark.skipif(
-    _gmsh is None, reason="Gmsh Python API not available")
+    not GMSH_AVAILABLE, reason=GMSH_UNAVAILABLE_REASON)
 
 import numpy as np
-
-
-def _square_mesh():
-    from fem2d.mesh import Mesh
-    nodes = np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
-    elems = np.array([[0, 1, 2, 3]], dtype=int)
-    return Mesh(nodes=nodes, elements=elems, elem_type="CPS4")
 
 
 def _geo_with_point(tmp_path, point_coords, name="load", extra_points=()):
@@ -39,12 +29,12 @@ def _geo_with_point(tmp_path, point_coords, name="load", extra_points=()):
     return str(p)
 
 
-def test_point_found_returns_node():
+def test_point_found_returns_node(square_mesh):
     from fem2d.input_source import physical_point_from_geo
     with tempfile.TemporaryDirectory() as d:
         geo = _geo_with_point(d, (0.5, 0.5))
         nid, label, dist, reason = physical_point_from_geo(
-            geo, "load", _square_mesh())
+            geo, "load", square_mesh)
         assert reason is None, f"合法点被拒: {reason}"
         assert nid in (0, 1, 2, 3), f"应命中某个最近节点, got {nid}"
         assert dist == pytest.approx(np.sqrt(0.5), rel=1e-12), \
@@ -52,36 +42,36 @@ def test_point_found_returns_node():
         assert "Physical Point 'load'" in label
 
 
-def test_not_found_reason():
+def test_not_found_reason(square_mesh):
     from fem2d.input_source import physical_point_from_geo
     with tempfile.TemporaryDirectory() as d:
         geo = _geo_with_point(d, (0.5, 0.5))
         nid, label, dist, reason = physical_point_from_geo(
-            geo, "ghost", _square_mesh())
+            geo, "ghost", square_mesh)
         assert nid is None and reason == "not_found", f"got {reason}"
 
 
-def test_ambiguous_reason():
+def test_ambiguous_reason(square_mesh):
     from fem2d.input_source import physical_point_from_geo
     with tempfile.TemporaryDirectory() as d:
         geo = _geo_with_point(
             d, (0.5, 0.5), "dup", extra_points=[(0.2, 0.8)])
         nid, label, dist, reason = physical_point_from_geo(
-            geo, "dup", _square_mesh())
+            geo, "dup", square_mesh)
         assert nid is None and reason == "ambiguous", f"got {reason}"
 
 
-def test_outside_domain_reason():
+def test_outside_domain_reason(square_mesh):
     from fem2d.input_source import physical_point_from_geo
     with tempfile.TemporaryDirectory() as d:
         geo = _geo_with_point(d, (10.0, 10.0))
         nid, label, dist, reason = physical_point_from_geo(
-            geo, "load", _square_mesh())
+            geo, "load", square_mesh)
         assert nid is None and reason == "outside_domain", f"got {reason}"
 
 
-def test_no_geo_source_reason():
+def test_no_geo_source_reason(square_mesh):
     from fem2d.input_source import physical_point_from_geo
     nid, label, dist, reason = physical_point_from_geo(
-        None, "load", _square_mesh())
+        None, "load", square_mesh)
     assert nid is None and reason == "no_geo_source", f"got {reason}"
