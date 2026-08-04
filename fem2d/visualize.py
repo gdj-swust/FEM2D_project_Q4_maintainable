@@ -111,6 +111,13 @@ def _to_node(mesh, ev, integration_values=None, method="SPR"):
                         data = np.sum(
                             data * weights[:, :, None], axis=1) / denom[:, None]
                     else:
+                        # 形状不符 = 内核恢复点与积分点不一致 — 回退算术
+                        # 平均是可用解, 但必须响亮 (静默替换恢复方法曾让
+                        # 学生误以为 weighted 生效)
+                        print(
+                            f"  [WARN] {method} 恢复权重形状 "
+                            f"{weights.shape} 与积分点数据 "
+                            f"{data.shape[:2]} 不符 — 回退算术平均")
                         data = data.mean(axis=1)
                 else:
                     data = data.mean(axis=1)
@@ -494,9 +501,15 @@ def _plot_isoband_contour(ax, tri, display_parent, values, title,
     return None
 
 
-def _plot_gouraud_contour(ax, tri, values, mesh, n, recovery):
-    """Gouraud: SPR 磨平到节点 → 光滑云图 + 等值线 (推荐用于报告)."""
-    if len(values) == mesh.n_elements:
+def _plot_gouraud_contour(ax, tri, values, mesh, n, recovery, is_element=None):
+    """Gouraud: SPR 磨平到节点 → 光滑云图 + 等值线 (推荐用于报告).
+
+    is_element: 数据定位 (plot_contour 已解析显式 location 参数);
+    None → 按长度推断 (兼容直接调用方)。
+    """
+    if is_element is None:
+        is_element = len(values) == mesh.n_elements
+    if is_element:
         # 标量场保护: 对 vm/s1/s2/taumax 等非线性不变量, SPR 直接在标量上
         # 做最小二乘可能产生非物理解 (如负 Mises)。plot_three() 已正确处理
         # (先恢复应力分量再从分量算不变量)。此处拒绝标量+gouraud 组合。
@@ -574,12 +587,18 @@ def plot_contour(mesh, values, title="", n=30, ax=None, figsize=(9,7),
         return  # isoband 已自行处理色条
     else:
         tpc, e_min, e_max = _plot_gouraud_contour(
-            ax, tri, values, mesh, n, recovery)
+            ax, tri, values, mesh, n, recovery, is_element=is_element)
 
     # ── 统一色条 ──
     if shading != 'scalar_jump':  # scalar_jump 有自己的边色条
-        cbar = plt.colorbar(tpc, ax=ax, shrink=0.8, label=title)
-        _style_colorbar(cbar, e_min, e_max, title)
+        # 标注数据来源与峰值: CST 磨平后峰值降低 ~17% 的教训 — 色条必须
+        # 让学生一眼看出显示的是单元值 (flat, 原始峰值) 还是节点值
+        # (gouraud, 磨平峰值); 与 isoband 的 [bands: ...] 风格对齐
+        source = "element" if is_element else "node"
+        label = (f"{title}  [{source}, max={e_max:.3g}]"
+                 if title else f"{source}, max={e_max:.3g}")
+        cbar = plt.colorbar(tpc, ax=ax, shrink=0.8, label=label)
+        _style_colorbar(cbar, e_min, e_max, None)
 
     ax.set_aspect('equal')
     if title:
@@ -734,6 +753,10 @@ def plot_three(mesh, result, tag='vm', scale=100, save=None,
         return
     if plt.get_backend() != 'Agg':
         plt.show(block=False)
+    else:
+        # Agg (CI/测试/无显示器): show 无效 — 不 close 则每次调用静默
+        # 累积一张图, 交互循环按 1-12 一键一张
+        plt.close(fig)
 
 
 def interactive_plot(mesh, result, scale=100, isoband_levels=None, isoband_tag=None, sigma_ref=None):
@@ -773,6 +796,8 @@ def interactive_plot(mesh, result, scale=100, isoband_levels=None, isoband_tag=N
             if tag: print(f"    ? {tag}")
             continue
         tag = PLOTS[tag][0]
+        # 切换分量前关闭上一张图 — 曾每按一键累积一张 2×2 图 (内存泄漏)
+        plt.close('all')
         plot_three(mesh, result, tag=tag, scale=scale,
                   isoband_levels=isoband_levels, isoband_tag=isoband_tag,
                   sigma_ref=sigma_ref, recovery=recovery)

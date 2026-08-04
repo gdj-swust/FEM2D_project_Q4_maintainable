@@ -22,9 +22,12 @@ def _current_axes():
     return plt.figure(figs[-1]).axes
 
 
-def test_plot_three_mesh_draws_content():
+def test_plot_three_mesh_draws_content(monkeypatch):
     """tag='mesh' 必须画出网格 — 曾零断言, plot_three 改成 pass 也通过
    ."""
+    # Agg 后端 plot_three 非 save 路径现在主动 close — 本测试只关心
+    # 画了什么内容, 不关图 (close 行为由 test_plot_three_agg_closes_figure 锁定)
+    monkeypatch.setattr(plt, "close", lambda *a, **k: None)
     mesh, r = _make_result()
     plot_three(mesh, r, tag='mesh')
     axes = _current_axes()
@@ -35,8 +38,9 @@ def test_plot_three_mesh_draws_content():
         "mesh 模式未画出任何内容"
 
 
-def test_plot_three_loads_draws_content():
+def test_plot_three_loads_draws_content(monkeypatch):
     """tag='loads' 必须画出载荷/网格 — 曾零断言."""
+    monkeypatch.setattr(plt, "close", lambda *a, **k: None)
     mesh, r = _make_result()
     plot_three(mesh, r, tag='loads')
     axes = _current_axes()
@@ -46,8 +50,9 @@ def test_plot_three_loads_draws_content():
         "loads 模式未画出任何内容"
 
 
-def test_plot_three_displacement_draws_content():
+def test_plot_three_displacement_draws_content(monkeypatch):
     """tag='ux'/'uy'/'umag' 必须画出变形图 — 曾零断言."""
+    monkeypatch.setattr(plt, "close", lambda *a, **k: None)
     mesh, r = _make_result()
     for tag in ('ux', 'uy', 'umag'):
         plot_three(mesh, r, tag=tag)

@@ -93,18 +93,18 @@ def _standalone_self_test() -> int:
 def _import_mesh(resolved):
     """读取网格数据 — 统一来自 Gmsh 导入结果 (.msh 由 import_msh 提取).
 
-    返回 ``(coords, elems, edge_labels, node_id_map, elem_type,
-    region_registry, sibling_geo)``。sibling_geo 恒为 None — 源 .geo 路径
-    由 ``ResolvedInput.source_geo_path`` 提供 (2026-08: Abaqus .inp 输入
-    已移除, read_inp 不再进入用户路径)。
+    返回 ``(coords, elems, node_id_map, elem_type, region_registry)``。
+    edge_labels 与 sibling_geo 曾作为恒 None 的死输出字段保留
+    (源 .geo 路径由 ``ResolvedInput.source_geo_path`` 提供; 边标签
+    语义已由 region_registry/Physical Curve 通道承担)。
     """
     g = resolved.gmsh_import
     if g is None:
         raise RuntimeError(
             "No Gmsh import result — .msh 输入必须在 input_source 阶段完成"
             " import_msh (内部状态错误, 请报告).")
-    return (g.nodes, g.elements, None, g.node_tag_to_index,
-            g.elem_type, g.regions, None)
+    return (g.nodes, g.elements, g.node_tag_to_index,
+            g.elem_type, g.regions)
 
 
 def _build_mesh(config, resolved, coords, elems, mesh_elem_type,
@@ -124,15 +124,22 @@ def _build_mesh(config, resolved, coords, elems, mesh_elem_type,
 
     # ── 平面应力/应变判型: 必须在 Mesh 创建前完成 ──
     requested_plane = config.plane
-    if config.elem_type:
-        # --elem-type 覆写内核 (CST/Q4/Q4R/Q4I) 平面无关 — 曾按网格原码
-        # 做冲突检查: CPS4 网格 + --elem-type Q4R --plane strain 误报
-        # "cannot use --plane strain"
-        config.plane = _resolve_plane_type(mesh_elem_type, None)
-        if requested_plane is not None:
-            config.plane = requested_plane
-    else:
-        config.plane = _resolve_plane_type(mesh_elem_type, requested_plane)
+    try:
+        if config.elem_type:
+            # --elem-type 覆写内核 (CST/Q4/Q4R/Q4I) 平面无关 — 曾按网格原码
+            # 做冲突检查: CPS4 网格 + --elem-type Q4R --plane strain 误报
+            # "cannot use --plane strain"
+            config.plane = _resolve_plane_type(mesh_elem_type, None)
+            if requested_plane is not None:
+                config.plane = requested_plane
+        else:
+            config.plane = _resolve_plane_type(
+                mesh_elem_type, requested_plane)
+    except ValueError as error:
+        # 用户参数与网格单元码冲突 (CPE 网格 + --plane stress) — 用户错误
+        # 退出码 1; 曾裸 ValueError 冒泡到顶层 except Exception 被归为
+        # 内部错误 2, 违反退出码矩阵
+        raise CliError(f"  [FATAL] {error}", exit_code=1) from error
     if requested_plane is None and config.plane == "strain":
         print(f"  [auto] {mesh_elem_type} 网格 → 默认 plane=strain")
 
@@ -422,8 +429,8 @@ def _resolve_input(config):
 
 def _build_model(config, resolved) -> _Model:
     """阶段 2: 网格导入校验 + @FEM 配置合并 + 联合边界模型."""
-    (coords, elems, edge_labels, node_id_map, elem_type,
-     region_registry, _sibling_geo) = _import_mesh(resolved)
+    (coords, elems, node_id_map, elem_type,
+     region_registry) = _import_mesh(resolved)
 
     mesh = _build_mesh(config, resolved, coords, elems, elem_type,
                        region_registry)
@@ -436,7 +443,7 @@ def _build_model(config, resolved) -> _Model:
         _apply_geo_fem_config(config, geo_path)
 
     segs, _ = _build_boundary(
-        mesh, config, region_registry, edge_labels, geo_path)
+        mesh, config, region_registry, None, geo_path)
     return _Model(mesh=mesh, segs=segs, geo_path=geo_path,
                   region_registry=region_registry, node_id_map=node_id_map,
                   resolved=resolved)
@@ -497,10 +504,11 @@ def main(argv=None) -> int:
     try:
         config = AnalysisConfig.from_args(parse_args(argv))
     except ValueError as error:
-        # 配置校验失败 (非法参数组合) — 友好报错, 不抛裸 traceback
-        # (此阶段 config 尚未构建, 无 --debug 概念)
+        # 配置校验失败 (非法参数组合, 如 --band-min 缺 --band-step) — 用户
+        # 错误退出码 1; 曾归入内部错误 2, 与退出码矩阵不一致 (此阶段 config
+        # 尚未构建, 无 --debug 概念)
         print(f"[ERROR] {error}")
-        return 2
+        return 1
 
     # ── 独立自检: Patch Test + plane stress/strain 材料验证 ──
     if config.self_test and not config.mesh:
@@ -514,6 +522,11 @@ def main(argv=None) -> int:
             if _val:
                 print(f"  [WARN] {_key} 在独立自检模式下不生效 — "
                       "已忽略 (自检只跑单元数学验证)")
+        if config.band_min is not None:
+            # 与 --no-plot 同模式: band 参数已通过 config 校验但独立自检
+            # 不绘图 — 曾静默忽略
+            print("  [WARN] --band-min/max/step 在独立自检模式下不生效 — "
+                  "已忽略 (自检只跑单元数学验证)")
         if config.list_boundaries:
             # 曾声称"自检不执行, 仅列出边界"但随后仍执行自检 — 文案撒谎
             # 行为: 自检照常, list-boundaries 无输入文件无从列出
@@ -529,6 +542,11 @@ def main(argv=None) -> int:
         # 前缀, 不再包一层; 保留各自退出码
         print(error)
         return error.exit_code
+    except KeyboardInterrupt:
+        # 求解/解析中途 Ctrl-C (ask 内的 Ctrl-C 已是 CliError) — 向导
+        # banner 承诺"随时 Ctrl-C 退出", 曾泄漏整段 traceback
+        print("\n  [INFO] 已中断 (Ctrl-C)")
+        return 130
     except Exception as error:
         # 输入解析阶段的任意异常 (含 gmsh 依赖缺失时的 ImportError/OSError
         # 与 Gmsh API 抛出的裸 Exception) — 友好报错而非整段 traceback;
@@ -554,9 +572,18 @@ def main(argv=None) -> int:
         if not config.no_plot or config.save:
             # --no-plot 只抑制交互窗口, --save 仍应生成文件
             _plot(config, model.mesh, result, scale)
+        elif any(x is not None for x in (config.band_min, config.band_max,
+                                         config.band_step)):
+            # band 参数已通过 config.validate 校验但 --no-plot 无绘图 —
+            # 曾静默忽略 (参数看似生效实未生效, 教学用户困惑)
+            print("  [INFO] --band-min/max/step 仅在绘图时生效 — "
+                  "--no-plot 抑制绘图, 参数已忽略")
     except CliError as error:
         print(error)
         return error.exit_code
+    except KeyboardInterrupt:
+        print("\n  [INFO] 已中断 (Ctrl-C)")
+        return 130
     except Exception as error:
         # 顶层异常边界: 求解/模型/绘图阶段的任意领域异常
         # (含 Gmsh 依赖缺失时的 ImportError/OSError) 输出错误摘要而非整段

@@ -10,6 +10,7 @@ plot_three 保存路径、interactive_plot 交互分支。
 import matplotlib
 matplotlib.use("Agg")   # 必须先于 pyplot/visualize 导入 (无显示器环境)
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
@@ -96,14 +97,20 @@ def test_to_node_l2_projection():
     assert np.allclose(result[:, 0], 1.0)   # 常场精确恢复
 
 
-def test_to_node_weighted_weights_shape_mismatch_fallback(monkeypatch):
-    """加权恢复: kernel 权重形状不符 → 回退算术平均 (曾裸广播错误)."""
+def test_to_node_weighted_weights_shape_mismatch_fallback(monkeypatch,
+                                                          capsys):
+    """加权恢复: kernel 权重形状不符 → WARN + 回退算术平均.
+
+    静默替换恢复方法违反"静默错误比崩溃危险" — 必须响亮 (曾无任何提示).
+    """
     mesh = _quad()
     monkeypatch.setattr(mesh.element_kernel, "recovery_weights",
                         lambda m: np.ones((2, 2)))
     data = np.ones((1, 4, 3))
     result = _to_node(mesh, data, method="weighted")
     assert result.shape == (4, 3)
+    out = capsys.readouterr().out
+    assert "[WARN]" in out and "回退算术平均" in out
 
 
 def test_to_node_weighted_no_weights_fallback(monkeypatch):
@@ -251,6 +258,21 @@ def test_plot_contour_gouraud_scalar_element_rejected():
         plot_contour(mesh, values, shading="gouraud", location="element")
 
 
+def test_plot_contour_node_location_when_counts_equal():
+    """location='node' 显式 + n_nodes==n_elements 网格 → 不按长度猜位置.
+
+    K4 网格 (4 节点 4 三角) 上节点标量曾因 len==n_elements 被误判为
+    单元数据 → 抛 "unreliable" ValueError. 显式 location 必须短路推断.
+    """
+    nodes = np.array([[0., 0.], [1., 0.], [0., 1.], [1., 1.]])
+    elems = np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]],
+                     dtype=int)
+    mesh = Mesh(nodes=nodes, elements=elems, elem_type="CPS3")
+    values = np.array([1.0, 2.0, 3.0, 4.0])   # 节点标量, 4 个
+    plot_contour(mesh, values, shading="gouraud", location="node")
+    plt.close("all")
+
+
 def test_plot_contour_flat_requires_element_values():
     """flat + 节点定位数据 → ValueError (静默落 gouraud 曾画错图)."""
     mesh = _quad()
@@ -284,6 +306,36 @@ def test_plot_three_save_writes_file_and_closes(tmp_path, capsys):
     assert capsys.readouterr().out.endswith(f"→ {out_path}\n")
     assert (tmp_path / "plot.png").exists() and \
         (tmp_path / "plot.png").stat().st_size > 0
+
+
+def test_plot_three_agg_closes_figure():
+    """Agg 后端非 save 路径必须关闭 figure (曾每调用静默累积一张图)."""
+    mesh = _quad()
+    result = {"u": np.zeros(8), "stress": np.zeros((1, 3)),
+              "vm_stress": np.zeros(1), "stress_qp": None}
+    before = len(plt.get_fignums())
+    plot_three(mesh, result, tag="ux", scale=1.0)
+    assert len(plt.get_fignums()) == before
+
+
+def test_plot_contour_colorbar_labels_source():
+    """统一色条必须标注数据来源 (element/node) 与峰值.
+
+    CST 磨平教训: 磨平后峰值降低 ~17% — 色条不注明单元/节点值会误导.
+    flat → [element, max=...]; gouraud 节点数据 → [node, max=...].
+    """
+    mesh = _quad()
+    fig, ax = plt.subplots()
+    plot_contour(mesh, np.array([1.0, 2.0]), "flat-title", ax=ax,
+                 shading="flat", location="element")
+    plot_contour(mesh, np.array([1.0, 2.0, 3.0, 4.0]), "g-t", ax=ax,
+                 shading="gouraud", location="node")
+    labels = [a.get_ylabel() for a in fig.axes if a.get_ylabel()]
+    assert any("[element, max=" in l and "flat-title" in l for l in labels), \
+        f"flat 色条缺来源标注: {labels}"
+    assert any("[node, max=" in l and "g-t" in l for l in labels), \
+        f"gouraud 色条缺来源标注: {labels}"
+    plt.close(fig)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -323,6 +375,20 @@ def test_interactive_plot_recovery_cycle(monkeypatch):
     monkeypatch.setattr("builtins.input", lambda *a: next(answers))
     interactive_plot(_quad(), {"u": np.zeros(8)})
     assert calls[0]["recovery"] == "weighted"
+
+
+def test_interactive_plot_closes_figure_before_switch(monkeypatch):
+    """切换分量前必须关闭旧图 (曾每按一键累积一张 2×2 图)."""
+    calls = []
+    monkeypatch.setattr(viz, "plot_three",
+                        lambda *a, **k: calls.append("plot"))
+    monkeypatch.setattr(viz.plt, "close",
+                        lambda *a: calls.append("close"))
+    answers = iter(["1", "q"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    interactive_plot(_quad(), {"u": np.zeros(8)})
+    assert calls[0] == "close" and calls[1] == "plot", \
+        f"绘图前未先关旧图: {calls}"
 
 
 def test_interactive_plot_ctrl_c_graceful(monkeypatch, capsys):

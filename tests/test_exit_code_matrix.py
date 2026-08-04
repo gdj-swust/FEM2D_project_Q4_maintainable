@@ -96,6 +96,17 @@ def test_matrix_missing_file_returns_one(monkeypatch):
         ["nonexistent.inp", "--no-plot"]) == 1
 
 
+def test_matrix_plane_conflict_returns_one(monkeypatch, msh_file, fake_msh):
+    """CPE 网格 + --plane stress 冲突 → 1 (用户错误).
+
+    曾裸 ValueError 冒泡到 main 顶层 except Exception → 归为内部错误 2;
+    --plane 冲突是用户参数问题, 必须与 --elem-type 不兼容同属用户错误。
+    """
+    fake_msh(_fake_msh_import(elem_type="CPE4"))
+    assert _process_exit_code(
+        [msh_file, "--plane", "stress", "--no-plot"]) == 1
+
+
 def test_matrix_elem_type_mismatch_returns_one(monkeypatch, msh_file,
                                                fake_msh):
     """--elem-type 与网格节点数不兼容 → 1 (用户错误).

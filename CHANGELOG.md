@@ -3,6 +3,56 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
+## 9.22.0 (2026-08-04) — CLI/交互修正 (pkg10_cliux)
+
+CLI 是学生第一接触面: 退出码矩阵补全、Q4R 警告覆写分叉、绘图资源泄漏、
+Ctrl-C 交互承诺、色条教学标注。
+
+### 退出码矩阵 (用户错误 1 / 内部错误 2)
+- **--plane 与网格单元码冲突 → 1** (曾裸 ValueError 冒泡到顶层 except
+  Exception 归为内部错误 2); 与 --elem-type 不兼容同属用户错误, 矩阵测试锁定
+- **config 校验失败 (from_args) → 1** (曾 2): 非法参数组合如 --band-min
+  缺 --band-step 是用户错误 — 与退出码矩阵一致; test_main_config_value_error
+  更新为 1
+- **solver 刚体模态拒绝仍为 2** (跨包, 仅报告): 欠约束模型属用户错误,
+  建议下一轮归入 1 — solver.py 在冻结区
+
+### 警告与交互
+- **Q4R 专用提示判据改 kernel.name** (曾查 elem_type ∈ CPS4R/CPE4R):
+  --elem-type Q4R 覆写后 elem_type=="Q4R" 使警告静默消失; 两条入口
+  (spec 自带 CPS4R / CLI 覆写 Q4R) 判别性测试都须出现警告
+- **ask 捕 KeyboardInterrupt → CliError(0)**: 向导 banner 承诺"随时
+  Ctrl-C 退出"曾只捕 EOFError, Ctrl-C 泄漏整段 traceback 退出码 130;
+  与 EOF 分支对称, 主流程捕获后干净退出
+- **main 顶层接 KeyboardInterrupt → 130** (审查轮补): 求解/解析中途
+  Ctrl-C (非 ask 内) 曾泄漏整段 traceback — 向导承诺覆盖全部阶段
+- **--band-min/max/step + --no-plot 打印一行提示** (曾 config 校验后静默
+  忽略, 参数看似生效实未生效); 独立自检 (--self-test 无网格) 同样 WARN
+  (审查轮补)
+
+### 绘图资源与标注
+- **plot_three 非 save 路径关闭 figure**: Agg 后端 (CI/测试) 曾每次调用
+  静默累积一张图; 交互循环按 1-12 切换前先关旧图 — 覆盖全部非 show 分支
+- **plot_contour gouraud 显式 location 短路推断**: location='node' +
+  n_nodes==n_elements 网格曾把节点标量误判为单元数据抛 "unreliable"
+  ValueError (K4 网格判别性测试)
+- **统一色条标注数据来源与峰值**: flat → `[element, max=...]`,
+  gouraud → `[node, max=...]` (CST 磨平峰值降 ~17% 教训 — 学生一眼看出
+  显示的是单元值还是节点值), 与 isoband 的 [bands: ...] 风格对齐
+- **_to_node 权重形状不符 WARN 而非静默回退** (静默替换恢复方法曾让学生
+  误以为 weighted 生效)
+
+### 死负载清理
+- **_import_mesh 收窄为 5 元组** (曾 7 元组含 edge_labels/sibling_geo 两个
+  恒 None 死输出字段); _build_model 解构点同步
+
+### 测试
++14 判别性测试 (矩阵 plane 冲突 / Q4R 双入口 / Ctrl-C ×4 / Agg fig close /
+K4 节点定位 / 色条标注 / WARN 回退 / band 提示 ×2 / _import_mesh 收窄 /
+config 退出码更新)。全量 pytest 951 passed 2 skipped 0 失败; 冒烟
+(真实 .msh 输入 + --save) 正常。gmsh.exe 未随 worktree 分发, .txt/.geo
+子进程链路冒烟受环境限制 (与打包约定一致: gmsh 可执行文件另行分发)。
+
 ## 9.21.1 (2026-08-04) — 审查 9.0 轮收尾
 
 ### 发版阻断修复

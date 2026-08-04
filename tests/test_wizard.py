@@ -166,6 +166,48 @@ def test_wizard_eof_at_number_exits_cleanly(monkeypatch):
     assert exc.value.exit_code == 0
 
 
+def test_ask_ctrl_c_raises_clierror_zero(monkeypatch):
+    """ask: Ctrl-C → CliError(0) (与 EOF 分支对称, 曾裸 KeyboardInterrupt)."""
+    from fem2d.cli import ask
+    from fem2d.errors import CliError
+
+    def _boom(prompt):
+        raise KeyboardInterrupt
+    monkeypatch.setattr("builtins.input", _boom)
+    with pytest.raises(CliError) as exc:
+        ask("  > ")
+    assert exc.value.exit_code == 0
+
+
+def test_wizard_ctrl_c_clean_exit(monkeypatch):
+    """向导任意提问处 Ctrl-C → CliError(0) 干净退出 (banner 承诺随时退出).
+
+    曾 KeyboardInterrupt 穿透 run_wizard → main 不接 → 整段 traceback
+    退出码 130.
+    """
+    from fem2d.errors import CliError
+
+    def _boom(prompt):
+        raise KeyboardInterrupt
+    monkeypatch.setattr("builtins.input", _boom)
+    with pytest.raises(CliError) as exc:
+        wizard.run_wizard(AnalysisConfig())
+    assert exc.value.exit_code == 0
+
+
+def test_main_wizard_ctrl_c_exits_zero(monkeypatch, capsys):
+    """main 集成: --wizard 下 Ctrl-C → 退出码 0 + 无 traceback."""
+    from fem2d.runner import main
+
+    def _boom(prompt):
+        raise KeyboardInterrupt
+    monkeypatch.setattr("builtins.input", _boom)
+    assert main(["--wizard", "--no-plot"]) == 0
+    out = capsys.readouterr().out
+    assert "[INFO] 已退出 (Ctrl-C)" in out
+    assert "Traceback" not in out
+
+
 def test_wizard_eof_at_edge_uses_defaults(monkeypatch):
     """边名处 EOF → 无边界结束; 默认值一路回车 → 全部默认."""
     answers = ["1", "1", "3.0", "2.0", "n", "0.2",
