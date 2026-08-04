@@ -1,21 +1,31 @@
 """公共 API 误用输入 fuzz (复查轮, 可复用).
 
 随机类型/形状/越界值/NaN/Inf/布尔/多余分量喂给全部公共 API:
-  - 裸 IndexError/KeyError/AttributeError 冒出 → bug (契约禁止)
-  - TypeError/ValueError 带上下文 → 正确行为
+  - 预期异常 (ValueError/TypeError/CliError) 带非空消息 → 正确行为
+  - 预期异常空消息 / 其他异常 (裸 IndexError/KeyError/RuntimeError
+    /OverflowError 等) 冒出 → bug (契约禁止)
   - 静默成功但输入非法 (已知误用模式) → bug
 用法: python scripts/fuzz_api.py [轮数=500]
 退出码: 抓到 bug → 1。
 """
+import os
 import random
 import sys
 
 import numpy as np
 
+# 脚本位于 scripts/ 下 — 审计必须针对本项目代码。editable install 指向
+# 其他 worktree 时 sys.path 无 cwd, `python scripts/xxx.py` 会 import 到
+# 外部 fem2d 副本 (曾静默测到旧实现, 数据失真)。
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
 import fem2d as F
 from fem2d.bc import apply_elimination, apply_penalty
 from fem2d.config import AnalysisConfig
 from fem2d.error_est import estimate as estimate_error
+from fem2d.errors import CliError
 from fem2d.loads_core import parse_traction, parse_vec2
 from fem2d.material import D_matrix, von_mises
 from fem2d.mesh import Mesh
@@ -31,7 +41,18 @@ from fem2d.stress import (
     stress_at_point,
 )
 
-BARE = (IndexError, KeyError, AttributeError)
+# 预期异常: 契约允许的输入拒绝方式 (带诊断消息). 其他一律 unexpected —
+# 曾把全部非 BARE 异常当成功忽略, RuntimeError/OverflowError 被静默放过.
+EXPECTED = (ValueError, TypeError, CliError)
+
+
+def _classify(exc):
+    """异常分类: 预期类型带非空消息 → None (正确行为); 其余 → 报告文本."""
+    if isinstance(exc, EXPECTED):
+        if str(exc).strip():
+            return None
+        return f"{type(exc).__name__} 空消息 (无诊断)"
+    return f"unexpected {type(exc).__name__}: {str(exc)[:60]}"
 
 NODES = np.array([[0., 0.], [1., 0.], [0., 1.], [1., 1.]])
 ELEMS = np.array([[0, 1, 3], [0, 3, 2]])
@@ -94,11 +115,10 @@ def main():
         calls += 1
         try:
             fn()
-        except BARE as exc:
-            bugs.append(f"{name}: bare {type(exc).__name__}: {str(exc)[:60]}")
-        except Exception:
-            # ValueError/TypeError 带上下文 = 正确行为, 忽略
-            pass
+        except Exception as exc:
+            issue = _classify(exc)
+            if issue:
+                bugs.append(f"{name}: {issue}")
 
     for _ in range(rounds):
         v = _rand_value(rng)
@@ -165,11 +185,11 @@ def main():
             feed(f"estimate_condition K({v!r})", lambda v=v: estimate_condition(v))
 
     print(f"calls={calls}")
-    print(f"bare-exception escapes: {len(bugs)}")
+    print(f"problems: {len(bugs)}")
     for b in bugs:
         print("  -", b)
     if not bugs:
-        print("OK: 无裸异常冒出")
+        print("OK: 无意外异常冒出")
     sys.exit(1 if bugs else 0)
 
 

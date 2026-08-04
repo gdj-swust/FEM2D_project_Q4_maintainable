@@ -4,9 +4,17 @@
   probe(name, fn, expect) — expect 为异常类型或 None (不应抛)。
 输出 PASS/FAIL, 任何 FAIL → 退出码 1。
 """
+import os
 import sys
 
 import numpy as np
+
+# 脚本位于 scripts/ 下 — 审计必须针对本项目代码。editable install 指向
+# 其他 worktree 时 sys.path 无 cwd, `python scripts/xxx.py` 会 import 到
+# 外部 fem2d 副本 (曾静默测到旧实现, 数据失真)。
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 import fem2d as F
 from fem2d.bc import apply_elimination, apply_penalty

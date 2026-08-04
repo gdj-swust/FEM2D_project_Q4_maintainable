@@ -6,9 +6,17 @@
 不依赖边界几何分类 — 只用坐标 + 纯拓扑 (add_traction 的边界边检查),
 保证两个版本施加相同的 BC。
 """
+import os
 import sys
 
 import numpy as np
+
+# 脚本位于 scripts/ 下 — 审计必须针对本项目代码。editable install 指向
+# 其他 worktree 时 sys.path 无 cwd, `python scripts/xxx.py` 会 import 到
+# 外部 fem2d 副本 (曾静默测到旧实现, 数据失真)。
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 from fem2d import Mesh, estimate_error, solve
 from fem2d.gmsh_adapter import import_msh
