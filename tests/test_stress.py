@@ -219,3 +219,19 @@ def test_isoband_user_levels_out_of_range_warns(capsys):
         assert "isoband warning" in out, f"超界 levels 未警告: {out!r}"
     finally:
         matplotlib.pyplot.close('all')
+
+def test_point_in_element_coordinate_guards():
+    """point_in_element 坐标守卫 — inf/1e308 曾冒裸 OverflowError
+    (kernel int 转换), 修复后: 非法坐标 ValueError 带上下文, 有限
+    域外坐标返回 -1 (域外语义), 合法点不变."""
+    import numpy as np
+    import pytest
+    from fem2d import Mesh
+    from fem2d.stress import point_in_element
+    nodes = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    m = Mesh(nodes=nodes, elements=np.array([[0, 1, 2]]))
+    assert point_in_element(m, 0.2, 0.2) == 0      # 合法路径不变
+    assert point_in_element(m, 1e308, 0.5) == -1   # 有限域外 → -1 (曾炸)
+    for bad in ((np.inf, 0.5), (np.nan, 0.5), ("abc", 0.5)):
+        with pytest.raises(ValueError, match="有限数值"):
+            point_in_element(m, *bad)

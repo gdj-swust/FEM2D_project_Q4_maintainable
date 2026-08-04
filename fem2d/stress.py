@@ -301,6 +301,22 @@ def nodal_L2_projection(mesh, elem_stress):
 
 def point_in_element(mesh, x, y):
     """Return the id of the element containing ``(x,y)``, or ``-1``."""
+    try:
+        x, y = float(x), float(y)
+        finite = bool(np.isfinite(x) and np.isfinite(y))
+    except (TypeError, ValueError):
+        finite = False
+    if not finite:
+        # inf/NaN/非数值曾冒裸 OverflowError (kernel 内 int 转换) —
+        # 契约: 带上下文的 ValueError
+        raise ValueError(
+            f"point_in_element: (x, y)=({x!r}, {y!r}) — 坐标必须为有限数值")
+    # AABB 快筛: 有限但明显域外的坐标 (如 1e308) 直接判域外 — kernel
+    # 定位器的 int 转换对巨大值溢出曾炸 OverflowError, 域外语义不变 (-1)
+    lo = mesh.nodes.min(axis=0)
+    hi = mesh.nodes.max(axis=0)
+    if x < lo[0] or x > hi[0] or y < lo[1] or y > hi[1]:
+        return -1
     mesh.build_connectivity()
     return mesh.element_kernel.find_containing_element(mesh, x, y)
 
