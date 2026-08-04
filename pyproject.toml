@@ -39,6 +39,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    "pytest-cov>=4",   # docs/coverage.md 的 `--cov=fem2d` 复现 (全新 [dev] 环境)
     "ruff>=0.4",
     "mypy>=1.10",
     "vulture>=2.7",
@@ -66,7 +67,14 @@ packages = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --strict-markers"
+xfail_strict = true
+markers = [
+    "parametrize: 参数化用例 (pytest 内建, 显式登记便于检索)",
+    "skip: 无条件跳过 (pytest 内建, 显式登记便于检索)",
+    "skipif: 条件跳过 (pytest 内建, 显式登记便于检索)",
+    "xfail: 预期失败 (pytest 内建, 显式登记便于检索)",
+]
 
 # 规则口径: E/F 错误级 (历史基线 0 错误)。其余规则组 (I/SIM/UP/BLE 等)
 # 历史代码大量命中, 不开启以免全规则检查被风格噪音淹没。

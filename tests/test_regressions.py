@@ -1,9 +1,12 @@
 """回归测试: 覆盖本轮所有关键修复, 防止未来重构静默破坏."""
 import os
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pytest
+
+MODELS_DIR = Path(__file__).resolve().parents[1] / "models"
 
 # ═══════════════════════════════════════════════════════════════
 # 1. .geo 原文件保护
@@ -12,7 +15,7 @@ import pytest
 def test_geo_original_not_deleted():
     """不改 lc 时原始 .geo 文件不被修改或删除."""
     import hashlib
-    geo = 'models/test_spec.geo'
+    geo = str(MODELS_DIR / 'test_spec.geo')
     assert os.path.isfile(geo)
     with open(geo, 'rb') as f:
         h1 = hashlib.sha256(f.read()).hexdigest()
@@ -196,7 +199,7 @@ def test_test_spec_hole_is_circle():
     from fem2d import Mesh
     from fem2d.boundary.naming import build_boundary_segments
     from fem2d.gmsh_adapter import GmshUnavailableError, generate_from_geo
-    geo = 'models/test_spec.geo'
+    geo = str(MODELS_DIR / 'test_spec.geo')
     if not os.path.isfile(geo):
         pytest.skip('models/test_spec.geo is unavailable')
     try:

@@ -5,25 +5,18 @@
 。
 """
 import math
-import os
-import tempfile
 
 import numpy as np
 import pytest
 
+from tests.conftest import GMSH_AVAILABLE, GMSH_UNAVAILABLE_REASON, mesh_result_from_geo
+
 from fem2d import Mesh, solve
 from fem2d.boundary import validate_boundary_segments
 from fem2d.boundary.naming import build_boundary_segments
-from fem2d.gmsh_adapter import generate_from_geo
 
-try:
-    import gmsh  # noqa: F401
-except (ImportError, OSError):
-    # importorskip 只捕 ImportError; gmsh 加载动态库缺 libGLU 时抛
-    # OSError, 必须同样转 skip (否则 CI 收集阶段直接中断)
-    pytest.skip(
-        "Gmsh Python API unavailable or native dependency missing",
-        allow_module_level=True)
+pytestmark = pytest.mark.skipif(
+    not GMSH_AVAILABLE, reason=GMSH_UNAVAILABLE_REASON)
 
 
 class G:  # Gmsh script builder
@@ -109,20 +102,9 @@ class G:  # Gmsh script builder
 
 
 def gmsh_api(g):
-    geo_str = g.finish()
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.geo',
-                                     delete=False) as f:
-        f.write(geo_str)
-        geo = f.name
-    try:
-        r = generate_from_geo(geo)
-        return r.nodes, r.elements, r.elem_type, r.regions
-    finally:
-        if os.path.exists(geo):
-            try:
-                os.unlink(geo)
-            except OSError:
-                pass
+    """G 脚本 → (nodes, elements, elem_type, regions)."""
+    r = mesh_result_from_geo(g.finish())
+    return r.nodes, r.elements, r.elem_type, r.regions
 
 
 def check(nodes, elems, etype, registry, want_holes, name):

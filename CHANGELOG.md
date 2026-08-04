@@ -3,7 +3,6 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
-<<<<<<< HEAD
 ## 9.22.0 (2026-08-04) — 并行批次 1+2 (pkg7 文档 + pkg8 工具 + pkg9 尺度 + pkg10 CLI + pkg11 去重 + pkg12 测试基建)
 
 ### pkg7 文档数字统刷 + 交接归档
@@ -228,6 +227,58 @@ config 退出码更新)。全量 pytest 951 passed 2 skipped 0 失败; 冒烟
 - 全量 pytest **0 失败** (含 A 组判别性测试); 回归对照
   (elimination/penalty) **相对差 0.0** (字符级一致)
 - 冻结区零改动: solver 数值路径 / error_est 公式 / element/ 未触碰
+
+### pkg12 测试基建收敛
+
+#### conftest 公共 fixture (tests/conftest.py)
+- **gmsh 可用性守卫**: `GMSH_AVAILABLE` 常量 + `gmsh_available` skipif fixture
+  (ImportError + OSError 双捕, 语义与 test_msh_import_audit 原 skipif 块一致);
+  统一 6 处重复的 `try: import gmsh` + 模块级 skip 块
+- **mesh_from_geo / mesh_result_from_geo**: 临时 .geo → generate_from_geo 的
+  4 份同构实现 (test_boundary_complex/gmsh/stress/highpressure) 收敛; 3 元组
+  版 + 完整结果版 (含 regions)
+- **square_mesh / quad_mesh fixture**: 2×2 单位方板 CPS4 (节点 CCW), 对应
+  各测试文件 _square_mesh/_quad helper 语义, 供后续迁移消费
+
+#### 6 文件脚手架迁移 (纯搬运, 断言/期望值零改动)
+- test_boundary_complex / test_boundary_gmsh / test_msh_import_audit_20260803 /
+  test_physical_point_resolution / test_boundary_highpressure / test_boundary_stress:
+  模块级 gmsh skip 统一为 `pytestmark = skipif(not GMSH_AVAILABLE)`; 临时 .geo
+  脚手架改调 conftest helper; test_physical_point_resolution 的 _square_mesh
+  改 square_mesh fixture
+- 语义提示: 4 个文件曾用模块级 `pytest.skip(allow_module_level=True)` (无 gmsh
+  环境不收集), 现统一为 skipif (收集但跳过) — 无 gmsh 环境的 collected 数将
+  增加 (docs/ci.md 的 no-gmsh 数字需以实测刷新, 属 pkg7 域, 仅报告)
+
+#### 路径卫生 (仓库外任意 cwd 跑 pytest 0 失败)
+- test_regression_audit_20260802 (2 处) / test_regression_audit_20260803 /
+  test_config / test_boundary_complex demo_complex / test_regressions (2 处):
+  `open("models/...")` / 相对路径 → `Path(__file__).resolve().parents[1]` 绝对
+  定位 + tmp_path (写入类); test_msh_import_audit `_gmsh_exe` tools/ 相对路径
+  绝对化
+- 判别性: revert 旧实现 + 从仓库外跑必失败 (test_regressions/test_regression_audit_20260802
+  实测 FileNotFoundError)
+
+#### pyproject.toml
+- `[tool.pytest.ini_options]`: `--strict-markers` + markers 登记 (parametrize/
+  skip/skipif/xfail 显式列出) + `xfail_strict = true` (现有 0 xfail, 无违规)
+- `[dev]` 补 `pytest-cov>=4`: docs/coverage.md 的 `--cov=fem2d` 在全新
+  `pip install -e .[dev]` 可直接复现 (实测本机 pytest-cov 7.1.0 运行正常)
+- filterwarnings 维持现状 (glyph 豁免不扩大)
+
+#### scripts/_test_helpers.py 不建 (按 PROMPT 规则)
+- scripts/ 5 份 _mesh/_solved/_ROOT 注入块无测试消费方 (tests 只子进程执行
+  脚本模块级代码或导入 _classify 等真实函数, 不导入 helper) — 留待 scripts
+  出现测试消费方时再抽
+
+#### 验收
+- 每步迁移后全量 pytest **939 collected → 937 passed + 2 skipped, 0 失败**
+- 从 `C:\Users\35666` (仓库外) 跑 `python -m pytest <项目路径>`:
+  **937 passed, 2 skipped, 0 失败** (判别性: 迁移前该命令在 test_regressions
+  /test_regression_audit_20260802 必失败)
+- `--strict-markers` 全量通过 (无未登记 marker); xfail_strict 无违规
+- 迁移后文件 grep: 无重复 gmsh skip 块、无 `open("models/` 相对路径
+- 判别性: revert 旧脚手架 → 全套仍全绿 (证明纯搬运)
 
 ## 9.21.1 (2026-08-04) — 审查 9.0 轮收尾
 

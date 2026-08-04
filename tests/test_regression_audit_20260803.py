@@ -245,24 +245,20 @@ def test_band_range_divisible_required():
 # .spec 未知键必须警告 (曾静默忽略, 拼错键名载荷不生效)
 # ═══════════════════════════════════════════════════════════════
 
-def test_spec_unknown_key_warns():
+def test_spec_unknown_key_warns(tmp_path):
     """拼错的键名 (tracion) 必须 WARN — 曾静默忽略导致载荷不生效."""
     from fem2d.config import AnalysisConfig
     from fem2d.input_source import resolve_spec_overrides
-    with open("models/_unkkey.geo", "w") as f:
-        f.write("Point(1) = {0, 0, 0, 0.5};\n")
-    try:
-        with open("models/_unkkey.spec", "w") as f:
-            f.write("mesh = _unkkey.geo\ntracion = right:1e6,0\nE = 210e9\n")
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            resolve_spec_overrides("models/_unkkey.spec", AnalysisConfig())
-        out = buf.getvalue()
-        assert "tracion" in out and "WARN" in out, f"未警告: {out!r}"
-    finally:
-        os.unlink("models/_unkkey.geo")
-        if os.path.isfile("models/_unkkey.spec"):
-            os.unlink("models/_unkkey.spec")
+    geo = tmp_path / "_unkkey.geo"
+    geo.write_text("Point(1) = {0, 0, 0, 0.5};\n", encoding="utf-8")
+    spec = tmp_path / "_unkkey.spec"
+    spec.write_text("mesh = _unkkey.geo\ntracion = right:1e6,0\nE = 210e9\n",
+                    encoding="utf-8")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        resolve_spec_overrides(str(spec), AnalysisConfig())
+    out = buf.getvalue()
+    assert "tracion" in out and "WARN" in out, f"未警告: {out!r}"
 
 
 # ═══════════════════════════════════════════════════════════════

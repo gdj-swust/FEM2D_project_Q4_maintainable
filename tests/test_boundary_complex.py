@@ -4,44 +4,24 @@
 缺 gmsh 包时模块级 raise 还是 collection error — 改为标准测试函数
 。
 """
-import os
-import tempfile
+from pathlib import Path
 
 import pytest
+
+from tests.conftest import GMSH_AVAILABLE, mesh_from_geo
 
 from fem2d import Mesh, detect_boundaries
 from fem2d.gmsh_adapter import generate_from_geo
 
-try:
-    import gmsh  # noqa: F401
-except (ImportError, OSError):
-    # importorskip 只捕 ImportError; gmsh 加载动态库缺 libGLU 时抛
-    # OSError, 必须同样转 skip (否则 CI 收集阶段直接中断)
-    pytest.skip(
-        "Gmsh Python API unavailable or native dependency missing",
-        allow_module_level=True)
+pytestmark = pytest.mark.skipif(
+    not GMSH_AVAILABLE, reason="Gmsh Python API unavailable or native dependency missing")
 
-
-def gmsh_mesh(geo_str):
-    """Gmsh API 生成网格, 返回 (nodes, elems, elem_type)."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.geo',
-                                     delete=False) as f:
-        f.write(geo_str)
-        geo = f.name
-    try:
-        r = generate_from_geo(geo)
-        return r.nodes, r.elements, r.elem_type
-    finally:
-        if os.path.exists(geo):
-            try:
-                os.unlink(geo)
-            except OSError:
-                pass
+MODELS_DIR = Path(__file__).resolve().parents[1] / "models"
 
 
 def _detect(geo_str):
     """生成 + 检测, 返回 (segs, outer, inner, types)."""
-    nodes, elems, etype = gmsh_mesh(geo_str)
+    nodes, elems, etype = mesh_from_geo(geo_str)
     mesh = Mesh(nodes=nodes, elements=elems, E=210e9, nu=0.3,
                 thickness=0.01, elem_type=etype)
     segs = detect_boundaries(mesh)
@@ -177,7 +157,7 @@ def test_concentric_ring():
 
 def test_demo_complex_geo_file():
     """demo_complex 直接从 .geo 生成."""
-    r = generate_from_geo('models/demo_complex.geo')
+    r = generate_from_geo(str(MODELS_DIR / "demo_complex.geo"))
     mesh = Mesh(nodes=r.nodes, elements=r.elements, E=210e9, nu=0.3,
                 thickness=0.01, elem_type=r.elem_type)
     segs = detect_boundaries(mesh)

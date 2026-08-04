@@ -4,22 +4,14 @@
 缺 gmsh 包时模块级 raise 还是 collection error — 改为标准测试函数
 。
 """
-import os
-import tempfile
-
 import pytest
 
-from fem2d import Mesh, detect_boundaries
-from fem2d.gmsh_adapter import generate_from_geo
+from tests.conftest import GMSH_AVAILABLE, GMSH_UNAVAILABLE_REASON, mesh_from_geo
 
-try:
-    import gmsh  # noqa: F401
-except (ImportError, OSError):
-    # importorskip 只捕 ImportError; gmsh 加载动态库缺 libGLU 时抛
-    # OSError, 必须同样转 skip (否则 CI 收集阶段直接中断)
-    pytest.skip(
-        "Gmsh Python API unavailable or native dependency missing",
-        allow_module_level=True)
+from fem2d import Mesh, detect_boundaries
+
+pytestmark = pytest.mark.skipif(
+    not GMSH_AVAILABLE, reason=GMSH_UNAVAILABLE_REASON)
 
 
 def inner_closed_components(segments):
@@ -31,24 +23,8 @@ def inner_closed_components(segments):
     ]
 
 
-def gmsh_run(geo_str):
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.geo',
-                                     delete=False) as f:
-        f.write(geo_str)
-        geo = f.name
-    try:
-        r = generate_from_geo(geo)
-        return r.nodes, r.elements, r.elem_type
-    finally:
-        if os.path.exists(geo):
-            try:
-                os.unlink(geo)
-            except OSError:
-                pass
-
-
 def _detect(geo_str):
-    n, e, et = gmsh_run(geo_str)
+    n, e, et = mesh_from_geo(geo_str)
     m = Mesh(nodes=n, elements=e, E=210e9, nu=0.3, thickness=0.01,
              elem_type=et)
     return detect_boundaries(m), len(n)
