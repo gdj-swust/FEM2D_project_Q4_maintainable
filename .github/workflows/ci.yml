@@ -30,6 +30,10 @@ jobs:
         run: ruff check fem2d/ scripts/ tests/ run.py run_demo.py
       - name: mypy
         run: mypy fem2d/
+      - name: vulture (dead code scan)
+        # 防死代码常驻门禁 (2026-08-04 启用): 本地基线 0 命中
+        # (fem2d scripts --min-confidence 100)。新增未引用代码 → 红灯。
+        run: vulture fem2d scripts --min-confidence 100
       - name: Self-test (standalone patch test, no gmsh needed)
         run: python run.py --self-test
 
