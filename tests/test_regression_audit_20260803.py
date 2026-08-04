@@ -221,9 +221,9 @@ def test_traction_jump_sigma_ref_nonpositive_rejected():
     m = _square_two_cst()
     m.build_connectivity()
     stress = np.array([[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
-    with pytest.raises(ValueError, match="positive"):
+    with pytest.raises(ValueError, match="must be > 0"):
         compute_traction_jumps(m, stress, sigma_ref=0.0)
-    with pytest.raises(ValueError, match="positive"):
+    with pytest.raises(ValueError, match="must be > 0"):
         compute_traction_jumps(m, stress, sigma_ref=-1.0)
 
 

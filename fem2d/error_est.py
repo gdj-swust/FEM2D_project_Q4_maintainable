@@ -19,6 +19,7 @@ import math
 
 import numpy as np
 
+from .checks import require_finite_positive
 from .element import evaluate_vector_field
 from .loads_core import LINE_GAUSS
 from .material import D_matrix
@@ -290,12 +291,26 @@ def estimate(mesh, result, method="SPR", verbose=True):
     }
 
 
+def _validate_sigma_ref(sigma_ref):
+    """sigma_ref 必须为有限正数或 None (显式参考应力).
+
+    统一标量校验 (checks.require_finite_positive): 字符串/容器/None
+    带参数名 TypeError, NaN/Inf/0/负值 ValueError — 裸 np.isfinite 对
+    字符串冒无上下文的 TypeError, 且 0/负值曾覆盖于 max(...,1e-30) 地板.
+    """
+    if sigma_ref is not None:
+        require_finite_positive(sigma_ref, "sigma_ref")
+
+
 def _traction_jump_arrays(mesh, elem_stress, sigma_ref=None):
     """Vectorized internal-edge traction jumps.
 
     Returns ``(edge_data, edge_lengths, jump_abs, jump_rel)`` where
     ``edge_data`` columns are ``node_a,node_b,eid1,eid2``.
     """
+    # 公共参数先校验, 再走空数据快速返回 — 单单元网格 (无内部边) 时
+    # 校验曾位于提前返回之后, 非法 sigma_ref 被静默接受并返回空列表.
+    _validate_sigma_ref(sigma_ref)
     mesh.build_connectivity()
     stress = np.asarray(elem_stress, dtype=float)
     edge_data = mesh.internal_edge_data
@@ -323,11 +338,7 @@ def _traction_jump_arrays(mesh, elem_stress, sigma_ref=None):
     frob = np.sqrt(
         stress[:, 0]**2 + stress[:, 1]**2 + 2.0 * stress[:, 2]**2)
     if sigma_ref is not None:
-        # 显式参考应力必须正且有限 — 曾 max(...,1e-30) 覆盖用户传入的
-        # 微尺度参考值, jump_rel 随应力幅值静默衰减
-        if not (np.isfinite(sigma_ref) and sigma_ref > 0.0):
-            raise ValueError(
-                f"sigma_ref must be finite and positive, got {sigma_ref!r}")
+        # 已由 _validate_sigma_ref 保证有限正数
         denom = np.full(len(edge_data), float(sigma_ref))
     else:
         # 归一化纯相对: local/global 尺度本身随应力幅值缩放, 无绝对下限
