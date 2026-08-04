@@ -42,23 +42,32 @@ from fem2d.stress import (
 FAILS = []
 
 
+def _expect_label(expect):
+    """期望异常的可读名 — 元组 (IndexError, ValueError) 曾用
+    expect.__name__ 直接崩溃 (AttributeError), 审计工具自身不能炸."""
+    if expect is None:
+        return "no error"
+    if isinstance(expect, tuple):
+        return "/".join(e.__name__ for e in expect)
+    return expect.__name__
+
+
 def probe(name, fn, expect):
     try:
         result = fn()
         if expect is None:
             print(f"  PASS {name}")
             return result
-        FAILS.append(f"{name}: NO ERROR (expected {expect.__name__})")
-        print(f"  FAIL {name}: NO ERROR (expected {expect.__name__})")
+        FAILS.append(f"{name}: NO ERROR (expected {_expect_label(expect)})")
+        print(f"  FAIL {name}: NO ERROR (expected {_expect_label(expect)})")
     except Exception as exc:  # noqa: BLE001 — 审计工具
         if expect is not None and isinstance(exc, expect):
             print(f"  PASS {name}: {type(exc).__name__}")
         else:
             FAILS.append(f"{name}: {type(exc).__name__} (expected "
-                         f"{expect.__name__ if expect else 'no error'}): {exc}")
+                         f"{_expect_label(expect)}): {exc}")
             print(f"  FAIL {name}: {type(exc).__name__} (expected "
-                  f"{expect.__name__ if expect else 'no error'}): "
-                  f"{str(exc)[:80]}")
+                  f"{_expect_label(expect)}): {str(exc)[:80]}")
     return None
 
 

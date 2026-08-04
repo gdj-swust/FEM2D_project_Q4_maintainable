@@ -3,6 +3,26 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
+## 9.21.1 (2026-08-04) — 审查 9.0 轮收尾
+
+### 发版阻断修复
+- **压力 callable 单元素数组校验版本无关化**: float(np.array([x])) 的弃用转换
+  随 numpy 版本变化 (2.3.5 仅警告仍转换 → 单元素数组被静默接受; 2.5.1 抛
+  TypeError) — loads_schema._load_component_ok 显式按 ndim 处理: 0 维 .item(),
+  1 维及以上拒绝, 契约全版本一致
+
+### 审计工具加固
+- probe(): expect 为元组时 expect.__name__ 崩溃 (AttributeError) → _expect_label
+- fuzz_api: feed 增加"非法输入静默成功"判定 (曾只查异常不查静默接受);
+  逐 case 标注合法值 (负压力/合法 nid/域外 -1/契约允许/一维单分量恢复等),
+  500+2000 轮 0 problems; apply_penalty case 传参位置修正 (v 曾误传 fixed_dofs)
+
+### 打包卫生
+- zip 排除 .git (18MB) 与 .coverage (本机绝对路径) — 审查建议
+
+### 验收
+全量 pytest 0 失败; 探针 0; fuzz 500/2000 轮 0; ruff 干净。
+
 ## 9.20.0 (2026-08-03) — 四路并行优化
 
 ### CI (opt_ci)
