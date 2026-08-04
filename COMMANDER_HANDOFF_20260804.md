@@ -111,8 +111,9 @@ python scripts/regression_compare.py             # 早期 vs 当前，要求相�
 | Q4R 长宽比 ≥50 不可靠 | 已文档化+分级警告；生产 opt-in 标记待用户拍板 |
 | ILU-CG 理论风险 | 已文档化（auto 默认 Jacobi/SPD） |
 | 磁盘嵌套布局 | 功能正常，建议不动 |
-| 旧 worktree（15 个） | 可清理（第三节命令） |
+| 旧 worktree（15 个，已清 10） | 剩 pkg1-6 共 5 个可清理（第三节命令） |
 | models/ 里的生成 .msh | gitignore 已排除，不入库 |
+| **组级 conic 合并（椭圆孔识别）** | **待办（下个项目，高强度模式）**：物理曲线路径（naming.py segments_from_physical_curves）对闭合组链额外跑 `fit_closed_ellipse`，残差门通过 → 输出组级"椭圆 a=.., b=.."标签（demo_complex.geo 的"椭圆孔"组 = 20 条 Line 近似，现输出 20 段直边）。**行为冻结三约束**：①只改段标签展示层，边界边集合/载荷路径/压力法向零改动；②严格残差门——通不过保持原状，宁可不合并不误标；③判别性测试锁定旧行为（20 段直边）+ 求解结果逐位不变。理由：边界识别是载荷输入链（动脉），识别错会静默改求解结果，故只碰展示层。背景：fit_closed_ellipse docstring 即为"弦连接点重拟合椭圆"设计，自动检测路径 topology.py:178 已在用 |
 
 ## 七、历史轮次摘要（供引用）
 
