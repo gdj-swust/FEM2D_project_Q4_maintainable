@@ -22,7 +22,10 @@ from contextlib import redirect_stdout
 import numpy as np
 import pytest
 
-# 环境敏感诊断行 — 结构必须逐字符匹配 (regex 锚定整行), 数值容差比较
+# 环境敏感诊断行 — 结构必须逐字符匹配 (regex 锚定整行), 数值容差比较.
+# rel 分量 (力/力矩平衡比率) 是近零噪声的比率, 跨平台放大观测达 4.2×
+# (q4r: 5.27e-09 vs 1.26e-09) — 单独放宽; 分量本身由 atol 主锁,
+# 平衡真破坏 (分量 ~1e-10+) 仍被 atol=1e-12 拒绝
 _RESID_RE = re.compile(
     r"\[OK\] Residual = ([0-9.eE+-]+) \(backward error\)\n")
 _SIGF_RE = re.compile(
@@ -30,11 +33,14 @@ _SIGF_RE = re.compile(
     r"\(rel: ([0-9.eE+-]+)\)\n")
 _SIGM_RE = re.compile(
     r"\[Solver\] ΣM = ([0-9.eE+-]+) N·m  \(rel: ([0-9.eE+-]+)\)\n")
-_DIAG_RE = (_RESID_RE, _SIGF_RE, _SIGM_RE)
+# (pattern, rel 分量索引); None = 无 rel 分量
+_DIAG_RE = ((_RESID_RE, None), (_SIGF_RE, 2), (_SIGM_RE, 1))
 _BALANCE_KEYS = ("residual", "force_balance", "moment_balance")
 # rtol=2.0: 观测到 2× 舍入差异 (4.15e-17 vs 2.07e-17); atol=1e-12:
 # 覆盖近零分量 (如 0.0 vs -5.68e-14) — 微尺度模型 (1e-166) 亦远小于此
 _DIAG_RTOL, _DIAG_ATOL = 2.0, 1e-12
+# rel 分量: 近零噪声的比率, 观测放大 4.2× → rtol=1e2 留 24× 余量
+_REL_RTOL = 1e2
 # 数值派生键 (u/stress/reactions/...): 跨平台 ±1 ulp 噪声 (观测 1 ulp);
 # 近零分量 (理论为 0 的 τxy 等) 是积分求和序噪声 (观测 2.27e-12 vs
 # 4.09e-12, 应力尺度 1e5 的 ~1e-17 相对) — rtol 对近零值失效, 补
@@ -46,7 +52,7 @@ _NUM_ATOL_FACTOR = 1e-12
 
 def _compare_stdout(name, out, golden_out):
     """逐字符比较, 环境敏感诊断行剥离后容差比较."""
-    for pattern in _DIAG_RE:
+    for pattern, rel_idx in _DIAG_RE:
         om, gm = pattern.search(out), pattern.search(golden_out)
         assert om is not None or gm is None, (
             f"[{name}] 金标准无 {pattern.pattern[:24]}... 行但当前输出有")
@@ -54,11 +60,17 @@ def _compare_stdout(name, out, golden_out):
             f"[{name}] 金标准有 {pattern.pattern[:24]}... 行但当前输出缺失")
         if om is None:
             continue
-        for a, g in zip(om.groups(), gm.groups()):
-            assert np.isclose(float(a), float(g), rtol=_DIAG_RTOL,
-                              atol=_DIAG_ATOL), (
-                f"[{name}] {pattern.pattern[:16]}: 数值漂移 "
-                f"{a!r} vs 金标准 {g!r}")
+        for i, (a, g) in enumerate(zip(om.groups(), gm.groups())):
+            if i == rel_idx:
+                assert np.isclose(float(a), float(g), rtol=_REL_RTOL,
+                                  atol=0.0), (
+                    f"[{name}] {pattern.pattern[:16]}: rel 数值漂移 "
+                    f"{a!r} vs 金标准 {g!r}")
+            else:
+                assert np.isclose(float(a), float(g), rtol=_DIAG_RTOL,
+                                  atol=_DIAG_ATOL), (
+                    f"[{name}] {pattern.pattern[:16]}: 数值漂移 "
+                    f"{a!r} vs 金标准 {g!r}")
         out = out[:om.start()] + out[om.end():]
         golden_out = golden_out[:gm.start()] + golden_out[gm.end():]
     assert out == golden_out, (
@@ -242,6 +254,14 @@ def test_result_numeric_tolerance_1ulp_accepted_drift_rejected():
     q4_drift["stress"] = [[-9926.47058823529, -100000.0, 1.0e-6]]
     with pytest.raises(AssertionError):
         _compare_result("q4", q4_drift, q4)
+    # ΣF rel 4.2× (q4r, CI 观测 5.27e-09 vs 1.26e-09) → 接受
+    q4r_out = GOLDEN["q4r"]["stdout"]
+    _compare_stdout("q4r", q4r_out.replace("rel: 1.26e-09", "rel: 5.27e-09"),
+                    q4r_out)
+    # rel 真回归 (1e-3) → 拒绝
+    with pytest.raises(AssertionError):
+        _compare_stdout("q4r", q4r_out.replace("rel: 1.26e-09", "rel: 1.00e-03"),
+                        q4r_out)
 
 
 def test_residual_line_structure_still_locked():
