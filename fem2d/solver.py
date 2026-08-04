@@ -46,7 +46,12 @@ def estimate_condition(K, method="auto"):
 
     返回
     ----
-    dict: {cond, digits_lost, status}
+    dict (7 键, 成功/失败形状一致):
+        condition_number : float or None — cond(K); 特征值求解失败时为 None
+        lambda_min / lambda_max : float or None — 最小/最大特征值
+        digits_lost : float or None — 估计的精度损失位数
+        status : str — "GOOD"/"OK"/"WARN"/"CRITICAL"/"SINGULAR?"/"SKIP"
+        error : str or None — 失败原因 (成功时为 None)
     """
     if not issparse(K):
         K = np.asarray(K)
@@ -104,25 +109,29 @@ def estimate_condition(K, method="auto"):
             "lambda_max": lam_max,
             "digits_lost": digits_lost,
             "status": status,
+            "error": None,
         }
     except Exception as e:
         # shift-invert 在奇异矩阵上可靠失败 — 正是最需要报警的场景。
         # 特征值求解器的数值失败 (奇异/秩亏矩阵) 单独归为 "SINGULAR?",
         # 与 "SKIP" (规模过大/其他原因) 区分, 调用方据此给出不同提示。
+        # 失败路径补齐成功路径的全部键 (None 填充) — 曾缺
+        # lambda_min/lambda_max/digits_lost 四键, 调用方逐键访问崩溃
         from numpy.linalg import LinAlgError
         try:
             from scipy.sparse.linalg import ArpackError
         except ImportError:
             ArpackError = RuntimeError  # 老 scipy 无 ArpackError
         if isinstance(e, (LinAlgError, ArpackError, RuntimeError)):
-            return {
-                "condition_number": None,
-                "status": "SINGULAR?",
-                "error": f"{type(e).__name__}: {e}",
-            }
+            status = "SINGULAR?"
+        else:
+            status = "SKIP"
         return {
             "condition_number": None,
-            "status": "SKIP",
+            "lambda_min": None,
+            "lambda_max": None,
+            "digits_lost": None,
+            "status": status,
             "error": f"{type(e).__name__}: {e}",
         }
 
@@ -163,11 +172,12 @@ def _solve_linear_system(K, F, free_dofs, fixed_dofs, prescribed,
     K_mod, F_mod = None, None  # penalty 方法使用, 残差检查需要
     linear_solver_info = {"name": "none", "iterations": 0}
     _validate_system_inputs(K, F)
-    # solver 名称在任何分支前校验 — 曾纯 Dirichlet 分支 (全约束) 在
-    # 名称检查前返回, linear_solver="bogus" 静默成功
+    # solver 名称在任何分支前统一校验一次 — 曾纯 Dirichlet 分支 (全约束)
+    # 在名称检查前返回, linear_solver="bogus" 静默成功; 且 elimination
+    # 分支内逐字重复第二遍校验, 两处必须保持同步
     solver_key = str(linear_solver).strip().lower()
     if solver_key == "cg-block":
-        solver_key = "cg"
+        solver_key = "cg"  # 兼容别名 — 归一后各分支只认 4 种键
     if solver_key not in {"direct", "cg", "ilu", "auto"}:
         raise ValueError(
             f"Unknown linear_solver '{linear_solver}'; "
@@ -180,15 +190,8 @@ def _solve_linear_system(K, F, free_dofs, fixed_dofs, prescribed,
         R_full = K.dot(u) - F
         reactions = R_full[fixed_dofs]
     elif method == "elimination":
-        solver_key = str(linear_solver).strip().lower()
         if solver_key == "auto":
             solver_key = "cg" if len(free_dofs) >= 100000 else "direct"
-        if solver_key == "cg-block":
-            solver_key = "cg"
-        if solver_key not in {"direct", "cg", "ilu"}:
-            raise ValueError(
-                f"Unknown linear_solver '{linear_solver}'; "
-                "expected auto, direct, cg, cg-block or ilu.")
         solver_label = {
             "direct": "SuperLU",
             "cg": "Jacobi-PCG",
@@ -206,7 +209,7 @@ def _solve_linear_system(K, F, free_dofs, fixed_dofs, prescribed,
                 f"{linear_solver_info['iterations']} "
                 f"(rtol={linear_solver_info['rtol']:.1e})")
     elif method == "penalty":
-        if str(linear_solver).strip().lower() not in {"auto", "direct"}:
+        if solver_key not in {"auto", "direct"}:
             raise ValueError(
                 "Penalty constraints currently require the direct solver.")
         log("[Solver] 乘大数法 + spsolve ...")
@@ -588,13 +591,30 @@ def solve(
 
     返回
     ----
-    dict:
+    dict (消去法与乘大数法均返回相同键集; 条件数/平衡数据按参数条件附加):
         u         : (n_dof,) ndarray — 节点位移
         stress    : (n_elem, 3) ndarray — 单元应力 [σ_x, σ_y, τ_xy]
         strain    : (n_elem, 3) ndarray — 单元应变 [ε_x, ε_y, γ_xy]
         vm_stress : (n_elem,) ndarray — von Mises 等效应力
-        reactions : (n_fixed,) ndarray or None — 支反力 (仅消去法)
-        residual  : float — 相对残差 ||K·u - F|| / ||F||
+        stress_qp : (n_elem, n_qp, 3) ndarray — 积分点应力
+        strain_qp : (n_elem, n_qp, 3) ndarray — 积分点应变
+        dA_qp     : (n_elem, n_qp) ndarray — 积分点面积权重
+        reactions : (n_fixed,) ndarray — 支反力 (两种方法均计算返回)
+        residual  : float — 后向误差相对残差
+                   ||r||_∞/(||K||_∞·||u||_∞ + ||F||_∞) (Bathe §8.2.6)
+        small_deformation_ok : bool — 小变形假设是否成立
+        internal_energy : float — 应变能 ½uᵀKu
+        hourglass_energy / hourglass_energy_ratio : float — Q4R 沙漏能
+        hourglass_energy_elem : (n_elem,) ndarray — 仅 Q4R 内核存在
+        linear_solver : dict — {name, iterations[, preconditioner, rtol]};
+                    name ∈ {"none", "direct", "cg"} ("none" = 纯 Dirichlet)
+        reaction_dofs : (n_fixed,) ndarray — 支反力对应 DOF
+        reaction_vector : (n_dof,) ndarray — 全 DOF 支反力 (零填充)
+        external_force_vector : (n_dof,) ndarray — 等效节点载荷 F
+        force_balance / moment_balance : ndarray / float — ΣR+ΣF, ΣM
+        balance_ok : bool — 全局平衡检查是否通过
+                    (reaction_dofs..balance_ok 仅在存在支反力时附加)
+        condition_info : dict — estimate_condition 输出 (check_condition 时)
     """
     log = print if verbose else (lambda *a, **k: None)
     if not (hasattr(mesh, "validate_state") and hasattr(mesh, "n_dof")):

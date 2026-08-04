@@ -1,6 +1,7 @@
 """Joint Gmsh-semantic and mesh-geometric boundary segmentation tests."""
 
 import numpy as np
+import pytest
 
 from fem2d import Mesh
 from fem2d.boundary import (
@@ -646,3 +647,25 @@ def test_concave_c_loop_probe_is_strictly_inside():
         mean[0], mean[1], coords[:, 0], coords[:, 1])
     assert _point_in_loop(
         probe[0], probe[1], coords[:, 0], coords[:, 1])
+
+
+def test_validate_boundary_segments_canonicalizes_edge_keys():
+    """边界边键规范化契约 (pkg11 A4).
+
+    判别性: 分段节点可任意换向 (反向边必须与正向边视为同一条),
+    边界边为 numpy int64 也必须可哈希判重 — 曾内联 _canon 与
+    canonical_edge 双实现, 本测试锁死唯一实现的行为。
+    """
+    mesh = _strip_mesh()
+    mesh.build_connectivity()
+    # 覆盖全部 6 条边界边; 段 2 反向遍历 {2,3,4}→[4,3,2] 验证换向
+    segments = [
+        {"nodes": [0, 1, 2]},
+        {"nodes": [4, 3, 2]},
+        {"nodes": [4, 5, 0]},
+    ]
+    assert validate_boundary_segments(mesh, segments)
+    # 重复一条反向边 → duplicated 必须被检出
+    segments.append({"nodes": [0, 5]})
+    with pytest.raises(ValueError, match="duplicated"):
+        validate_boundary_segments(mesh, segments)

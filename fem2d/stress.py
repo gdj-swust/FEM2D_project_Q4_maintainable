@@ -115,6 +115,52 @@ def nodal_weighted(mesh, elem_stress):
     return nodal_average(mesh, elem_stress, weights="area")
 
 
+def _l2_batch_assembly(mesh, N_all, dA_all, stress_qp):
+    """批量 L2 组装共享内核 — batch 与 uniform 两路径复用.
+
+    N_all 恒为 ``(ne, nqp, npe)``: batch 路径由调用方 broadcast 共享
+    恢复规则, uniform 路径直接堆叠 — 两路径求和序相同 (Σ_q), 局部
+    质量/右端与全局散点逐位一致。返回 (mass_csr, rhs)。
+    """
+    conn = mesh.elements
+    ne, npe = conn.shape
+    n_nodes = mesh.n_nodes
+    n_comp = stress_qp.shape[-1]
+    local_mass = np.einsum("eqi,eqj,eq->eij", N_all, N_all, dA_all)
+    local_rhs = np.einsum("eqi,eqc,eq->eic", N_all, stress_qp, dA_all)
+    rows = np.broadcast_to(conn[:, None, :], (ne, npe, npe)).ravel()
+    cols = np.broadcast_to(conn[:, :, None], (ne, npe, npe)).ravel()
+    mass = coo_matrix(
+        (local_mass.ravel(), (rows, cols)),
+        shape=(n_nodes, n_nodes)).tocsr()
+    flat = conn.ravel()
+    rhs = np.zeros((n_nodes, n_comp))
+    for component in range(n_comp):
+        rhs[:, component] = np.bincount(
+            flat, weights=local_rhs[:, :, component].ravel(),
+            minlength=n_nodes)
+    return mass, rhs
+
+
+def _l2_stress_qp(elem_stress, nqp, n_comp, n_elem):
+    """积分点应力准备 — 代表值广播 (2D) 或单点采样广播 (nqp==1 特例)."""
+    if elem_stress.ndim == 2:
+        return np.broadcast_to(
+            elem_stress[:, None, :], (n_elem, nqp, n_comp))
+    stress_qp = elem_stress
+    if stress_qp.shape[1] == 1 and nqp != 1:
+        # 单点采样内核 (如 Q4R/CST): 应力只在质心采样, 但质量阵
+        # 必须用内核的积分规则 (单点 N^T N 只有秩 1, 一致质量阵
+        # 会奇异)。代表应力沿积分点广播即可。
+        return np.broadcast_to(
+            stress_qp[:, 0, :][:, None, :], (n_elem, nqp, n_comp))
+    if stress_qp.shape[1] != nqp:
+        raise ValueError(
+            f"{stress_qp.shape[1]} stress samples, but "
+            f"{nqp} quadrature samples are required")
+    return stress_qp
+
+
 def nodal_L2_projection(mesh, elem_stress):
     """Consistent-mass L2 projection using the active kernel quadrature.
 
@@ -138,8 +184,8 @@ def nodal_L2_projection(mesh, elem_stress):
         raise ValueError(
             "nodal_L2_projection: elem_stress contains NaN/Inf — "
             "恢复输入非法")
-    n_nodes = mesh.n_nodes
     n_comp = elem_stress.shape[-1]
+    n_nodes = mesh.n_nodes
     kernel = mesh.element_kernel
     conn = mesh.elements
     ne = conn.shape[0]
@@ -170,37 +216,11 @@ def nodal_L2_projection(mesh, elem_stress):
                 f"{kernel.name} recovery weights have shape {dA.shape}; "
                 f"expected ({mesh.n_elements}, {nqp}).")
 
-        # 一致质量阵: local_mass_e = Nᵀ diag(dA_e) N — 一次性 einsum
-        local_mass = np.einsum("qi,qj,eq->eij", N, N, dA)
-        if elem_stress.ndim == 2:
-            stress_qp = np.broadcast_to(
-                elem_stress[:, None, :], (mesh.n_elements, nqp, n_comp))
-        else:
-            stress_qp = elem_stress
-            if stress_qp.shape[1] == 1 and nqp != 1:
-                # 单点采样内核 (如 Q4R/CST): 应力只在质心采样, 但质量阵
-                # 必须用内核的积分规则 (单点 N^T N 只有秩 1, 一致质量阵
-                # 会奇异)。代表应力沿积分点广播即可。
-                stress_qp = np.broadcast_to(
-                    stress_qp[:, 0, :][:, None, :],
-                    (mesh.n_elements, nqp, n_comp))
-            elif stress_qp.shape[1] != nqp:
-                raise ValueError(
-                    f"{stress_qp.shape[1]} stress samples, but "
-                    f"{nqp} quadrature samples are required")
-        local_rhs = np.einsum("qi,eqc,eq->eic", N, stress_qp, dA)
-
-        rows = np.broadcast_to(conn[:, None, :], (ne, npe, npe)).ravel()
-        cols = np.broadcast_to(conn[:, :, None], (ne, npe, npe)).ravel()
-        mass = coo_matrix(
-            (local_mass.ravel(), (rows, cols)),
-            shape=(n_nodes, n_nodes)).tocsr()
-        flat = conn.ravel()
-        rhs = np.zeros((n_nodes, n_comp))
-        for component in range(n_comp):
-            rhs[:, component] = np.bincount(
-                flat, weights=local_rhs[:, :, component].ravel(),
-                minlength=n_nodes)
+        stress_qp = _l2_stress_qp(elem_stress, nqp, n_comp, ne)
+        # 共享规则广播到逐单元布局 (视图, 零拷贝) — 与 uniform 堆叠路径
+        # 共用同一组装内核, 求和序相同 → 逐位一致
+        mass, rhs = _l2_batch_assembly(
+            mesh, np.broadcast_to(N, (ne, nqp, npe)), dA, stress_qp)
     else:
         # 逐单元兼容路径 (外部内核无批量恢复规则)。先收集全部恢复规则:
         # nqp/N 形状逐单元一致时堆叠批量计算 — CST/Q4R 的 L2 质量阵
@@ -223,35 +243,8 @@ def nodal_L2_projection(mesh, elem_stress):
         if uniform and nqp is not None:
             N_all = np.stack(N_list)                     # (ne, nqp, npe)
             dA_all = np.stack(dA_list)                   # (ne, nqp)
-            if elem_stress.ndim == 2:
-                stress_qp = np.broadcast_to(
-                    elem_stress[:, None, :], (ne, nqp, n_comp))
-            else:
-                stress_qp = elem_stress
-                if stress_qp.shape[1] == 1 and nqp != 1:
-                    stress_qp = np.broadcast_to(
-                        stress_qp[:, 0, :][:, None, :],
-                        (ne, nqp, n_comp))
-                elif stress_qp.shape[1] != nqp:
-                    raise ValueError(
-                        f"{stress_qp.shape[1]} stress samples, but "
-                        f"{nqp} quadrature samples are required")
-            local_mass = np.einsum("eqi,eqj,eq->eij", N_all, N_all, dA_all)
-            local_rhs = np.einsum("eqi,eqc,eq->eic", N_all, stress_qp,
-                                  dA_all)
-            rows = np.broadcast_to(
-                conn[:, None, :], (ne, npe, npe)).ravel()
-            cols = np.broadcast_to(
-                conn[:, :, None], (ne, npe, npe)).ravel()
-            mass = coo_matrix(
-                (local_mass.ravel(), (rows, cols)),
-                shape=(n_nodes, n_nodes)).tocsr()
-            rhs = np.zeros((n_nodes, n_comp))
-            for component in range(n_comp):
-                rhs[:, component] = np.bincount(
-                    conn.ravel(),
-                    weights=local_rhs[:, :, component].ravel(),
-                    minlength=n_nodes)
+            stress_qp = _l2_stress_qp(elem_stress, nqp, n_comp, ne)
+            mass, rhs = _l2_batch_assembly(mesh, N_all, dA_all, stress_qp)
         else:
             # nqp/N 逐单元变化 (第三方内核): 逐单元处理
             rows, cols, values = [], [], []
