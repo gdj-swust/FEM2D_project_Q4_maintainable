@@ -5,9 +5,17 @@
 同一份四边形网格 (plate_q4.msh) 覆写单元类型与节点坐标,
 每个组合全链路 solve + 误差估计, 抓: 崩溃 / NaN/Inf / 静默零解。
 """
+import os
 import sys
 
 import numpy as np
+
+# 脚本位于 scripts/ 下 — 审计必须针对本项目代码。editable install 指向
+# 其他 worktree 时 sys.path 无 cwd, `python scripts/xxx.py` 会 import 到
+# 外部 fem2d 副本 (曾静默测到旧实现, 数据失真)。
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 from fem2d import Mesh, estimate_error, solve
 

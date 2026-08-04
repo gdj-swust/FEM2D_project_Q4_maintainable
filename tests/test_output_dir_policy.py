@@ -3,8 +3,9 @@
 覆盖:
 - --output-dir 生效: .msh/临时文件写入指定目录, 输入目录无残留
 - 默认行为不变: 无 --output-dir 时输出路径逐字节保持历史值 (回归锁)
-- 只读目录: chmod / monkeypatch PermissionError / Windows 只读文件
-  → 清晰错误 "输出目录不可写 — 请用 --output-dir 指定可写位置", 非裸异常
+- 只读目录: monkeypatch PermissionError (代替 chmod 0555 — root 容器
+  绕过权限检查) / Windows 只读文件 → 清晰错误 "输出目录不可写 — 请用
+  --output-dir 指定可写位置", 非裸异常
 - 同名 .msh 覆盖保护: 本程序生成物 (带 $Comments 标记) 覆盖;
   来源不明 WARN + 临时副本, 原文件不碰 (resolve_txt 手写 .geo 同模式)
 
@@ -251,24 +252,24 @@ def test_msh_direct_input_output_dir_warns(tmp_path, monkeypatch):
 # 3. 只读目录 → 清晰错误 (非裸异常)
 # ═══════════════════════════════════════════════════════════════
 
-def test_readonly_input_dir_clear_error_posix(tmp_path):
-    """chmod 只读输入目录 → 清晰错误 (POSIX 语义)."""
-    if os.name == "nt":
-        pytest.skip("POSIX-only: Windows 目录只读属性不阻止文件创建")
+def test_readonly_input_dir_clear_error(tmp_path, monkeypatch):
+    """输出目录不可写 (os.replace 拒绝, 模拟只读目录) → resolve_geo
+    清晰错误 — monkeypatch 代替 chmod 0555 (root 容器绕过权限检查,
+    无 gmsh 环境同样可跑)."""
     from fem2d.input_source import resolve_geo
-    inp = tmp_path / "inp"
-    inp.mkdir()
-    geo = inp / "m.geo"
+    geo = tmp_path / "m.geo"
     geo.write_text("Point(1) = {0, 0, 0, 0.1};\n", encoding="utf-8")
-    os.chmod(inp, 0o555)
-    try:
-        with pytest.raises(CliError) as exc:
-            resolve_geo(str(geo), AnalysisConfig())
-        assert "输出目录不可写" in str(exc.value), exc.value
-        assert "--output-dir" in str(exc.value), exc.value
-        assert exc.value.exit_code == 1
-    finally:
-        os.chmod(inp, 0o755)
+    _patch_mesh_chain(monkeypatch, tmp_path)
+
+    def denied(src, dst):
+        raise PermissionError(f"denied: {dst}")
+
+    monkeypatch.setattr("os.replace", denied)
+    with pytest.raises(CliError) as exc:
+        resolve_geo(str(geo), AnalysisConfig())
+    assert "输出目录不可写" in str(exc.value), exc.value
+    assert "--output-dir" in str(exc.value), exc.value
+    assert exc.value.exit_code == 1
 
 
 def test_windows_readonly_attr_dir_no_false_positive(tmp_path, monkeypatch):
@@ -433,7 +434,8 @@ def test_marker_readable_by_real_gmsh(tmp_path):
     锁定 — 标记方案的前提是 gmsh 读回不受影响)."""
     try:
         import gmsh
-    except ImportError as error:
+    except (ImportError, OSError) as error:
+        # OSError: 缺系统共享库 (如 libGLU.so.1) 也在 import 阶段抛
         pytest.skip(f"gmsh 不可用: {error}")
     msh = str(tmp_path / "t.msh")
     try:
