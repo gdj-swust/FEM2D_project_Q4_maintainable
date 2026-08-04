@@ -701,25 +701,20 @@ def test_normalize_element_orientation_cw_to_ccw():
     assert normalize_element_orientation(nodes, np.empty((0, 3))).shape == (0, 3)
 
 
-def test_spec_no_plot_truthy_values():
+def test_spec_no_plot_truthy_values(tmp_path):
     """.spec 的 no_plot 必须接受 1/0/true/false/yes/no (曾只认 "true")."""
-    import os
     from fem2d.config import AnalysisConfig
     from fem2d.input_source import resolve_spec_overrides
-    with open("models/_nptest.geo", "w") as f:
-        f.write("Point(1) = {0, 0, 0, 0.5};\n")
-    try:
-        for val, expect in (("1", True), ("0", False), ("true", True),
-                            ("false", False), ("yes", True), ("no", False)):
-            p = f"models/_nptest_{val}.spec"
-            with open(p, "w") as f:
-                f.write(f"mesh = _nptest.geo\nno_plot = {val}\n")
-            cfg = AnalysisConfig()
-            resolve_spec_overrides(p, cfg)
-            assert cfg.no_plot is expect, f"no_plot={val} → {cfg.no_plot}"
-            os.unlink(p)
-    finally:
-        os.unlink("models/_nptest.geo")
+    geo = tmp_path / "_nptest.geo"
+    geo.write_text("Point(1) = {0, 0, 0, 0.5};\n", encoding="utf-8")
+    for val, expect in (("1", True), ("0", False), ("true", True),
+                        ("false", False), ("yes", True), ("no", False)):
+        p = tmp_path / f"_nptest_{val}.spec"
+        p.write_text(f"mesh = _nptest.geo\nno_plot = {val}\n",
+                     encoding="utf-8")
+        cfg = AnalysisConfig()
+        resolve_spec_overrides(str(p), cfg)
+        assert cfg.no_plot is expect, f"no_plot={val} → {cfg.no_plot}"
 
 
 def test_weighted_error_consistent_with_spr_on_linear_field():
@@ -1135,19 +1130,13 @@ def test_construct_interior_edge_traction_rejected_at_solve():
         solve(m, method="elimination", verbose=False)
 
 
-def test_spec_no_plot_whitelist():
+def test_spec_no_plot_whitelist(tmp_path):
     """.spec no_plot 非法字符串必须报错 (曾静默当 False)."""
-    import os
     from fem2d.config import AnalysisConfig
     from fem2d.input_source import resolve_spec_overrides
-    with open("models/_nptest2.geo", "w") as f:
-        f.write("Point(1) = {0, 0, 0, 0.5};\n")
-    try:
-        with open("models/_npbad.spec", "w") as f:
-            f.write("mesh = _nptest2.geo\nno_plot = banana\n")
-        with pytest.raises(ValueError, match="no_plot"):
-            resolve_spec_overrides("models/_npbad.spec", AnalysisConfig())
-    finally:
-        os.unlink("models/_nptest2.geo")
-        if os.path.isfile("models/_npbad.spec"):
-            os.unlink("models/_npbad.spec")
+    geo = tmp_path / "_nptest2.geo"
+    geo.write_text("Point(1) = {0, 0, 0, 0.5};\n", encoding="utf-8")
+    bad = tmp_path / "_npbad.spec"
+    bad.write_text("mesh = _nptest2.geo\nno_plot = banana\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="no_plot"):
+        resolve_spec_overrides(str(bad), AnalysisConfig())

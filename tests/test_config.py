@@ -329,8 +329,10 @@ def test_main_returns_zero_for_batch(monkeypatch):
     monkeypatch.setattr(input_source, "generate_geo_with_topology",
                         fake_generate)
     from fem2d.runner import main
+    from pathlib import Path
+    models_dir = Path(__file__).resolve().parents[1] / "models"
     with contextlib.redirect_stdout(io.StringIO()):
-        code = main(["models/plate_q4.geo", "--fix", "left",
+        code = main([str(models_dir / "plate_q4.geo"), "--fix", "left",
                      "--traction", "right:1e6,0", "--no-plot"])
     assert code == 0
 
