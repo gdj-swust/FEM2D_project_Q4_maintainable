@@ -118,6 +118,7 @@
 | point_in_element | (mesh, x, y) | x,y 有限标量 | 返回 -1 (不在网格) — 调用方契约; NaN → 返回 -1 | ✅ |
 | spr_recovery | (mesh, elem_stress) | (n_elem, n_comp) 或 (n_elem, nqp, n_comp) | 首维 ≠ n_elem → ValueError (入口校验); NaN → ValueError "contains NaN/Inf"; 孤立节点 → 无样点节点回退平均 (设计行为) | ✅ (K8) |
 | element_refinement_indicator | (mesh, result) | result: solve() dict | result 非 dict 或缺 "stress" → ValueError 带键名 (曾裸 KeyError) | ✅ (复查轮 66b3d8e) |
+| compute_traction_jumps | (mesh, elem_stress, sigma_ref=None) | elem_stress: (n_elem, 3); sigma_ref: 有限正数或 None | sigma_ref 非数值 (str/容器/None) → TypeError 带参数名; NaN/Inf/0/负值 → ValueError; 单单元网格 (无内部边) 非法 sigma_ref 仍报错 — 校验先于空数据快速返回 | ✅ (组C q4rest) |
 
 ---
 
@@ -200,7 +201,7 @@
 
 | # | 缺口 | 位置 | 状态 (修复 commit) |
 |---|------|------|--------------------|
-| K1 | 标量有限性检查对**非数值类型** (str/complex/容器) 冒裸 TypeError: `np.isfinite("a")` | mesh.fix_node / add_force / add_traction / add_pressure / __init__ 材料 / D_matrix / config | ✅ 已修 — `fem2d/checks.py` `require_finite_scalar/_positive/_nu_valid` (c3d14c5) |
+| K1 | 标量有限性检查对**非数值类型** (str/complex/容器) 冒裸 TypeError: `np.isfinite("a")` | mesh.fix_node / add_force / add_traction / add_pressure / __init__ 材料 / D_matrix / config / q4r 沙漏系数 / error_est sigma_ref | ✅ 已修 — `fem2d/checks.py` `require_finite_scalar/_positive/_nu_valid` (c3d14c5; q4r/error_est 组C 收敛) |
 | K2 | `fix_nodes_func(node_list, func)`: node_list 传标量 → 裸 TypeError; func 返回多余分量静默忽略 | mesh.py | ✅ 已修 (e367b19) |
 | K3 | `principal_stresses`: 形状 (n,3) 未校验 → 裸 IndexError; NaN/Inf 静默传播 | stress.py | ✅ 已修 (f3d75b5) |
 | K4 | `estimate_error`/`stress_at_point`: result 缺键 → 裸 KeyError | error_est.py, stress.py | ✅ 已修 (f3d75b5) |
