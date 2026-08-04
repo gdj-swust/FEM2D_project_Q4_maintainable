@@ -5,7 +5,6 @@
 旧实现原样返回负内能; 判别性: 放回旧实现 (无钳制) 必须失败。
 """
 import numpy as np
-import pytest
 
 from fem2d import Mesh
 from fem2d.solver import solve
