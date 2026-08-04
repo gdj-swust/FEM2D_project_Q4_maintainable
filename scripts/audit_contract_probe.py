@@ -14,9 +14,10 @@
                                             真实 Gmsh, 不在本探针覆盖内)
   F         材料与单元注册                  9 (全部行)
   G         边界                           10 (契约 6 行全覆盖)
+  G2        识别器注册表与插件接口         7 (阶段 2/3 新增契约)
   H         配置与质量                     11 (全部行)
   I         装配                            2 (契约 2 行全覆盖)
-  合计: 129 项探针 (可用 AST 统计 probe() 调用数核对)。
+  合计: 136 项探针 (可用 AST 统计 probe() 调用数核对)。
 每组的"全部行"以契约表行数为准; 行内无具体误用错误声明的
 (如 I 组"非对称内核 → RuntimeError") 以合法输入不抛为探针内容。
 """
@@ -35,7 +36,15 @@ if _ROOT not in sys.path:
 
 import fem2d as F
 from fem2d.bc import apply_elimination, apply_penalty
-from fem2d.boundary import build_boundary_segments
+from fem2d.boundary import (
+    build_boundary_segments,
+    default_registry,
+    register_detector,
+)
+from fem2d.boundary.detectors import Detector
+from fem2d.boundary.plugins.circle_label import (
+    NativeCircleLabelDetector,
+)
 from fem2d.config import AnalysisConfig
 from fem2d.error_est import (
     element_refinement_indicator,
@@ -294,6 +303,68 @@ probe("physical_curves None", lambda: F.segments_from_physical_curves(_mesh(), N
 probe("physical_curves unmapped", lambda: F.segments_from_physical_curves(_mesh(), {(0, 1): "no_such_curve"}), None)
 probe("region_registry empty", lambda: F.segments_from_region_registry(_mesh(), RegionRegistry()), None)
 probe("semantic_coverage ok", lambda: F.semantic_coverage(_mesh(), _SEGS), None)
+
+print("== G2 识别器注册表与插件接口 (阶段 2/3 新增) ==")
+
+
+def _probe_default_order():
+    names = [d.name for d in default_registry().detectors()]
+    assert names == ["line", "circle", "ellipse", "general"], names
+probe("default registry order", _probe_default_order, None)
+
+
+def _probe_detector_interface():
+    # 基类未实现 detect → NotImplementedError; 段类型枚举受控
+    Detector().detect(
+        np.array([[0.0, 0.0], [1.0, 0.0]]),
+        scale=1.0, is_outer=True, closed=False)
+probe("detector base detect", _probe_detector_interface, NotImplementedError)
+
+
+def _probe_registry_classify():
+    line = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]])
+    seg_type, label, info = default_registry().classify(line, 2.0, True)
+    assert seg_type == "line" and info["axis"] == "y"
+probe("registry classify line", _probe_registry_classify, None)
+
+
+def _probe_plugin_interface():
+    plugin = NativeCircleLabelDetector()
+    assert plugin.name == "native_circle_label"
+    angle = 2.0 * np.pi * np.arange(32) / 32
+    chain = np.column_stack([1.5 * np.cos(angle), 1.5 * np.sin(angle)])
+    detection = plugin.detect(
+        chain, scale=2.0, is_outer=True, closed=True,
+        native_entities=("Circle",))
+    assert detection is not None
+    assert detection.type == "arc"
+    assert detection.params["native_circle"] is True
+    assert "[Gmsh 原生圆]" in detection.label
+    # 让位: 无原生实体 → None
+    assert plugin.detect(
+        chain, scale=2.0, is_outer=True, closed=True) is None
+probe("plugin detector interface", _probe_plugin_interface, None)
+
+
+def _probe_register_lifecycle():
+    detector = NativeCircleLabelDetector()
+    register_detector(detector)
+    default_registry().remove(detector.name)
+    assert detector.name not in [
+        d.name for d in default_registry().detectors()]
+probe("register_detector lifecycle", _probe_register_lifecycle, None)
+
+
+def _probe_register_duplicate():
+    detector = NativeCircleLabelDetector()
+    register_detector(detector)
+    try:
+        register_detector(detector)
+    finally:
+        default_registry().remove(detector.name)
+probe("register_detector duplicate", _probe_register_duplicate, ValueError)
+
+probe("register_detector non-detector", lambda: register_detector("x"), TypeError)
 
 print("== I 装配 ==")
 probe("assemble_sparse ok", lambda: F.assemble_sparse(_mesh()), None)

@@ -3,7 +3,26 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
-## 9.23.0 (2026-08-04) — 边界层插件化重构 (阶段 2: 识别器注册表)
+## 9.23.0 (2026-08-04) — 边界层插件化重构 (阶段 3: 示例插件 + 接入手册)
+
+### 阶段 3 — 可扩展性验收 (证明"便于更新")
+
+- **示例插件 `fem2d/boundary/plugins/circle_label.py`**: Gmsh 原生
+  Circle 实体圆标签探测器 — 委托上游 CircleDetector 判定, 改写标签
+  (" [Gmsh 原生圆]") + info 键 (native_circle=True); 纯展示层
+- **判别性测试 `tests/test_boundary_plugin_circle_label.py`**: 单元
+  契约硬编码期望 (放回旧实现必红) + 未注册时管线不变 + 注册 1 行后
+  真实 gmsh 管线生效 (4 条 90° 弧合并整圆段带标记, Line 段不受影响)
+- **注册语义修正**: register_detector 插入注册表前端 (classify 短路
+  于首个非 None 判定 — 追加到末尾的插件被 general 兜底永久遮蔽);
+  类型校验前置 (非 Detector → TypeError)
+- **`docs/boundary_plugins.md`**: 五步接入手册 — 接口签名 / 注册 /
+  标签输出 / 判别性测试 / 快照更新
+- **契约探针**: G2 组 7 项 (注册表顺序/基类接口/classify/插件接口/
+  注册生命周期/去重/类型) — 探针合计 129 → 136, 0 FAIL
+- 全量 pytest 0 失败; ruff/mypy/vulture/compileall 全过
+
+
 
 ### 阶段 2 — 显式管线 + 识别器注册表 (行为逐位不变)
 

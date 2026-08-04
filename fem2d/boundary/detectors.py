@@ -22,6 +22,11 @@
 ellipse/bspline) 沿管线传入 classify 且不丢失; 内置探测器不消费该
 信息 (行为冻结), 供插件参考 (如 circle 标签探测器的原生实体提示).
 
+插件接入: register_detector() 将插件插入注册表**前端** (classify
+短路于首个非 None 判定 — 追加到末尾的插件会被 general 兜底永远
+遮蔽). 插件判定优先, 未命中 (返回 None) 时让位内置探测器.
+典型插件模式 = 委托上游探测器改写标签 (见 plugins/circle_label.py).
+
 行为约束: 内置探测器的判定门槛与标签文本与旧 classify 逐位一致 —
 任何改动由 tests/boundary_golden/ 金标准快照拦截。
 """
@@ -564,5 +569,20 @@ def default_registry() -> DetectorRegistry:
 
 
 def register_detector(detector: Detector) -> None:
-    """向默认注册表登记插件识别器 (name 重复 → ValueError)."""
-    default_registry().add(detector)
+    """向默认注册表登记插件识别器 (name 重复 → ValueError).
+
+    插件插入注册表**前端**: classify 短路于首个非 None 判定, 追加到
+    末尾的插件永远不被调用 (general 兜底恒返回). 插件判定优先,
+    未命中 (返回 None) 时让位内置探测器 (line→circle→ellipse→general).
+    """
+    if not isinstance(detector, Detector):
+        raise TypeError(
+            f"register_detector: 期望 Detector 实例, 收到 "
+            f"{type(detector).__name__}")
+    registry = default_registry()
+    if any(existing.name == detector.name
+           for existing in registry._detectors):
+        raise ValueError(
+            f"register_detector: 识别器名 {detector.name!r} 已注册 "
+            "— 插件名必须全局唯一")
+    registry._detectors.insert(0, detector)
