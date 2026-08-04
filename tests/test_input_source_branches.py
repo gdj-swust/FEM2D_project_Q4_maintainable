@@ -34,12 +34,19 @@ def _square_mesh():
 # 模块路径守卫 (sys.path 注入)
 # ═══════════════════════════════════════════════════════════════
 
-def test_module_reload_restores_project_root_on_path(monkeypatch):
-    """项目根被移除出 sys.path 后 reload → 守卫重新注入 (scripts 可导入)."""
+def test_module_reload_does_not_restore_project_root(monkeypatch):
+    """reload 不得重新注入项目根 (pkg11 A16 新契约).
+
+    曾模块顶层 sys.path.insert 把项目根写进库用户进程 — reload 后
+    守卫"恢复"是旧行为的判别标记; 现注入归 _import_scripts 惰性化,
+    模块顶层零副作用, 首次使用 scripts 工具层时才注入。
+    """
     root = os.path.dirname(os.path.dirname(os.path.abspath(isrc.__file__)))
     monkeypatch.setattr(sys, "path",
                         [p for p in sys.path if p != root])
     importlib.reload(isrc)
+    assert root not in sys.path
+    isrc._import_scripts("geo_spec")
     assert root in sys.path
 
 

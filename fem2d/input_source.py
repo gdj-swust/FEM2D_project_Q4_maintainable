@@ -8,6 +8,7 @@ Gmsh 路径下 --force Physical Point 的坐标回退。语义保持与 run.py �
 gmsh 调用 (run_gmsh) 是唯一的第三方工具依赖, 位于 ``scripts/`` 工具层。
 """
 import atexit
+import importlib
 import os
 import re
 import sys
@@ -22,11 +23,17 @@ from .config import AnalysisConfig
 from .errors import CliError
 
 # scripts/ 是工具脚本层 (geo_spec / gmsh_runner), 不在 fem2d 包内。
-# 注入项目根, 使 ``import scripts.geo_spec`` (namespace package) 在
-# 库方式调用下也可用 —— 与原 run.py 顶部的路径注入行为一致。
+# 曾模块顶层注入项目根 (import 副作用, 库用户进程的 sys.path 被全局
+# 污染) — 现由 CLI 入口 (runner.main) 负责常规路径, 库方式调用首次
+# 使用时才惰性注入 (见 _import_scripts)。
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, _PROJECT_ROOT)
+
+
+def _import_scripts(submodule):
+    """惰性 import ``scripts.<submodule>`` — 项目根仅首次调用时注入."""
+    if _PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, _PROJECT_ROOT)
+    return importlib.import_module(f"scripts.{submodule}")
 
 
 @dataclass
@@ -100,8 +107,7 @@ def _protect_foreign_msh(final_path):
     """
     if not os.path.isfile(final_path):
         return final_path
-    from scripts.gmsh_runner import is_program_generated_msh
-    if is_program_generated_msh(final_path):
+    if _import_scripts("gmsh_runner").is_program_generated_msh(final_path):
         return final_path
     fd, tmp = tempfile.mkstemp(
         prefix=".fem2d-msh-", suffix=".msh",
@@ -142,8 +148,7 @@ def generate_geo_with_topology(
     max_attempts = 3 if quad else 1
     last_error = None
     for attempt in range(max_attempts):
-        from scripts.geo_spec import run_gmsh
-        generated = run_gmsh(
+        generated = _import_scripts("geo_spec").run_gmsh(
             geo_path, quad=quad, output_path=output_path, defer_publish=True)
         if not generated:
             return None, None
@@ -203,45 +208,40 @@ def physical_point_from_geo(geo_path, name, mesh):
         # 被宽 except 吞掉, 误报 "Gmsh API 不可用"
         return None, None, None, "no_geo_source"
     try:
-        from fem2d.gmsh_adapter import _load_gmsh_module, _safe_geo_source
+        from fem2d.gmsh_adapter import (
+            _gmsh_session, _load_gmsh_module, _safe_geo_source)
         gmsh_module = _load_gmsh_module()
     except Exception:
         return None, None, None, "gmsh_unavailable"
-    initialized = bool(
-        gmsh_module.isInitialized()
-        if hasattr(gmsh_module, "isInitialized") else False)
-    owns_session = not initialized
     command_geo = None
     temporary_geo = None
     try:
-        if owns_session:
-            gmsh_module.initialize()
-        # 用 stripped 副本打开: .geo 里的 Mesh/Save 命令若直接执行会
-        # 静默覆盖同名 .inp 并丢失 source binding (曾复现: 读 l_bracket
-        # 的 .inp 时 sibling .geo 被 API 打开, l_bracket.inp 被重写).
-        command_geo, temporary_geo = _safe_geo_source(geo_path)
-        gmsh_module.open(command_geo)
-        gmsh_module.model.geo.synchronize()
-        found = []
-        for dim, tag in gmsh_module.model.getPhysicalGroups():
-            if int(dim) != 0:
-                continue
-            if str(gmsh_module.model.getPhysicalName(0, int(tag))).strip() != name:
-                continue
-            for entity in gmsh_module.model.getEntitiesForPhysicalGroup(
-                    0, int(tag)):
-                try:
-                    coords = gmsh_module.model.getValue(0, int(entity), [])
-                    found.append(np.asarray(coords[:2], dtype=float))
-                except Exception:  # nosec B112 — 坏实体坐标读取失败, 跳过 (循环继续)
+        with _gmsh_session(gmsh_module) as active:
+            # 用 stripped 副本打开: .geo 里的 Mesh/Save 命令若直接执行会
+            # 静默覆盖同名 .inp 并丢失 source binding (曾复现: 读 l_bracket
+            # 的 .inp 时 sibling .geo 被 API 打开, l_bracket.inp 被重写).
+            command_geo, temporary_geo = _safe_geo_source(geo_path)
+            active.open(command_geo)
+            active.model.geo.synchronize()
+            found = []
+            for dim, tag in active.model.getPhysicalGroups():
+                if int(dim) != 0:
                     continue
+                if str(active.model.getPhysicalName(
+                        0, int(tag))).strip() != name:
+                    continue
+                for entity in active.model.getEntitiesForPhysicalGroup(
+                        0, int(tag)):
+                    try:
+                        coords = active.model.getValue(0, int(entity), [])
+                        found.append(np.asarray(coords[:2], dtype=float))
+                    except Exception:  # nosec B112 — 坏实体坐标读取失败, 跳过 (循环继续)
+                        continue
     except Exception:
         # 仅 gmsh 会话/读取失败 → gmsh_unavailable (曾包住下方内部逻辑,
         # 算法错误被误报为 "Gmsh 不可用", 错误归因误导排查)
         return None, None, None, "gmsh_unavailable"
     finally:
-        if owns_session:
-            gmsh_module.finalize()
         if temporary_geo is not None and os.path.isfile(temporary_geo):
             try:
                 os.unlink(temporary_geo)
@@ -432,8 +432,7 @@ def _resolve_geo_lc(fp, config, ask, temp_dir=None):
     if new_text == geo_text:
         # 理论上不可达 (模式已匹配), 防御: 不创建无意义的副本
         return fp, None
-    from scripts.gmsh_runner import temp_copy_dir
-    copy_dir = temp_copy_dir(fp, temp_dir)
+    copy_dir = _import_scripts("gmsh_runner").temp_copy_dir(fp, temp_dir)
     try:
         tmp = tempfile.NamedTemporaryFile(
             mode='w', suffix='.geo', delete=False,
@@ -503,7 +502,7 @@ def resolve_txt(fp, config):
     --output-dir 指定时 .geo/.msh 与临时文件全部写入该目录 (只读输入
     目录可完整工作); 未指定时保持历史行为 (输入同目录).
     """
-    from scripts.geo_spec import generate_geo, parse_spec
+    geo_spec = _import_scripts("geo_spec")
     out_dir = artifact_dir(fp, config.output_dir)
     ensure_artifact_dir_writable(out_dir)
     geo_p = _artifact_path(fp, config.output_dir, '.geo')
@@ -531,7 +530,8 @@ def resolve_txt(fp, config):
             atexit.register(
                 lambda p=tmp_geo: os.path.isfile(p) and os.unlink(p))
     try:
-        generate_geo(parse_spec(fp), geo_p, quad=config.quad)
+        geo_spec.generate_geo(geo_spec.parse_spec(fp), geo_p,
+                              quad=config.quad)
     except (ValueError, IndexError) as error:
         # IndexError 防御: 曾 '内孔 圆 x=' 透传裸 'list index out of range'
         # (修复后 parse_spec 不再抛, 双保险)

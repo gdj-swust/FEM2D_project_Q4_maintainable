@@ -173,6 +173,24 @@ def test_D_matrix_non_numeric_has_context():
         D_matrix(2.1e11, 0.7)
 
 
+def test_D_matrix_near_incompressible_warns():
+    """平面应变 ν>0.45 → RuntimeWarning (pkg11 A15).
+
+    判别性: 曾 print(..., file=sys.stderr) — 库调用方无法过滤/捕获;
+    统一 warnings.warn 后 pytest.warns 必须命中, 且 D 矩阵正常返回。
+    """
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        D = D_matrix(2.1e11, 0.49, "strain")
+    assert any(issubclass(w.category, RuntimeWarning) for w in caught)
+    assert D.shape == (3, 3)
+    # 可正常过滤 (判别性: print 版本没有过滤通道)
+    with pytest.warns(RuntimeWarning, match="near-incompressible"):
+        D_matrix(2.1e11, 0.49, "strain")
+
+
 # ── 恢复/后处理数组有限性 (旧实现: 静默 NaN 输出) ──
 
 def test_compute_stresses_nan_u_rejected():

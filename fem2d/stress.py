@@ -23,7 +23,14 @@ def compute_stresses(mesh, u):
 
 
 def principal_stresses(stress):
-    """Compute in-plane principal stresses and maximum in-plane shear."""
+    """Compute in-plane principal stresses and maximum in-plane shear.
+
+    返回四元组 ``(σ1, σ2, τ_max, θ)``:
+      σ1, σ2 — 最大/最小主应力 (由构造恒有 σ1 ≥ σ2)
+      τ_max  — 最大面内剪应力 = (σ1 − σ2)/2
+      θ      — 主应力方向角 = 0.5·atan2(2τxy, σx−σy) [rad],
+               即从 σx 轴到 σ1 方向的角度 (与 xy 全局坐标系一致)
+    """
     stress = np.asarray(stress)
     if stress.ndim != 2 or stress.shape[1] != 3:
         # (n,2)/(n,)/(标量) 曾冒裸 IndexError — 形状契约前置校验
@@ -253,19 +260,9 @@ def nodal_L2_projection(mesh, elem_stress):
                 conn_e = conn[eid]
                 N, dA_e = N_list[eid], dA_list[eid]
                 local_mass = np.einsum("qi,qj,q->ij", N, N, dA_e)
-                if elem_stress.ndim == 2:
-                    stress_qp = np.broadcast_to(
-                        elem_stress[eid], (len(dA_e), n_comp))
-                else:
-                    stress_qp = elem_stress[eid]
-                    if stress_qp.shape[0] == 1 and len(dA_e) != 1:
-                        stress_qp = np.broadcast_to(
-                            stress_qp[0], (len(dA_e), n_comp))
-                    elif stress_qp.shape[0] != len(dA_e):
-                        raise ValueError(
-                            f"Element {eid}: {stress_qp.shape[0]} stress "
-                            f"samples, but {len(dA_e)} quadrature samples "
-                            "are required")
+                # 单元素切片复用共享广播逻辑 (曾第三份逐字副本)
+                stress_qp = _l2_stress_qp(
+                    elem_stress[eid:eid + 1], len(dA_e), n_comp, 1)[0]
                 local_rhs = np.einsum("qi,qc,q->ic", N, stress_qp, dA_e)
                 for p, ni in enumerate(conn_e):
                     for q, nj in enumerate(conn_e):

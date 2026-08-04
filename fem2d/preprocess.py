@@ -417,7 +417,10 @@ def validate_mesh(nodes, elements, elem_type=None, tol=None):
     nodes : (n_nodes, 2) ndarray
     elements : (n_elem, npe) ndarray of int
     elem_type : str — "CPS3" (三角形) or "CPS4" (四边形)
-    tol : float or None — 重复节点容差; None 则 auto = min(edge_length)*1e-3
+    tol : float or None — 重复节点容差; None 则
+        auto = max(min(非零单元跨度)×1e-6, 坐标 ULP)
+        (见 _resolve_duplicate_tolerance — 曾文档声称
+        min(edge_length)×1e-3, 与实现不符)
 
     返回
     ----

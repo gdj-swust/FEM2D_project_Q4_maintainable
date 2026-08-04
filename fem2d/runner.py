@@ -28,7 +28,7 @@ from .boundary import (
 from .cli import _resolve_plane_type, ask, is_batch_mode, parse_args
 from .config import AnalysisConfig
 from .element import get_element_kernel
-from .errors import CliError
+from .errors import CliError, reconfigure_streams
 from .input_source import resolve_input_file
 from .preprocess import merge_geo_fem_config, parse_geo_fem_config, validate_mesh
 from .quality import report as report_mesh_quality
@@ -486,14 +486,16 @@ def main(argv=None) -> int:
     流程按 5 个阶段函数组织 (resolve → model → conditions → analyze →
     plot), 每个阶段返回显式产物, 便于单独测试与替换.
     """
-    # 编码安全网 (console script 入口与 run.py 共用): 非中文 Windows
-    # (cp1252 等) 下中文输出不 UnicodeEncodeError 崩溃
-    for _stream in (sys.stdout, sys.stderr):
-        if hasattr(_stream, "reconfigure"):
-            try:
-                _stream.reconfigure(errors="replace")
-            except (ValueError, OSError):
-                pass
+    # CLI 入口职责: 项目根置于 sys.path, 使 scripts 工具层可导入。
+    # run.py 脚本方式运行 sys.path[0] 已是项目根; 此处兜底
+    # python -m fem2d.runner / console 场景。曾由 fem2d.input_source
+    # 模块顶层注入 (import 副作用污染库用户进程)。
+    _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _project_root not in sys.path:
+        sys.path.insert(0, _project_root)
+    # 编码安全网 (与 run_demo.py 共用 reconfigure_streams): 非中文
+    # Windows (cp1252 等) 下中文输出不 UnicodeEncodeError 崩溃
+    reconfigure_streams()
     try:
         config = AnalysisConfig.from_args(parse_args(argv))
     except ValueError as error:

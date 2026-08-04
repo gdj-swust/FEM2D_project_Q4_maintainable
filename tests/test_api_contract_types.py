@@ -150,3 +150,22 @@ def test_import_msh_missing_file_filenotfound():
     # 文件不存在曾透传 gmsh 底层异常 — 前置 FileNotFoundError 无 gmsh 依赖
     with pytest.raises(FileNotFoundError, match="Mesh file not found"):
         import_msh("C:/definitely_not_existing_dir_xyz/no.msh")
+
+
+def test_region_registry_by_name_invalid_dimension_valueerror():
+    """by_name 非法维度 → 带参数名 ValueError (pkg11 A14).
+
+    判别性: dimension=5 曾裸 KeyError (collections[int(dimension)]
+    越界); 0/1/2/None 正常工作, 越界值必须响亮失败。
+    """
+    from fem2d.regions import RegionRegistry
+
+    registry = RegionRegistry(points=[])
+    with pytest.raises(ValueError, match=r"dimension=5"):
+        registry.by_name("x", dimension=5)
+    with pytest.raises(ValueError, match="dimension"):
+        registry.by_name("x", dimension=-1)
+    # 合法维度与 None 不受影响
+    assert registry.by_name("x") == []
+    assert registry.by_name("x", dimension=0) == []
+    assert registry.by_name("x", dimension=2) == []
