@@ -8,9 +8,10 @@
   print    — print_segments 打印输出 (CLI 用户看到的文本)
 
 金标准文件提交入库 (tests/boundary_golden/)。测试运行时重新生成并
-对比 (浮点圆整到 12 位有效数字 — 结构/标签/边集合逐位一致, 拟合
-浮点值免疫跨平台 LAPACK 末位噪声); 环境变量 FEM2D_UPDATE_GOLDEN=1
-重写金标准 (仅阶段 3 的快照更新步骤使用, 常规 CI 不设置)。
+对比 (结构/标签/边集合逐位一致; 浮点值 12 位有效数字 + 尺度感知
+噪声地板 — 免疫跨平台 LAPACK/libm 末位噪声与近零残差相对噪声);
+环境变量 FEM2D_UPDATE_GOLDEN=1 重写金标准 (仅阶段 3 的快照更新
+步骤使用, 常规 CI 不设置)。
 """
 from __future__ import annotations
 
@@ -38,34 +39,37 @@ def canonical_edges(segments):
     return sorted(edges)
 
 
-def _canonical_value(value):
+def _canonical_value(value, floor):
     """JSON 安全规范化: numpy 标量 → Python 标量; tuple/list 保序转 list;
-    嵌套 dict 排序键; 浮点圆整到 12 位有效数字."""
+    嵌套 dict 排序键; 浮点圆整 (12 位有效数字 + 尺度感知噪声地板)."""
     if isinstance(value, np.generic):
-        return _canonical_value(value.item())
+        return _canonical_value(value.item(), floor)
     if isinstance(value, dict):
         return {
-            str(key): _canonical_value(item)
+            str(key): _canonical_value(item, floor)
             for key, item in sorted(value.items())
         }
     if isinstance(value, (tuple, list)):
-        return [_canonical_value(item) for item in value]
+        return [_canonical_value(item, floor) for item in value]
     if isinstance(value, (np.ndarray,)):
-        return [_canonical_value(item) for item in value.tolist()]
+        return [_canonical_value(item, floor) for item in value.tolist()]
     if isinstance(value, (bool, int, str)) or value is None:
         return value
     if isinstance(value, float):
-        # 圆锥拟合 (lstsq) 跨平台 LAPACK 有末位 (1 ULP) 舍入差 —
-        # 位级比较在 Linux CI vs Windows 本地必红 (实测 CI 首轮).
-        # 12 位有效数字 = 语义精度 1e-12, 远超任何行为级差异
-        # (段类型/标签/边集合变化在第 2-6 位), 同时免疫末位噪声.
+        # 圆锥拟合 (lstsq) 跨平台 LAPACK 有末位 (1 ULP) 舍入差, 且
+        # 近零值 (拟合残差 ~1e-16) 的相对噪声在有效数字圆整后仍保持
+        # — CI 实测: 1.110e-16 vs 8.530e-17 同为噪声但 12g 字符串不同。
+        # 地板 = 模型尺度 × 1e-12 (残差门限最低 5e-4, 语义安全):
+        # |x| < 地板 → 0 (噪声), 否则 12 位有效数字。
         if math.isfinite(value):
+            if abs(value) < floor:
+                return 0.0
             return float(f"{value:.12g}")
         return value
     return str(value)
 
 
-def segments_snapshot(segments, *, include_nodes=True):
+def segments_snapshot(segments, *, include_nodes=True, floor):
     """段集合快照: 排序键后的 JSON 安全列表."""
     result = []
     for seg in segments:
@@ -74,7 +78,7 @@ def segments_snapshot(segments, *, include_nodes=True):
             "closed": bool(seg.get("closed", False)),
             "label": str(seg["label"]),
             "n_nodes": int(len(seg["nodes"])),
-            "info": _canonical_value(seg.get("info", {})),
+            "info": _canonical_value(seg.get("info", {}), floor),
         }
         if include_nodes:
             entry["nodes"] = [int(node) for node in seg["nodes"]]
@@ -137,11 +141,18 @@ def build_snapshot(mesh, segments, *, include_nodes=True):
 
     include_nodes=False (gmsh 层) 时法向逐边明细含节点 ID, 跨 gmsh
     版本可漂移 → 只留计数 + 一致性 (一致性断言本身每次测试都实时执行).
+
+    浮点噪声地板 = 模型坐标尺度 × 1e-12 (尺度感知, 微尺度模型不受影响;
+    拟合残差门限最低 5e-4, 语义安全).
     """
     edges = canonical_edges(segments)
     normal_entries, normals_consistent = normals_snapshot(mesh, segments)
-    return {
-        "segments": segments_snapshot(segments, include_nodes=include_nodes),
+    coordinate_scale = max(
+        float(np.max(np.abs(mesh.nodes))), np.finfo(float).tiny)
+    floor = coordinate_scale * 1e-12
+    snapshot = {
+        "segments": segments_snapshot(
+            segments, include_nodes=include_nodes, floor=floor),
         "n_segments": len(segments),
         "boundary_edges": edges if include_nodes else len(edges),
         "n_boundary_edges": len(edges),
@@ -151,6 +162,7 @@ def build_snapshot(mesh, segments, *, include_nodes=True):
             if include_nodes else len(normal_entries)),
         "print_output": print_snapshot(segments),
     }
+    return _canonical_value(snapshot, floor)
 
 
 def golden_path(name):
