@@ -10,7 +10,7 @@ import numpy as np
 
 from .boundary import _resolve_edge_indices
 from .cli import ask, is_batch_mode
-from .errors import CliError
+from .errors import CliError, GeoScriptRejected
 from .input_source import physical_point_from_geo
 from .loads import make_edge_profile_func, parse_traction, parse_vec2
 from .loads_schema import _check_load_pair
@@ -318,8 +318,13 @@ def _apply_concentrated_forces(config, mesh, region_registry, node_id_map,
     else:
         # 子进程 gmsh 路径不恢复 Physical Point regions — 用 Gmsh API
         # 读 .geo 同名 Point 坐标回退匹配最近节点
-        nid, source_label, _point_dist, point_reason = (
-            physical_point_from_geo(source_geo_path, target, mesh))
+        try:
+            nid, source_label, _point_dist, point_reason = (
+                physical_point_from_geo(source_geo_path, target, mesh))
+        except GeoScriptRejected as error:
+            # .geo 含 SystemCall 等危险指令 — 输入内容问题 → 退出码 1
+            # (曾裸 ValueError 泄漏到顶层兜底 → 2)
+            raise CliError(f"  [FATAL] {error}", exit_code=1) from error
         if nid is not None and _point_dist > 0.0:
             print(f"  [WARN] Physical Point '{target}' 未落在网格节点上, "
                   f"已施加到最近节点 #{nid} (偏差 {_point_dist:.3g} m)")

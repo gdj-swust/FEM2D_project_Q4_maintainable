@@ -15,6 +15,8 @@ import subprocess
 import tempfile
 import time
 
+from fem2d.errors import GeoScriptRejected
+
 _EXPLICIT_SAVE_RE = re.compile(
     r"\bSave\s+\"[^\"]+\"\s*;",
     re.IGNORECASE,
@@ -22,6 +24,12 @@ _EXPLICIT_SAVE_RE = re.compile(
 _EXPLICIT_MESH_RE = re.compile(
     r"\bMesh\s+\d+\s*;",
     re.IGNORECASE,
+)
+# SystemCall 是 Gmsh 脚本中唯一能执行任意系统命令的指令 — 黑名单拦截
+# (行首匹配; 注释掉的 SystemCall 不触发, Gmsh 解析器忽略注释)
+_SYSTEMCALL_RE = re.compile(
+    r"^\s*SystemCall\b",
+    re.MULTILINE | re.IGNORECASE,
 )
 
 # 本程序生成物的 .msh 标记 — 同名 .msh 覆盖保护据此识别 (gmsh 读回时
@@ -111,8 +119,18 @@ def sanitize_geo_source(source):
     - ``Mesh 2;`` 会在解析期 + 命令行 ``-2`` 各网格化一次;
     - 脚本内 ``Mesh.Format`` (如 39=Abaqus) 会覆盖命令行输出格式;
     - 脚本内 ``Mesh.MshFileVersion`` (如 2) 会让输出变成 v2.2 — 本程序
-      v2.2 无法注入生成物标记 ($Comments 仅 4.x 支持), 覆盖保护失效。
+      v2.2 无法注入生成物标记 ($Comments 仅 4.x 支持), 覆盖保护失效;
+    - ``SystemCall`` 可执行任意系统命令 — 黑名单拒绝整个脚本 (RCE 面;
+      .geo 是"可信、可执行式输入", 只应运行自己编写的文件)。
     """
+    for match in _SYSTEMCALL_RE.finditer(source):
+        line_no = source.count("\n", 0, match.start()) + 1
+        line_text = source.splitlines()[line_no - 1].strip()
+        raise GeoScriptRejected(
+            f".geo 第 {line_no} 行含被禁止的 SystemCall 指令: "
+            f"{line_text!r} — SystemCall 会执行任意系统命令. "
+            ".geo 是可信、可执行式输入, 只应运行自己编写的文件 "
+            "(含 Include 引用的文件).")
     sanitized = _EXPLICIT_SAVE_RE.sub(
         "// Save removed by FEM2D; FEM2D owns publication", source)
     sanitized = _EXPLICIT_MESH_RE.sub(

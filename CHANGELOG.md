@@ -3,6 +3,54 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
+## 审查修复包 2026-08-05 — 5 项已复现缺陷 (来自 2026-08-04 外部审查, 未发版)
+
+### 1. 位移模长/模型跨度 hypot 溢出 (P1)
+
+- `np.sqrt(u²+v²)` 在 |u|~1e308 时先平方溢出成 inf — 有限模长算成 inf,
+  变形放大系数退 0、摘要打印 inf。改 `np.hypot` (reporting.py ×2,
+  solver.py model_span, visualize.py u_mag 同型模式)。
+- 判别性: `tests/test_scale_overflow_guard.py` 3 测 — 放回旧实现全失败。
+
+### 2. 奇异守卫吞警告 (P1/P2)
+
+- `_solve_with_singular_guard` 的 `catch_warnings(record=True)` 只把
+  MatrixRankWarning 转异常, 其余警告静默丢弃 (UserWarning 探针 0 条
+  送达)。非秩警告现于块外原样转发 (块内转发会被记录器重新捕获)。
+- 判别性: `tests/test_solver_warning_forward.py` 3 测 — 放回旧守卫,
+  警告转发 2 测失败; 秩警告转异常行为零变化。
+
+### 3. CLI 非法输入退出码归类 (P2)
+
+- `--traction right:bad` (parse ValueError 泄漏) 与 `--force 0,nan,0`
+  (float("nan") 绕过解析直达 require_finite_scalar 裸 ValueError) 曾归
+  内部错误退出码 2 — 现统一转 `CliError(exit_code=1)` (9.22.0 退出码
+  矩阵口径: 用户错误 1)。
+- 判别性: `test_exit_code_matrix.py` 新增 2 测 — 放回旧实现泄漏 exit 2。
+
+### 4. internal_energy 舍入负值钳 0 (P3)
+
+- 刚体位移 (纯 Dirichlet 均匀位移) 时 uᵀKu 精确为 0, 浮点舍入给
+  -4.66e-13。现按问题规模相对判定: |energy| ≤ n·ε·uᵀ|K|u (禁绝对阈值,
+  微尺度模型 2.27e-308 正值恒保留) → 钳 0; 明显负值 → RuntimeWarning。
+- **golden 变化 (唯一)**: `test_solve_refactor_lock.py` GOLDEN
+  dirichlet_only 的 `internal_energy` -4.656612873077393e-13 → 0.0,
+  变化原因 = 钳 0 修复本身; 其余键逐位不变。
+- 判别性: `tests/test_internal_energy_roundoff_clamp.py` 2 测 — 放回
+  旧实现, 刚体位移测失败 (-4.66e-13 != 0.0)。
+
+### 5. .geo 信任边界标注 + SystemCall 黑名单拦截 (P0 条件性)
+
+- Gmsh 脚本支持 `SystemCall` 执行任意系统命令 — 第三方 .geo 即 RCE 面。
+  清洗逻辑 (`sanitize_geo_source`, API 与子进程双路径共用) 现黑名单
+  拦截 SystemCall 并明确报错 (行号 + 指令原文, `GeoScriptRejected`);
+  注释内的 SystemCall 不误拒; `Include` 保留 (项目自带相对 Include
+  锚定功能, 有测试锁定), 其文件链由信任边界文档覆盖。
+- CLI 路径 (.geo 生成 / Physical Point 回退) 拒绝映射退出码 1。
+- README 新增标注: **.geo 是"可信、可执行式输入"** — 只应运行自己编写
+  的文件, 不承诺沙箱安全。
+- 判别性: `tests/test_geo_script_guard.py` 6 测 — 放回旧清洗逻辑全失败。
+
 ## 9.24.0 (2026-08-05) — 边界识别三正式插件 (轮 2, 默认注册)
 
 ### 插件 1 — 组级椭圆标签 `ellipse_group_label`

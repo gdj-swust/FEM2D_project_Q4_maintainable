@@ -31,3 +31,12 @@ class CliError(Exception):
     def __init__(self, message, *, exit_code=1):
         super().__init__(message)
         self.exit_code = exit_code
+
+
+class GeoScriptRejected(ValueError):
+    """.geo 含被禁止的危险指令 (SystemCall) — 拒绝执行该脚本.
+
+    Gmsh 脚本语言支持 SystemCall 执行任意系统命令, .geo 属"可信、可执行
+    式输入"。黑名单拦截在 scripts.gmsh_runner.sanitize_geo_source;
+    独立类型使调用链能区分"脚本被拒" (用户错误 → 退出码 1) 与一般失败。
+    """

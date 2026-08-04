@@ -20,7 +20,7 @@ import numpy as np
 
 from .cli import is_batch_mode
 from .config import AnalysisConfig
-from .errors import CliError
+from .errors import CliError, GeoScriptRejected
 
 # scripts/ 是工具脚本层 (geo_spec / gmsh_runner), 不在 fem2d 包内。
 # 曾模块顶层注入项目根 (import 副作用, 库用户进程的 sys.path 被全局
@@ -237,6 +237,10 @@ def physical_point_from_geo(geo_path, name, mesh):
                         found.append(np.asarray(coords[:2], dtype=float))
                     except Exception:  # nosec B112 — 坏实体坐标读取失败, 跳过 (循环继续)
                         continue
+    except GeoScriptRejected:
+        # .geo 含被禁危险指令 — 输入内容问题而非 gmsh 会话失败,
+        # 响亮冒出 (归因 "gmsh_unavailable" 会误导排查方向)
+        raise
     except Exception:
         # 仅 gmsh 会话/读取失败 → gmsh_unavailable (曾包住下方内部逻辑,
         # 算法错误被误报为 "Gmsh 不可用", 错误归因误导排查)
@@ -483,6 +487,10 @@ def resolve_geo(fp, config, ask=None):
             output_path=target_msh,
             plane_type=config.plane or 'stress',
         )
+    except GeoScriptRejected as error:
+        # .geo 含 SystemCall 等危险指令 — 输入内容问题 (用户错误) → 1;
+        # 曾裸 ValueError 冒泡到顶层兜底 → 2
+        raise CliError(f"  [FATAL] {error}", exit_code=1) from error
     finally:
         if temp_geo is not None and os.path.isfile(temp_geo):
             try:

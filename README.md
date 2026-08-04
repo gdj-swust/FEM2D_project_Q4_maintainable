@@ -57,6 +57,12 @@ python run.py models/plate_q4.geo \
 需要先在 Gmsh 中分区，或使用 transfinite mesh。`models/README.md`
 列出了 CPS4、CPE4 和 `.geo --quad` 的可执行示例。
 
+> ⚠️ **.geo 是"可信、可执行式输入"**：Gmsh 脚本是编程语言，支持
+> `SystemCall` 等可执行任意系统命令的指令（本程序已在清洗阶段对
+> `SystemCall` 黑名单拦截并明确报错）。**只应运行自己编写的 .geo**（含
+> 其 `Include` 引用的文件）；第三方来源的 .geo 请先人工审查。本程序不
+> 承诺对 .geo 内容做沙箱隔离。
+
 ## 目录结构
 
 ```
