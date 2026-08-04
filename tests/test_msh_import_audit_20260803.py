@@ -5,16 +5,14 @@
 Point 回退最近位移节点。
 """
 import os
+from pathlib import Path
 
 import pytest
 
-try:
-    import gmsh as _gmsh
-except (ImportError, OSError):
-    _gmsh = None
+from tests.conftest import GMSH_AVAILABLE, GMSH_UNAVAILABLE_REASON
 
 pytestmark = pytest.mark.skipif(
-    _gmsh is None, reason="Gmsh Python API not available")
+    not GMSH_AVAILABLE, reason=GMSH_UNAVAILABLE_REASON)
 
 
 def _rect_model(path, version=None, with_point=False, outside_point=False):
@@ -68,7 +66,8 @@ Mesh 2;"""
 def _gmsh_exe():
     import shutil
     candidates = [
-        os.path.abspath("tools/gmsh-4.15.2-Windows64/gmsh.exe"),
+        str(Path(__file__).resolve().parents[1]
+            / "tools" / "gmsh-4.15.2-Windows64" / "gmsh.exe"),
         shutil.which("gmsh"),
     ]
     for candidate in candidates:
