@@ -134,8 +134,10 @@ def build_warnings(config, mesh, z2, bending_stiff, n_through_x, n_through_y):
             f"    建议: ν≤0.4 或换用混合/选择性积分格式单元")
 
     # Q4R 专用提示: compact 公式限制 (非编码错误, 见 q4r.py) —
-    # 建议 Q4I 交叉验证
-    if getattr(mesh, "elem_type", "").upper() in ("CPS4R", "CPE4R"):
+    # 建议 Q4I 交叉验证。判据用 kernel.name: --elem-type Q4R 覆写后
+    # elem_type=="Q4R" (kernel.name), CPS4R 白名单判断曾使警告静默消失
+    kernel = getattr(mesh, "element_kernel", None)
+    if getattr(kernel, "name", None) == "Q4R":
         warnings.append(
             "  [INFO] Q4R 为专用可选单元 (规则网格/长宽比<10/膜主导):"
             "\n    稳定性不如 Q4, 弯曲性能不如 Q4I —"

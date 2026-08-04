@@ -7,6 +7,8 @@ CLI 未指定的字段由 config 默认填充。
 import argparse
 import sys
 
+from .errors import CliError
+
 # ── 平面态与单元码的对应 (Abaqus 命名: CPE=plane strain, CPS=plane stress) ──
 _STRAIN_ELEMENT_TYPES = frozenset({"CPE3", "CPE4", "CPE4R", "CPE4I"})
 _STRESS_ELEMENT_TYPES = frozenset(
@@ -121,16 +123,20 @@ def parse_args(argv=None):
                         '膜主导或 CPS4R 兼容)')
     return p.parse_args(argv)
 def ask(prompt: str) -> str:
-    """EOF 安全的交互提示 — 标准输入关闭时返回空串而不是抛 traceback。
+    """EOF/Ctrl-C 安全的交互提示 — 不泄漏 traceback。
 
     脚本/管道/CI 中以 pty 运行且无输入时, 裸 input() 会以
     EOFError 崩溃; 各调用点对空串已有"跳过/默认"语义。
+    Ctrl-C 与 EOF 对称: 向导 banner 承诺"随时 Ctrl-C 退出", 裸
+    KeyboardInterrupt 会泄漏整段 traceback 且退出码 130。
     """
     try:
         return input(prompt).strip()
     except EOFError:
         print("  [exit] 标准输入已关闭 — 按未输入处理。")
         return ""
+    except KeyboardInterrupt:
+        raise CliError("\n  [INFO] 已退出 (Ctrl-C)", exit_code=0)
 
 
 def is_batch_mode(config) -> bool:

@@ -66,11 +66,11 @@ def fake_msh(monkeypatch, msh_file):
 _FAKE_RESOLVED = types.SimpleNamespace(fp="fake.msh")
 
 
-def _square_mesh():
+def _square_mesh(elem_type="CPS4"):
     return Mesh(
         nodes=np.array([[0., 0.], [1., 0.], [1., 1.], [0., 1.]]),
         elements=np.array([[0, 1, 2, 3]], dtype=int),
-        elem_type="CPS4")
+        elem_type=elem_type)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -111,6 +111,19 @@ def test_standalone_self_test_warns_on_inert_bc_args(monkeypatch, capsys):
     assert "[WARN] --body 在独立自检模式下不生效" in out
 
 
+def test_standalone_self_test_band_args_warn(monkeypatch, capsys):
+    """--self-test 无网格 + band 参数 → WARN 不生效 (曾静默忽略)."""
+    monkeypatch.setattr(
+        runner_mod, "run_patch_test",
+        lambda *a, **k: {"all_passed": True})
+    monkeypatch.setattr(
+        runner_mod, "run_plane_verification", lambda *a, **k: (0, 0))
+    assert main(["--self-test", "--band-min", "0", "--band-max", "3",
+                 "--band-step", "1"]) == 0
+    assert ("[WARN] --band-min/max/step 在独立自检模式下不生效"
+            in capsys.readouterr().out)
+
+
 def test_standalone_self_test_list_boundaries_combo_warns(monkeypatch,
                                                           capsys):
     """--self-test + --list-boundaries: 自检照常执行 + 组合 WARN."""
@@ -134,6 +147,35 @@ def test_import_mesh_missing_gmsh_import_raises():
     resolved = types.SimpleNamespace(gmsh_import=None)
     with pytest.raises(RuntimeError, match="内部状态错误"):
         runner_mod._import_mesh(resolved)
+
+
+def test_import_mesh_returns_used_fields_only():
+    """_import_mesh 只返回实际消费的 5 字段 — edge_labels/sibling_geo
+    恒 None 的死输出字段已删 (曾 7 元组契约含死负载)."""
+    fake = types.SimpleNamespace(
+        nodes="N", elements="E", node_tag_to_index="M",
+        elem_type="T", regions="R")
+    resolved = types.SimpleNamespace(gmsh_import=fake)
+    assert runner_mod._import_mesh(resolved) == ("N", "E", "M", "T", "R")
+
+
+def test_build_mesh_plane_conflict_raises_clierror(monkeypatch):
+    """CPE 网格 + --plane stress → CliError(1) (用户错误).
+
+    曾裸 ValueError 冒泡到 main 顶层 except Exception → 退出码 2.
+    """
+    monkeypatch.setattr(
+        runner_mod, "validate_mesh",
+        lambda *a, **k: {"ok": True, "errors": [], "warnings": []})
+    config = AnalysisConfig(plane="stress")
+    with pytest.raises(CliError) as exc:
+        runner_mod._build_mesh(
+            config, None,
+            np.array([[0., 0.], [1., 0.], [1., 1.], [0., 1.]]),
+            np.array([[0, 1, 2, 3]], dtype=int),
+            "CPE4", None)
+    assert exc.value.exit_code == 1
+    assert "cannot use --plane stress" in str(exc.value)
 
 
 def test_build_mesh_validation_failure_raises(monkeypatch, capsys):
@@ -567,15 +609,46 @@ def test_apply_geo_fem_config_merges_from_geo(tmp_path):
 # main 顶层错误退出码
 # ═══════════════════════════════════════════════════════════════
 
-def test_main_config_value_error_returns_two(monkeypatch, capsys):
-    """配置校验失败 (非法参数组合) → 退出 2 + [ERROR] 摘要."""
+def test_main_config_value_error_returns_one(monkeypatch, capsys):
+    """配置校验失败 (非法参数组合, 如 --band-min 缺 --band-step) → 退出 1.
+
+    用户参数问题曾归入内部错误 2 — 与退出码矩阵 (用户错误=1) 不一致.
+    """
     import fem2d.config as config_mod
     def _boom(args):
         raise ValueError("非法参数组合")
     monkeypatch.setattr(config_mod.AnalysisConfig, "from_args",
                         staticmethod(_boom))
-    assert main(["nonexistent.msh"]) == 2
+    assert main(["nonexistent.msh"]) == 1
     assert "[ERROR] 非法参数组合" in capsys.readouterr().out
+
+
+def test_main_no_plot_band_args_hint(fake_msh, msh_file, capsys):
+    """--band-min/max/step + --no-plot → 一行提示参数不生效 (曾静默忽略)."""
+    fake_msh(_fake_msh_import())
+    code = main([msh_file, "--fix", "1", "--traction", "2:1e6,0",
+                 "--no-plot", "--band-min", "0",
+                 "--band-max", "3", "--band-step", "1"])
+    assert code == 0
+    assert ("--band-min/max/step 仅在绘图时生效" in capsys.readouterr().out)
+
+
+def test_q4r_warning_both_entries():
+    """Q4R 提示两条入口都必须出现: spec 自带 CPS4R 与 CLI 覆写 Q4R.
+
+    曾只查 elem_type ∈ (CPS4R, CPE4R) — --elem-type Q4R 覆写后
+    elem_type=="Q4R" (kernel.name), 警告静默消失.
+    """
+    from fem2d.reporting import build_warnings
+    z2 = {"eta": 5.0, "worst_elem": 0, "elem_contrib": [0.5],
+          "total_error": 1e-6, "energy_norm": 1.0,
+          "stress_jumps": {"avg_jump": 1e-7, "max_jump": 1e-6}}
+    for entry in ("CPS4R", "Q4R"):
+        mesh = _square_mesh(elem_type=entry)
+        warnings = build_warnings(
+            AnalysisConfig(), mesh, z2, False, 5, 5)
+        assert any("Q4R 为专用可选单元" in w for w in warnings), \
+            f"入口 {entry} 缺 Q4R 警告: {warnings}"
 
 
 def test_main_resolve_unknown_exception_returns_two(monkeypatch, tmp_path,
@@ -609,6 +682,20 @@ def test_main_resolve_clierror_preserves_exit_code(monkeypatch, tmp_path):
         raise CliError("[FATAL] 自定义失败", exit_code=3)
     monkeypatch.setattr(runner_mod, "resolve_input_file", _boom)
     assert main([str(f)]) == 3
+
+
+def test_main_mid_computation_ctrl_c_returns_130(fake_msh, msh_file,
+                                                 monkeypatch, capsys):
+    """求解/绘图阶段 Ctrl-C → 退出码 130 + 无 traceback (曾整段泄漏)."""
+    fake_msh(_fake_msh_import())
+    def _boom(*a, **k):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(runner_mod, "_analyze", _boom)
+    code = main([msh_file, "--fix", "1", "--no-plot"])
+    assert code == 130
+    out = capsys.readouterr().out
+    assert "[INFO] 已中断 (Ctrl-C)" in out
+    assert "Traceback" not in out
 
 
 def test_main_plot_exception_returns_two(fake_msh, msh_file, monkeypatch,
