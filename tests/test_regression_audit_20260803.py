@@ -6,7 +6,6 @@ NaN/连接宽度/蝴蝶形/空单元 / 刚体 rank==2 诊断 / error_est 幅值�
 """
 import contextlib
 import io
-import os
 
 import numpy as np
 import pytest
