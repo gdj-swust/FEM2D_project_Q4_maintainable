@@ -4,39 +4,14 @@
 缺 gmsh 包时模块级 raise 还是 collection error — 改为标准测试函数
 。
 """
-import os
-import tempfile
-
 import pytest
 
+from tests.conftest import GMSH_AVAILABLE, mesh_from_geo
+
 from fem2d import Mesh, detect_boundaries
-from fem2d.gmsh_adapter import generate_from_geo
 
-try:
-    import gmsh  # noqa: F401
-except (ImportError, OSError):
-    # importorskip 只捕 ImportError; gmsh 加载动态库缺 libGLU 时抛
-    # OSError, 必须同样转 skip (否则 CI 收集阶段直接中断)
-    pytest.skip(
-        "Gmsh Python API unavailable or native dependency missing",
-        allow_module_level=True)
-
-
-def _mesh_from_geo(geo_str):
-    """Gmsh API 生成网格, 返回 (nodes, elements, elem_type)."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.geo',
-                                     delete=False) as fh:
-        fh.write(geo_str)
-        geo = fh.name
-    try:
-        r = generate_from_geo(geo)
-        return r.nodes, r.elements, r.elem_type
-    finally:
-        if os.path.exists(geo):
-            try:
-                os.unlink(geo)
-            except OSError:
-                pass
+pytestmark = pytest.mark.skipif(
+    not GMSH_AVAILABLE, reason="Gmsh Python API unavailable or native dependency missing")
 
 
 def _detect(nodes, elems, etype):
@@ -52,7 +27,7 @@ Point(1)={0,0,0,lc}; Point(2)={6,0,0,lc}; Point(3)={3,5.2,0,lc};
 Line(1)={1,2}; Line(2)={2,3}; Line(3)={3,1};
 Curve Loop(1)={1,2,3}; Plane Surface(1)={1};
 Mesh.Format=39; Mesh 2;"""
-    n, e, et = _mesh_from_geo(geo)
+    n, e, et = mesh_from_geo(geo)
     s = _detect(n, e, et)
     assert set(x['type'] for x in s) == {'line'}, \
         f"三角形: {len(s)}段 {set(x['type'] for x in s)}"
@@ -71,7 +46,7 @@ For i In {0:2*n-1}
 EndFor
 Curve Loop(1)={200:209}; Plane Surface(1)={1};
 Mesh.Format=39; Mesh 2;"""
-    n, e, et = _mesh_from_geo(geo)
+    n, e, et = mesh_from_geo(geo)
     s = _detect(n, e, et)
     assert set(x['type'] for x in s) == {'line'}, \
         f"星形: {len(n)}节点 {len(s)}段 {set(x['type'] for x in s)}"
@@ -88,7 +63,7 @@ For i In {0:n-1}
 EndFor
 Curve Loop(1)={10:15}; Plane Surface(1)={1};
 Mesh.Format=39; Mesh 2;"""
-    n, e, et = _mesh_from_geo(geo)
+    n, e, et = mesh_from_geo(geo)
     s = _detect(n, e, et)
     assert set(x['type'] for x in s) == {'line'}, \
         f"六边形: {len(s)}段 {set(x['type'] for x in s)}"
@@ -106,7 +81,7 @@ For i In {0:n-1}
 EndFor
 Curve Loop(1)={200:231}; Plane Surface(1)={1};
 Mesh.Format=39; Mesh 2;"""
-    n, e, et = _mesh_from_geo(geo)
+    n, e, et = mesh_from_geo(geo)
     s = _detect(n, e, et)
     assert len(s) == 1 and s[0]['type'] == 'arc' and \
         s[0].get('closed', False), f"正圆: {s[0]['type'] if s else '?'}"
@@ -125,7 +100,7 @@ For i In {0:n-1}
 EndFor
 Curve Loop(1)={200:235}; Plane Surface(1)={1};
 Mesh.Format=39; Mesh 2;"""
-    n, e, et = _mesh_from_geo(geo)
+    n, e, et = mesh_from_geo(geo)
     s = _detect(n, e, et)
     assert s and s[0]['type'] in ('arc', 'ellipse'), \
         f"椭圆: type={s[0]['type'] if s else '?'}"
@@ -162,7 +137,7 @@ Circle(8)={8,40,1};
 Curve Loop(1)={1,2,3,4,5,6,7,8};
 Plane Surface(1)={1};
 Mesh.Format=39; Mesh 2;"""
-    n, e, et = _mesh_from_geo(geo)
+    n, e, et = mesh_from_geo(geo)
     s = _detect(n, e, et)
     n_lines = sum(1 for x in s if x['type'] == 'line')
     n_arcs = sum(1 for x in s if x['type'] == 'arc')
@@ -207,7 +182,7 @@ Curve Loop(1)={1,2,3,4};
 Curve Loop(2)={300:323}; Curve Loop(3)={400:423}; Curve Loop(4)={600:623};
 Plane Surface(1)={1,2,3,4};
 Mesh.Format=39; Mesh 2;"""
-    n, e, et = _mesh_from_geo(geo)
+    n, e, et = mesh_from_geo(geo)
     s = _detect(n, e, et)
     inners = [x for x in s if '内孔' in x.get('label', '')]
     arcs = [x for x in s if x['type'] == 'arc']
@@ -231,7 +206,7 @@ Curve Loop(1)={1,2,3,4};
 Curve Loop(2)={5,6,7,8}; Curve Loop(3)={9,10,11,12};
 Plane Surface(1)={1,2,3};
 Mesh.Format=39; Mesh 2;"""
-    n, e, et = _mesh_from_geo(geo)
+    n, e, et = mesh_from_geo(geo)
     s = _detect(n, e, et)
     inners = [x for x in s if '内孔' in x.get('label', '')]
     outers = [x for x in s if '外边' in x.get('label', '')]
