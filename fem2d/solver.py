@@ -142,13 +142,20 @@ def _solve_with_singular_guard(fn, *args, **kwargs):
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         result = fn(*args, **kwargs)
-        for wi in w:
-            if issubclass(wi.category, MatrixRankWarning):
-                raise RuntimeError(
-                    "Linear system is singular or ill-conditioned. "
-                    "Check boundary constraints, isolated nodes, "
-                    "degenerate elements, and disconnected components."
-                ) from None
+    # catch_warnings 捕获即吞 — 非秩警告 (如 spsolve 的近奇异 RuntimeWarning)
+    # 必须在块外原样转发 (块内转发会被同一记录器重新捕获, 列表自增长);
+    # 守卫只把秩警告转成异常, 不选择性丢弃其他警告
+    for wi in w:
+        if not issubclass(wi.category, MatrixRankWarning):
+            warnings.warn_explicit(
+                wi.message, wi.category, wi.filename, wi.lineno)
+    for wi in w:
+        if issubclass(wi.category, MatrixRankWarning):
+            raise RuntimeError(
+                "Linear system is singular or ill-conditioned. "
+                "Check boundary constraints, isolated nodes, "
+                "degenerate elements, and disconnected components."
+            ) from None
     return result
 
 
