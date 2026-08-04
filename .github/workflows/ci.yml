@@ -99,3 +99,47 @@ jobs:
         # 防死代码/防静默常驻门禁: 覆盖率低于 90% 即失败 (test_geo_models
         # 在此 job 也 skip — 无 gmsh.exe — 与本地 93% 基线的差距即此)。
         run: python -m pytest -q --cov=fem2d
+      - name: Regression drift gate (vs pinned baseline, rel < 1e-9)
+        # 终轮回归数值漂移门 (2026-08-04): 确定性手写 MSH 2.2 网格 +
+        # 钉死基线 (Windows 本地录制) — 求解链路任何 >1e-9 相对漂移即红。
+        # 需 gmsh API (import_msh 无条件走 _gmsh_session) → 本 job 有。
+        run: |
+          cat > _ci_drift.msh <<'MSHEOF'
+          $MeshFormat
+          2.2 0 8
+          $EndMeshFormat
+          $Nodes
+          4
+          1 0 0 0
+          2 1 0 0
+          3 1 1 0
+          4 0 1 0
+          $EndNodes
+          $Elements
+          2
+          1 2 2 1 1 1 2 3
+          2 2 2 1 1 1 3 4
+          $EndElements
+          MSHEOF
+          python - <<'PYEOF'
+          import re
+          import subprocess
+          import sys
+
+          out = subprocess.run(
+              [sys.executable, "scripts/regression_compare.py",
+               "_ci_drift.msh", "2.1e11", "0.3", "0.01", "1e6", "0.0",
+               "elimination"],
+              capture_output=True, text=True, check=True).stdout
+          m = re.search(
+              r"max\|u\|=([0-9.eE+-]+) energy=([0-9.eE+-]+) "
+              r"eta=([0-9.eE+-]+) sxmax=([0-9.eE+-]+) "
+              r"symax=([0-9.eE+-]+) txymax=([0-9.eE+-]+)", out)
+          assert m, f"regression_compare 输出无法解析: {out!r}"
+          got = [float(v) for v in m.groups()]
+          expected = [4.8551138165e-06, 2.2668188447e-02, 1.5523972662e+01,
+                      1.0279627164e+06, 2.9161118509e+05, 2.7962716378e+04]
+          rel = max(abs(a - b) / abs(b) for a, b in zip(got, expected))
+          print(f"regression drift vs pinned baseline: max rel = {rel:.3e}")
+          assert rel < 1e-9, f"数值漂移: max rel = {rel:.3e}"
+          PYEOF

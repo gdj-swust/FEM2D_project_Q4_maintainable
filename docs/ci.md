@@ -28,6 +28,11 @@
 
 test-full job 用 3.13 × `>=2.0,<3` (与本地开发环境一致, 便于对照)。
 
+3.11 组合运行 3.11 语法门 (`test_static_checkers_smoke.py::test_no_backslash_in_fstrings`):
+2026-08-04 前用 tokenize 扫 f-string 整 token, <3.12 误报字面文本反斜杠
+(3.9-3.11 合法), >=3.12 失明 — 已改为 ast.parse(feature_version=(3,11))
++ 3.12+ tokenize 表达式段检测的组合门, 只拒真 PEP 701 语法。
+
 ## 2. 三个 job 与预期结果
 
 ### lint (一次)
@@ -51,11 +56,17 @@ checkout → setup-python 3.13 → `pip install -e ".[dev]"` → compileall → 
 
 checkout → setup-python 3.13 → `apt-get install libglu1-mesa libgl1` (gmsh Python API
 加载 libgmsh.so 需要 libGLU.so.1; libgl1 兜底 libGL.so.1) → `pip install -e ".[dev]"` →
-`python -m pytest -q -rs`。
+`python -m pytest -q -rs` → coverage 门 → **Regression drift gate**。
 
-预期: **939 collected → 937 passed + 2 skipped** (2026-08-04 本机实测)。2 个 skip 恒定为
+预期: **996 passed, 0 skipped** (2026-08-04 本机实测, 含 gmsh.exe)。CI 上 2 个 skip 恒定:
 `test_geo_models.py` 依赖捆绑 gmsh.exe 的两个测试 (86MB 可执行文件 gitignore 不入库,
 所有 job 都没有) — 与本地无 tools/ 检出实测一致。
+
+**Regression drift gate** (2026-08-04 启用): 确定性手写 MSH 2.2 双三角形网格 +
+钉死基线 (Windows 本地录制), 跑 `scripts/regression_compare.py` (elimination),
+6 项指标 (max|u|/energy/eta/sxmax/symax/txymax) 与基线相对差必须 < 1e-9 —
+求解链路任何数值漂移即红。需 gmsh API (import_msh 无条件走 _gmsh_session),
+故放 test-full (有 gmsh) 而非 test-core (显式卸载 gmsh)。
 
 ## 3. 无 gmsh 环境的 skip 守卫清单 (全部已确认, 非 ImportError 崩溃)
 
@@ -73,6 +84,7 @@ checkout → setup-python 3.13 → `apt-get install libglu1-mesa libgl1` (gmsh P
 | tests/test_geo_models.py | 2 | `find_gmsh()` 返回 None (无 GMSH_PATH/无 tools/gmsh.exe/无 PATH 可执行文件) → `pytest.skip("bundled gmsh executable not available")`; 另一测试捕 `GmshUnavailableError` — **这两个 skip 在有无 gmsh 的 job 里恒有** |
 | tests/test_regressions.py:205 | 1 | 显式 skipif: "gmsh Python API unavailable" |
 | tests/test_output_dir_policy.py:439 | 1 | `gmsh` 不可用 (No module named 'gmsh') 的显式 skip (9.21.0 新增 --output-dir 用例) |
+| tests/test_tools_smoke.py:195 | 1 | `test_regression_compare_runs_clean` — import_msh 走 gmsh API, 统一门 GMSH_AVAILABLE skipif (2026-08-04) |
 
 fem2d/scripts 全库无模块级 `import gmsh`; `fem2d/gmsh_adapter.py` 用
 `_load_gmsh_module()` 懒加载, 失败包装为 `GmshUnavailableError` — 无 gmsh 时
