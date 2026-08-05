@@ -3,6 +3,24 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
+## --keep-open (2026-08-05) — 批处理命令可选保留交互窗口
+
+- 现象: `python run.py models/demo_complex.geo --fix 2,4 --traction ...`
+  CLI 传 BC 即批处理, 计算完直接退出、无窗口 — 脚本调用不卡死是设计
+  优点 (保留), 本次加显式选项让批处理命令**可选**进交互。
+- `--keep-open`: 批处理命令 (CLI 传 BC) 计算完成后仍进入 interactive_plot
+  (窗口停留 + 键盘切换云图, q 退出); 不带该选项 → 现有批处理行为零变化。
+- 组合规则: `--keep-open --save x.png` → 先保存再交互 (允许); `--keep-open
+  --no-plot` → 互斥, 求解前拦截 CliError exit 1; `--keep-open` + 非 TTY
+  stdin → input() EOFError 走现有 INFO 路径退出 0; 无 BC 参数 + 
+  `--keep-open` → 幂等。
+- 改动面: `fem2d/cli.py` (标志+帮助文本)、`fem2d/config.py` (keep_open
+  字段)、`fem2d/runner.py` (_plot 批处理判定一行 + main 互斥校验)。
+  `visualize.py`/边界/求解/载荷逻辑零改动。
+- 判别性: `tests/test_runner_branches.py` keep-open 节 8 测 — 放回旧
+  实现, 4 测失败 (放行交互 / save 组合 / 互斥 exit 1 / 非 TTY 退出 0);
+  批处理不交互行为由 1 测锁死。
+
 ## 审查修复包 2026-08-05 — 5 项已复现缺陷 (来自 2026-08-04 外部审查, 未发版)
 
 ### 1. 位移模长/模型跨度 hypot 溢出 (P1)
