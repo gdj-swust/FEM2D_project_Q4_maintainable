@@ -80,11 +80,11 @@ class Mesh:
     # 再经 setter 锁定。
     _nodes: np.ndarray = field(init=False, repr=False)
     _elements: np.ndarray = field(init=False, repr=False)
+    _fixed_dofs: np.ndarray = field(init=False, repr=False)
     thickness: float = 1.0
     E: float = 210e9
     nu: float = 0.3
     plane_type: str = "stress"
-    fixed_dofs: np.ndarray = field(default_factory=lambda: np.array([], dtype=int))
     prescribed_vals: dict = field(default_factory=dict)
     body_force: object = None   # tuple | callable | None
     surface_tractions: list = field(default_factory=list)
@@ -160,6 +160,30 @@ class Mesh:
     @elements.setter
     def elements(self, value):
         self.replace_elements(value)
+
+    @property
+    def fixed_dofs(self) -> np.ndarray:
+        """受约束 DOF 索引 — 只读数组, 修改走 fix_node/fix_nodes_func.
+
+        延迟落盘: fix_node 只更新内部 set (O(1)), 数组在首次读取时
+        一次性重建 (O(n log n)) — 整边固支 (bc_apply 逐节点 fix_node)
+        曾每次全量 set + sorted 重建 (O(n² log n), 10 万节点 ≈ 10¹⁰
+        次操作)。内容恒为排序去重 int64, 与历史 np.unique 语义一致。
+        """
+        if self._fixed_dirty:
+            arr = np.array(sorted(self._fixed_set), dtype=int)
+            arr.setflags(write=False)
+            self._fixed_dofs = arr
+            self._fixed_dirty = False
+        return self._fixed_dofs
+
+    @fixed_dofs.setter
+    def fixed_dofs(self, value):
+        # __post_init__ 校验后经本 setter 写入; fix_node 不走 setter
+        # (直接改 set + 标记 dirty — 见 fix_node 延迟落盘注释)
+        self._fixed_dofs = value
+        self._fixed_set = None      # 惰性: 首次 fix_node 时从数组重建
+        self._fixed_dirty = False
 
     def __post_init__(self):
         """初始化后不自动计算拓扑 — 延迟到首次访问时 (lazy evaluation)"""
@@ -632,8 +656,12 @@ class Mesh:
         if dof in ("y", "both"):
             dofs.append(2 * nid + 1)
 
-        # 用 set 快速判重, list 累积新增
-        existing = set(self.fixed_dofs.tolist())
+        # set 判重 O(1)/次 — 每次全量重建 (set + sorted) 让整边固支
+        # (bc_apply 逐节点调用) 呈 O(n² log n) 结构性超线性; 延迟落盘:
+        # 数组在首次读取时一次性重建, 见 fixed_dofs property
+        if self._fixed_set is None:
+            self._fixed_set = set(self.fixed_dofs.tolist())
+        existing = self._fixed_set
         for d in dofs:
             if d in existing:
                 old_val = self.prescribed_vals.get(d, 0.0)
@@ -645,10 +673,7 @@ class Mesh:
                                   f"{old_val:.6e}, overwriting to {value:.6e}")
             existing.add(d)
             self.prescribed_vals[d] = value
-        self.fixed_dofs = np.array(sorted(existing), dtype=int)
-        # 保持全程冻结: __post_init__ 之后 fixed_dofs 也必须是只读的,
-        # 与 nodes/elements 的可变契约一致 (见 replace_nodes)。
-        self.fixed_dofs.setflags(write=False)
+        self._fixed_dirty = True
 
     def fix_nodes_func(self, node_list, func):
         """函数形式的给定位移 (Bathe §4.2.2: 非零位移约束)
