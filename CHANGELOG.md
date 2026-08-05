@@ -3,6 +3,63 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
+## 9.26.0 (2026-08-05) — 大优化 A/B/D/E 四轮合并
+
+### A 清理轮 (pkg_cleanA) — 补记 (此前已合入 788fce1, 未记 CHANGELOG)
+
+- T1+T2: 删除死参数 `_fit_closed_conic.prefix` / `_arc_algebraic.scale`
+  (历史轮遗留, 无调用方)。
+- T3: `PhysicalEdgeMapper` 正式弃用 — 使用处 DeprecationWarning +
+  工厂静默回退 + 删除计划 (替换为 RegionBoundaryMapper)。
+- T4: `fem2d/` 历史叙事注释精简 190→0 (只留"为什么必须这样做"的
+  rationale; 修复历史迁往 CHANGELOG)。
+- 判别性: `tests/test_clean_round.py` (90 行)。
+
+### B 结构轮 (pkg_structure) — 长函数拆分, 行为冻结 golden 零变化
+
+- S1-S7: 7 个长函数按职责拆分 ≤60 行 — `bc.apply_elimination`(160)、
+  `boundary.naming`、`convergence.run_cantilever_convergence`(204)、
+  `error_est.element_refinement_indicator`(181)、
+  `gmsh_adapter._extract_regions`(198)、`runner.main`(125)、
+  `verification.run_plane_verification`(155)。函数签名逐参不变,
+  算法段原样抽取为 helper, 验证逻辑前置集中。
+- S8: `gmsh_adapter._safe_geo_source` Include 递归闭环 (9.25.0 遗留
+  第 1 项 — API 路径此前不递归扫 Include, 与子进程路径不一致)。
+- 验证: `tests/test_structure_split.py` (123 行) + 漂移门
+  rel=0.000e+00 + `test_solve_refactor_lock` 金标准逐位不变。
+
+### D 易用性轮 (pkg_usability)
+
+- D1: CLI `@段名` 引用 — 段标签精确命中 (casefold, 不误吞复合标签),
+  与段编号等效; 无 region_registry (纯 .txt/.msh 输入) 也能按名选边;
+  缺失时错误信息列出可用段名。`@组名` (物理组) 通道不受影响。
+- D2: 输入入口引导 — `run.py --help` 追加入口指南 +
+  input_source 报错引导 + `docs/input_entries.md` 对照表;
+  含 .geo 脚本被误当 .inp 的针对性提示 (呼应历史教训)。
+- D3: Windows GBK 乱码修复 — 输出统一 UTF-8 (run.py 入口
+  `reconfigure` 强制, 失败保持原流); 重定向/管道不再按系统代码页
+  (cp936) 退化, ⁻/ℓ 等非 GBK 字形不再变 '?'。
+- 测试: `tests/test_usability_round_d1/d2/d3.py` (共 289 行)。
+
+### E 解析解验证轮 (pkg_analytic) — 原"最高优先待办"落地
+
+- E1: 悬臂梁端部集中力 CST/Q4 vs Euler-Bernoulli — 挠度/根部应力
+  随加密单调收敛, 最细层误差 < 5%。
+- E2: Kirsch 圆孔 Kt→3 — 收敛 (相邻层差递减) + 网格方向相位平移
+  半格 Kt 变化 < 10% (方向不敏感)。有限宽效应 (w/a=10 → Kt≈3.13)
+  依据见文档。
+- E3+E4: Z2 效应指数 θ∈[0.8,1.2] — 估计误差 vs 真实误差 log-log
+  斜率区间断言 (判别性: 回滚必红)。
+- 文档: `docs/analytic_verification.md` (186 行) — Z2/SPR 理论正确性
+  盲区就此闭环。
+
+### 验收 (独立复跑, 不采信执行者汇报)
+
+- 三分支各: 全量 pytest (1118 项) 0 失败 / 探针 0 FAIL /
+  漂移门 rel=0.000e+00 / fuzz 500 0 problems。
+- 合并后 main 复验同绿; 升版 9.26.0 + wheel 安装冒烟后推送,
+  CI 四 job (lint / test-core×4 / test-full / test-wheel) 全绿。
+
 ## 9.25.0 (2026-08-05) — 发布链路修复 (外部审查轮 6a/6b/6c)
 
 外部审查 (构建 wheel + 静态检查 + 极端输入) 实锤 4 项缺陷, 三包并行修复:
