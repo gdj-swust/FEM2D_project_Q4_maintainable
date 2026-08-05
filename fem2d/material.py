@@ -57,6 +57,18 @@ def von_mises(stress, plane_type="stress", nu=0.3):
         raise ValueError(
             f"von_mises: stress 必须为 (3,) 单向量或 (..., 3) 数组 "
             f"[σx, σy, τxy], got {stress.shape}")
+    if np.iscomplexobj(stress):
+        # complex 单向量会被 float() 静默丢虚部 (ComplexWarning), 批量
+        # 返回 complex 数组类型污染 — 与 NaN/Inf 拒绝同族
+        raise ValueError(
+            f"von_mises: stress 必须为实数 [σx, σy, τxy], "
+            f"got complex dtype {stress.dtype}")
+    if stress.dtype.kind not in ("i", "u", "f", "b"):
+        # str/object 会在 np.isfinite 冒裸 TypeError — 带参数名拒绝
+        # (与 require_finite_scalar 非数值 → TypeError 模式对齐)
+        raise TypeError(
+            f"von_mises: stress 必须为数值数组 [σx, σy, τxy], "
+            f"got dtype {stress.dtype}")
     if not np.all(np.isfinite(stress)):
         raise ValueError(
             "von_mises: stress contains NaN/Inf — 对非法输入静默返回 "

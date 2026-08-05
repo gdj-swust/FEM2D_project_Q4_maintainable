@@ -198,6 +198,19 @@ class Mesh:
                 f"(n_elem, {expected_npe}), got {elems_raw.shape}")
         if not np.all(np.isfinite(nodes)):
             raise ValueError("nodes contain NaN or Inf")
+        # 布尔单元索引: True/False 会被 rint 静默转 1/0, 构造出重复节点
+        # 退化单元 — 与 _validate_node_id (mesh.py) / require_dof_index_array
+        # (checks.py) 的 bool 拒绝策略同族, 此处补漏网
+        if elems_raw.dtype.kind == "b":
+            raise ValueError(
+                "Element node indices must be integers — boolean arrays "
+                "are rejected (True/False silently become 1/0)")
+        if elems_raw.dtype.kind not in ("i", "u", "f"):
+            # str/object 会在 np.isfinite 冒裸 TypeError — 非数值 dtype
+            # 带参数名拒绝 (与 require_finite_scalar 模式对齐)
+            raise TypeError(
+                f"elements must be a numeric array of node indices, "
+                f"got dtype {elems_raw.dtype}")
         if not np.all(np.isfinite(elems_raw)):
             raise ValueError("elements contain NaN or Inf")
         # 拒绝非整数节点索引 (浮点索引会被静默截断, 非常危险)
@@ -326,6 +339,12 @@ class Mesh:
                 f"得到 {elems_raw.shape}")
         if elems_raw.shape[0] == 0:
             raise ValueError("replace_elements: 单元集不能为空")
+        # 与 __post_init__ 同族守卫: 布尔掩码会被 rint 静默转 1/0,
+        # 构造出重复节点退化单元 (str 拒绝见 __post_init__ 同族注释)
+        if elems_raw.dtype.kind == "b":
+            raise ValueError(
+                "replace_elements: 单元节点索引必须是整数 — "
+                "布尔数组被拒绝 (True/False 会静默转 1/0)")
         if not np.issubdtype(elems_raw.dtype, np.integer):
             bad = elems_raw != np.rint(elems_raw)
             if np.any(bad):

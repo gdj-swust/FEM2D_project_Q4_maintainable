@@ -41,6 +41,11 @@ def principal_stresses(stress):
         raise ValueError(
             "principal_stresses: stress 必须为 (3,) 单向量或 (n, 3) 数组 "
             f"[σx, σy, τxy], got {stress.shape}")
+    if np.iscomplexobj(stress):
+        # complex 在 np.hypot 冒裸 TypeError — 与 NaN/Inf 拒绝同族
+        raise ValueError(
+            f"principal_stresses: stress 必须为实数 [σx, σy, τxy], "
+            f"got complex dtype {stress.dtype}")
     if not np.all(np.isfinite(stress)):
         raise ValueError(
             "principal_stresses: stress contains NaN/Inf — "
