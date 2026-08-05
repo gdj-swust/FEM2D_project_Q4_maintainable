@@ -353,6 +353,15 @@ class ElementLocator:
         triggers a 3x3 neighbourhood sweep, so a degenerate mesh can never turn
         a location query into a silent miss.
         """
+        # 非有限/非数值坐标在 int() 转换冒裸 OverflowError (公开 kernel
+        # API find_containing_element 未防护, point_in_element 已前置
+        # 拦截) — 域外语义: 返回空候选集
+        try:
+            finite = bool(np.isfinite(x) and np.isfinite(y))
+        except TypeError:
+            finite = False
+        if not finite:
+            return np.empty(0, dtype=np.int64)
         nx, ny = self.shape
         gx = int((x - self.origin[0]) * self.inv_cell[0])
         gy = int((y - self.origin[1]) * self.inv_cell[1])

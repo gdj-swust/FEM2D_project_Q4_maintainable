@@ -239,6 +239,27 @@ class CSTElement(ElementKernel):
 
     def stiffness_batch(self, mesh, element_slice=None):
         selector = slice(None) if element_slice is None else element_slice
+        # 退化 (零面积) 单元守卫: 与单元素路径 _element_stiffness 同判据
+        # (|A| ≤ 64·eps·scl², scl = 最大边长) — 批量路径曾静默返回
+        # NaN (仅 RuntimeWarning), 单元素路径抛 ValueError, 行为分叉。
+        # 冻结区: 只做入口校验, 不触碰 B 矩阵/刚度公式 (有限输入逐位不变)
+        elements = mesh.elements[selector]
+        if elements.shape[0]:
+            p0 = mesh.nodes[elements[:, 0]]
+            p1 = mesh.nodes[elements[:, 1]]
+            p2 = mesh.nodes[elements[:, 2]]
+            scl = np.maximum.reduce([
+                np.hypot(p1[:, 0] - p0[:, 0], p1[:, 1] - p0[:, 1]),
+                np.hypot(p2[:, 0] - p1[:, 0], p2[:, 1] - p1[:, 1]),
+                np.hypot(p0[:, 0] - p2[:, 0], p0[:, 1] - p2[:, 1]),
+            ])
+            signed_areas = mesh.signed_areas[selector]
+            bad = np.abs(signed_areas) <= 64.0 * np.finfo(float).eps * scl * scl
+            if np.any(bad):
+                eid = int(np.flatnonzero(bad)[0])
+                raise ValueError(
+                    f"Element area {signed_areas[eid]:.3e} ≈ 0 — "
+                    f"degenerate triangle (element {eid})")
         D = D_matrix(mesh.E, mesh.nu, mesh.plane_type)
         B = _batch_B_matrix(
             mesh.b_coeffs[selector],
