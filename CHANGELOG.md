@@ -3,6 +3,31 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
+## 9.25.0 (2026-08-05) — 发布链路修复 (外部审查轮 6a/6b/6c)
+
+外部审查 (构建 wheel + 静态检查 + 极端输入) 实锤 4 项缺陷, 三包并行修复:
+
+- **6a 发布链路**: wheel 缺 `fem2d.boundary.detectors` / `boundary.plugins`
+  两个子包 (显式 packages 列表漏项) → `pip install` 后 import 直接
+  ModuleNotFoundError。修复: 改 `[tool.setuptools.packages.find]` 自动发现
+  (include 白名单); CI 新增 test-wheel job — 构建 wheel + 源码树外安装 +
+  wheel 内容门; 打包流程固化为 `scripts/make_release_zip.py` (排除
+  `*.egg-info`/build/dist 等, `.github` 保留, 版本单一源读 pyproject)。
+  过期 `fem2d_q4.egg-info` (9.14.1) 已删; PROJECT_SUMMARY 版本改以
+  pyproject 为准。
+- **6b 安全**: `SystemCall` 黑名单仅行首正则匹配, `x = 1; SystemCall "…"`
+  与块注释后紧跟可绕过。修复: 逐字符词法剥离 `//` 与 `/* */` 注释 (维护
+  字符串态) 后在任意位置匹配; Include 递归扫描 (相对/绝对路径, active
+  集合防循环引用, done 集合防钻石重复)。判别性: 退回行首正则 16 测失败。
+- **6c 数值/API**: 自动罚因子 `max|K_ii| × 1e8` 无溢出保护 (1e301 → inf
+  静默进求解) → 加 `finfo.max` 阈值 + `OverflowError` 指向根因;
+  `von_mises` / `principal_stresses` 接受 `(3,)` 单向量 → 返回标量,
+  文档契约统一。判别性: 移除保护/单向量分支均红。
+- 三包均: 每提交全量 pytest 0 失败 + 判别性测试 + CI 全绿。验收独立复跑
+  四件套 (全量 pytest / 探针 0 FAIL / fuzz 500 0 problems / 漂移门 CI 背书)。
+- 遗留 (下轮): `fem2d/gmsh_adapter._safe_geo_source` API 路径不递归扫
+  Include; `docs/api_contract.md` 契约表注明单向量合法输入。
+
 ## --keep-open (2026-08-05) — 批处理命令可选保留交互窗口
 
 - 现象: `python run.py models/demo_complex.geo --fix 2,4 --traction ...`
