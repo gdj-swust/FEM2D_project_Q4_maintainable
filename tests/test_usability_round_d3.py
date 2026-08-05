@@ -11,13 +11,10 @@
 runner.py 属 B 结构轮边界 (禁碰), D 轮在 run.py 脚本入口补齐;
 run_demo.py 与 console script 入口需要同款处理, 转交 B 轮。
 """
-import contextlib
 import io
 import os
 import subprocess
 import sys
-
-import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
