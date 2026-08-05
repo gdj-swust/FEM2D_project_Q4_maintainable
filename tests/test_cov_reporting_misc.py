@@ -45,29 +45,51 @@ _Q = {"grade": "A", "area_min": 1e-4, "area_max": 1e-4, "area_mean": 1e-4,
 def _print_summary(result, config=None):
     mesh = _mesh()
     mesh.build_connectivity()   # centroids 供 vm 位置打印
-    with contextlib.redirect_stdout(io.StringIO()):
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
         print_result_summary(
             config or AnalysisConfig(), mesh, result, _Z2, _Q, 100.0,
             False, 10, 10)
+    return buf.getvalue()
 
 
 def test_summary_condition_number_present():
-    """cond_info 含 condition_number → 打印精度损失."""
-    _print_summary(_summary_result(
+    """cond 1e10/损失 8 位 → 条件数行数值格式化 + 精度判定."""
+    out = _print_summary(_summary_result(
         {"condition_number": 1e10, "digits_lost": 8.0}))
+    assert "求解状态" in out and "[OK] 成功" in out
+    # 数值格式化: 残差 {:.2e} 与阈值判定
+    assert "1.00e-12" in out and "[OK] 正常" in out
+    assert "条件数 k(K)" in out
+    assert "1.00e+10" in out and "8.0 位有效数字" in out
+    assert "[OK] 精度充足" in out
 
 
 def test_summary_condition_singular_status():
-    _print_summary(_summary_result({"status": "SINGULAR?", "error": "eig"}))
+    """SINGULAR? → 失败行含状态名与特征值错误信息."""
+    out = _print_summary(_summary_result({"status": "SINGULAR?", "error": "eig"}))
+    assert "求解状态" in out and "[OK] 成功" in out
+    assert "1.00e-12" in out  # 残差数值格式化 (改坏输出 → 红)
+    assert "[FAIL] 特征值求解失败" in out
+    assert "疑似奇异" in out and "eig" in out
 
 
 def test_summary_condition_other_status():
-    _print_summary(_summary_result({"status": "SKIP"}))
+    """SKIP 状态 → '已跳过' 文案 (非 FAIL/非未计算)."""
+    out = _print_summary(_summary_result({"status": "SKIP"}))
+    assert "求解状态" in out and "1.00e-12" in out
+    assert "已跳过" in out
+    assert "未计算" not in out
 
 
 def test_summary_warnings_block():
-    """build_warnings 非空 → [WARN] 列表逐条打印."""
-    _print_summary(_summary_result(None))
+    """build_warnings 非空 (体积自锁) → [WARN] 逐条打印; 无 cond → 未计算."""
+    out = _print_summary(
+        _summary_result(None), AnalysisConfig(plane="strain", nu=0.45))
+    assert "求解状态" in out and "1.00e-12" in out
+    assert "未计算 (solve 默认关闭" in out
+    assert "[WARN] 警告 (1 条)" in out
+    assert "体积自锁" in out
 
 
 def test_build_warnings_volumetric_locking():
