@@ -8,6 +8,9 @@
 静默豁免按生成值过滤: 只有该值"确实合法" (契约允许) 才允许静默成功 —
 complex/NaN/str/容器等非法类别照常断言必须抛异常 (曾把值类别参数
 整体 silent_ok=True, 非法输入被静默接受也查不出来)。
+2026-08-05 C2 扩面: 补 element_refinement_indicator / compute_traction_jumps /
+bc_apply 段解析 / resolve_input_file / run_plane_verification 五个入口
+(约束池入口因其误用面与共享随机池不兼容 — 见分支内注释)。
 用法: python scripts/fuzz_api.py [轮数=500] [--seed N]
 默认固定种子 (20260803) — 同一提交永远同结果 (判别性: CI 重跑可复现
 抓到的输入); --seed 覆盖以探索新输入序列。
@@ -29,6 +32,7 @@ if _ROOT not in sys.path:
 import fem2d as F
 from fem2d.bc import apply_elimination, apply_penalty
 from fem2d.bc_apply import _resolve_boundary_selection
+from fem2d.boundary import build_boundary_segments
 from fem2d.config import AnalysisConfig
 from fem2d.error_est import (
     compute_traction_jumps,
@@ -37,7 +41,10 @@ from fem2d.error_est import (
 )
 from fem2d.errors import CliError
 from fem2d.input_source import (
-    physical_point_from_geo, resolve_geo, resolve_spec_overrides,
+    physical_point_from_geo,
+    resolve_geo,
+    resolve_input_file,
+    resolve_spec_overrides,
 )
 from fem2d.loads_core import parse_traction, parse_vec2
 from fem2d.material import D_matrix, von_mises
@@ -53,6 +60,7 @@ from fem2d.stress import (
     principal_stresses,
     stress_at_point,
 )
+from fem2d.verification import run_plane_verification
 
 # 预期异常: 契约允许的输入拒绝方式 (带诊断消息). 其他一律 unexpected —
 # 曾把全部非 BARE 异常当成功忽略, RuntimeError/OverflowError 被静默放过.
@@ -83,6 +91,10 @@ def _solved():
         m.fix_node(i, "both", 0.0)
     m.add_force(2, 1.0, 0.0)
     return m, solve(m, verbose=False)
+
+
+# bc_apply 段解析的段表 — 4 节点方块 4 条边 (段解析入口共用).
+_SEGS = build_boundary_segments(_mesh())
 
 
 def _rand_value(rng):
@@ -192,7 +204,7 @@ def main():
 
     for _ in range(rounds):
         v = _rand_value(rng)
-        i = rng.randrange(36)
+        i = rng.randrange(41)
         if i == 0:
             feed(f"fix_node({v!r})", lambda v=v: _mesh().fix_node(v, "both", 0.0),
                  silent_ok=_valid_nid(v))  # 仅 0/1 是合法 nid
@@ -271,28 +283,58 @@ def main():
             feed(f"replace_elements({v!r})", lambda v=v: _mesh().replace_elements(v))
         elif i == 29:
             feed(f"estimate_condition K({v!r})", lambda v=v: estimate_condition(v))
+        # ── 2026-08-05 C2 扩面 (C-α + C-β 合并): 11 个新入口 ──
         elif i == 30:
             feed(f"refinement_indicator result({v!r})",
                  lambda v=v: element_refinement_indicator(_mesh(), v))
         elif i == 31:
+            # result 非 dict/缺 "stress" → ValueError (曾裸 KeyError, 66b3d8e 修)
+            feed(f"element_refinement_indicator({v!r})",
+                 lambda v=v: element_refinement_indicator(_mesh(), v))
+        elif i == 32:
             feed(f"traction_jumps stress({v!r})",
                  lambda v=v: compute_traction_jumps(_mesh(), v))
-        elif i == 32:
+        elif i == 33:
+            # sigma_ref: None=默认; 有限正数合法; 其余 → TypeError/ValueError
+            feed(f"compute_traction_jumps sigma_ref({v!r})",
+                 lambda v=v: compute_traction_jumps(_mesh(), np.ones((2, 3)), v),
+                 silent_ok=v is None or (_is_real(v) and v > 0))
+        elif i == 34:
+            # 契约: str 任意 / None (空选择) — 其余类型必须报错
             feed(f"resolve_boundary_selection({v!r})",
                  lambda v=v: _resolve_boundary_selection(v, [], fatal=True),
-                 # 契约: str 任意 / None (空选择) — 其余类型必须报错
                  silent_ok=isinstance(v, str) or v is None)
-        elif i == 33:
+        elif i == 35:
+            # @组误用 (无注册表/混用/缺组名) 必须 CliError; 无匹配 → []
+            # 是调用方契约 (与共享随机池不兼容 — 池外值几乎全部无匹配
+            # 静默返回, 断言退化为空)
+            sel = rng.choice(["@不存在组", "@", "1,@2", "@x,1", "abc", ""])
+            feed(f"_resolve_boundary_selection({sel!r})",
+                 lambda sel=sel: _resolve_boundary_selection(sel, _SEGS, fatal=True),
+                 silent_ok=sel in ("abc", ""))
+        elif i == 36:
             feed(f"physical_point_from_geo({v!r})",
                  lambda v=v: physical_point_from_geo(v, "p1", _mesh()),
                  silent_ok=isinstance(v, str))  # str 类型合法 (reason 元组契约)
-        elif i == 34:
+        elif i == 37:
+            # 非法扩展名/无扩展名 → 分派即拒 CliError (池只含 str: 非 str
+            # fp 会在 os.path.splitext 冒裸 AttributeError — 契约 E 行未
+            # 声明非 str 行为, 不喂; 池值全部不触盘, 无 gmsh 依赖)
+            fp = rng.choice(["x.xyz", "x.inp", "x.INP", "abc", "data.dat", ""])
+            feed(f"resolve_input_file({fp!r})",
+                 lambda fp=fp: resolve_input_file(fp, AnalysisConfig()))
+        elif i == 38:
             feed(f"resolve_spec_overrides({v!r})",
                  lambda v=v: resolve_spec_overrides(v, AnalysisConfig()),
                  silent_ok=isinstance(v, str))  # 路径类型合法, 缺失文件拒绝
-        elif i == 35:
+        elif i == 39:
             feed(f"resolve_geo({v!r})",
                  lambda v=v: resolve_geo(v, AnalysisConfig(), ask=None))
+        elif i == 40:
+            # 无参验证入口: 多余分量 → TypeError (签名契约; 合法调用体
+            # 内部跑完整验证, 不进 fuzz 轮循环)
+            feed(f"run_plane_verification({v!r})",
+                 lambda v=v: run_plane_verification(v))
 
     print(f"seed={seed} rounds={rounds}")
     print(f"calls={calls}")
