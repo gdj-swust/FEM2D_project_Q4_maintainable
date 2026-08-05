@@ -167,7 +167,7 @@ def run_patch_test(E=210e9, nu=0.3, plane="stress", tol=1e-10,
         u_ana = np.array([u_exact(*mesh.nodes[n]) for n in range(mesh.n_nodes)])
         u_ref = np.max(np.abs(u_ana))  # 位移参考尺度
         u_error = np.max(np.abs(u_num - u_ana))
-        # 无条件相对化 — 曾 u_ref<1e-15 时退回绝对误差 (1e-15 是绝对阈值),
+        # 无条件相对化 — u_ref<1e-15 时退回绝对误差 (1e-15 是绝对阈值),
         # 微尺度位移模型下单元相对误差 50% 也能通过分片检验 (静默错误)。常应力非零 → 参考尺度恒 > 0, tiny 仅防除零。
         u_rel = u_error / (u_ref + np.finfo(float).tiny)
 

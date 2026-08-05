@@ -57,7 +57,7 @@ def estimate_condition(K, method="auto"):
     if not issparse(K):
         K = np.asarray(K)
     if K.ndim != 2 or K.shape[0] != K.shape[1]:
-        # tuple/list/标量/非方阵曾冒裸 AttributeError ('.shape') —
+        # tuple/list/标量/非方阵会冒裸 AttributeError ('.shape') —
         # 契约: 形状错误带上下文
         raise ValueError(
             f"estimate_condition: K 必须为方阵 (n×n), "
@@ -65,7 +65,7 @@ def estimate_condition(K, method="auto"):
     n = K.shape[0]
     method = str(method).strip().lower()
     if method not in ("auto", "dense", "sparse"):
-        # 非法 method 曾静默降级到 sparse 路径并成功返回 (拼错无察觉) —
+        # 非法 method 静默降级到 sparse 路径并成功返回 (拼错无察觉) —
         # 契约: 用户可控字符串非法值必须响亮失败
         raise ValueError(
             f"estimate_condition: 未知 method {method!r} — "
@@ -116,8 +116,8 @@ def estimate_condition(K, method="auto"):
         # shift-invert 在奇异矩阵上可靠失败 — 正是最需要报警的场景。
         # 特征值求解器的数值失败 (奇异/秩亏矩阵) 单独归为 "SINGULAR?",
         # 与 "SKIP" (规模过大/其他原因) 区分, 调用方据此给出不同提示。
-        # 失败路径补齐成功路径的全部键 (None 填充) — 曾缺
-        # lambda_min/lambda_max/digits_lost 四键, 调用方逐键访问崩溃
+        # 失败路径补齐成功路径的全部键 (None 填充) — 缺
+        # lambda_min/lambda_max/digits_lost 四键时调用方逐键访问崩溃
         from numpy.linalg import LinAlgError
         try:
             from scipy.sparse.linalg import ArpackError
@@ -169,7 +169,7 @@ def _balance_failure_message(sum_F, tol_rel, tol_noise, sum_M, m_scale):
         f"check boundary constraints and load paths.")
 
 
-# ── solve 的独立阶段 (每阶段可单测, 2026-08 拆分) ──
+# ── solve 的独立阶段 (每阶段可单测) ──
 
 def _solve_linear_system(K, F, free_dofs, fixed_dofs, prescribed,
                          method, linear_solver, n_dof, log):
@@ -180,8 +180,8 @@ def _solve_linear_system(K, F, free_dofs, fixed_dofs, prescribed,
     K_mod, F_mod = None, None  # penalty 方法使用, 残差检查需要
     linear_solver_info = {"name": "none", "iterations": 0}
     _validate_system_inputs(K, F)
-    # solver 名称在任何分支前统一校验一次 — 曾纯 Dirichlet 分支 (全约束)
-    # 在名称检查前返回, linear_solver="bogus" 静默成功; 且 elimination
+    # solver 名称在任何分支前统一校验一次 — 纯 Dirichlet 分支 (全约束)
+    # 在名称检查前返回会让 linear_solver="bogus" 静默成功; 且 elimination
     # 分支内逐字重复第二遍校验, 两处必须保持同步
     solver_key = str(linear_solver).strip().lower()
     if solver_key == "cg-block":
@@ -289,8 +289,8 @@ def _compute_residual(K, F, K_mod, F_mod, u, free_dofs,
         else:
             residual = r_inf / denom
         residual_abs = r_inf
-        # 曾 denom<1e-15 绝对判据: 微尺度载荷的非平凡解 (max|u|=1.87e-9)
-        # 被误标 "trivial solution"。"平凡解"标签只
+        # denom<1e-15 绝对判据会把微尺度载荷的非平凡解 (max|u|=1.87e-9)
+        # 误标 "trivial solution"。"平凡解"标签只
         # 属于真正零解 (u≡0), 非平凡解一律走相对残差日志。
         if u_inf == 0.0:
             if residual_abs > 1e-10:
@@ -400,7 +400,7 @@ def _small_deformation_check(mesh, u):
         np.ptp(mesh.nodes[:, 0]), np.ptp(mesh.nodes[:, 1])))
     u2 = u.reshape(-1, 2)
     u_range = max(np.ptp(u2[:, 0]), np.ptp(u2[:, 1]))
-    # 曾 model_span > 1e-30 绝对阈值: 跨度 1e-31 的模型位移比 20% 也不
+    # model_span > 1e-30 绝对阈值会让跨度 1e-31 的模型位移比 20% 也不
     # 告警。判据相对化: span 仅需可表示
     # (> 0), 位移比为 0 时 (纯刚体平移) 无意义。
     span_pos = model_span > np.finfo(float).tiny
@@ -425,7 +425,7 @@ def _check_result_finite(stress, strain, vm):
                 "超出数值范围 (极端 E/thickness/应力), 检查模型设置。")
 
 
-# ── solve 的其余独立阶段 (2026-08-03 拆分为纯编排层) ──
+# ── solve 的其余独立阶段 (纯编排层) ──
 
 def _partition_dofs(mesh, method, n_dof, log):
     """自由/约束 DOF 划分; 纯 Dirichlet (全约束) 问题提示."""
@@ -584,7 +584,7 @@ def _condition_report(K, free_dofs, check_condition, log):
             f"稀疏特征值估计可能较慢, 请耐心等待 ...")
     cond_info = estimate_condition(K_aa)
     if cond_info["status"] == "SINGULAR?":
-        # condition_number=None — 格式化 :.2e 会二次崩溃 (曾静默)
+        # condition_number=None — 格式化 :.2e 会二次崩溃
         log(f"[Solver] cond(K_aa): [SINGULAR?] 特征值求解失败 — "
             f"刚度矩阵疑似奇异: {cond_info.get('error', '')}")
     elif cond_info["status"] != "SKIP":
@@ -644,7 +644,7 @@ def solve(
     """
     log = print if verbose else (lambda *a, **k: None)
     if not (hasattr(mesh, "validate_state") and hasattr(mesh, "n_dof")):
-        # 非 Mesh (dict/None/标量) 曾冒裸 AttributeError — 类型契约前置
+        # 非 Mesh (dict/None/标量) 会冒裸 AttributeError — 类型契约前置
         raise TypeError(
             f"solve: mesh 必须是 fem2d.Mesh 实例, "
             f"got {type(mesh).__name__}: {mesh!r}")

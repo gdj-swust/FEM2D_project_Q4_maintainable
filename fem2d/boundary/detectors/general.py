@@ -26,7 +26,7 @@ class GeneralCurveDetector(Detector):
     ) -> Optional[Detection]:
         coords = np.asarray(points, dtype=float)
         prefix = _prefix(is_outer)
-        # 曲率量纲 1/长度 — 绝对 1e-8/1e-14 阈值曾使大坐标 (1e12 级,
+        # 曲率量纲 1/长度 — 绝对 1e-8/1e-14 阈值会使大坐标 (1e12 级,
         # R>1e8) 平滑曲线 κ<1e-8 被降级成"通用曲线"、拐点漏计。按
         # characteristic span 归一 (segment_by_curvature 的
         # 1e-8/characteristic 同款模式).

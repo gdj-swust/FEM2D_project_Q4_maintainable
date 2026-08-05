@@ -37,7 +37,7 @@ def principal_stresses(stress):
     if single:
         stress = stress[None, :]
     if stress.ndim != 2 or stress.shape[1] != 3:
-        # (n,2)/(n,)/(标量) 曾冒裸 IndexError — 形状契约前置校验
+        # (n,2)/(n,)/(标量) 会冒裸 IndexError — 形状契约前置校验
         raise ValueError(
             "principal_stresses: stress 必须为 (3,) 单向量或 (n, 3) 数组 "
             f"[σx, σy, τxy], got {stress.shape}")
@@ -96,7 +96,7 @@ def nodal_average(mesh, elem_stress, weights=None):
     denom = np.bincount(flat_nodes, weights=repeated, minlength=mesh.n_nodes)
     orphan = np.flatnonzero(denom == 0.0)
     if len(orphan):
-        # 曾 denom==0 → 1.0 静默填 0 应力, 与 L2 路径抛错行为分叉 —
+        # denom==0 → 1.0 静默填 0 应力与 L2 路径抛错行为分叉 —
         # 孤立节点在三条恢复路径统一显式报错
         raise ValueError(
             f"节点平均恢复失败: {len(orphan)} 个孤立节点未被任何单元引用, "
@@ -239,7 +239,7 @@ def nodal_L2_projection(mesh, elem_stress):
     else:
         # 逐单元兼容路径 (外部内核无批量恢复规则)。先收集全部恢复规则:
         # nqp/N 形状逐单元一致时堆叠批量计算 — CST/Q4R 的 L2 质量阵
-        # 积分规则逐单元相同 (仅 dA 随单元面积变化), 200k 单元曾
+        # 积分规则逐单元相同 (仅 dA 随单元面积变化), 200k 单元
         # 8~13 s 的 Python 三层循环 + 数百万 list append 降为向量化
         # einsum + COO scatter。逐单元收缩序与散点顺序均不变 →
         # 局部质量/右端与全局散点逐位一致 (else 分支逐位等价)。
@@ -268,7 +268,7 @@ def nodal_L2_projection(mesh, elem_stress):
                 conn_e = conn[eid]
                 N, dA_e = N_list[eid], dA_list[eid]
                 local_mass = np.einsum("qi,qj,q->ij", N, N, dA_e)
-                # 单元素切片复用共享广播逻辑 (曾第三份逐字副本)
+                # 单元素切片复用共享广播逻辑 (避免第三份逐字副本)
                 stress_qp = _l2_stress_qp(
                     elem_stress[eid:eid + 1], len(dA_e), n_comp, 1)[0]
                 local_rhs = np.einsum("qi,qc,q->ic", N, stress_qp, dA_e)
@@ -300,7 +300,7 @@ def nodal_L2_projection(mesh, elem_stress):
 def point_in_element(mesh, x, y):
     """Return the id of the element containing ``(x,y)``, or ``-1``."""
     if np.ndim(x) != 0 or np.ndim(y) != 0:
-        # 数组/列表当标量坐标曾静默折叠 (float(np.array([0.5])) → 0.5,
+        # 数组/列表当标量坐标会静默折叠 (float(np.array([0.5])) → 0.5,
         # numpy<=2.0 静默转换) — 标量位置契约, 必须显式拒绝
         raise ValueError(
             f"point_in_element: (x, y)=({x!r}, {y!r}) — "
@@ -311,12 +311,12 @@ def point_in_element(mesh, x, y):
     except (TypeError, ValueError):
         finite = False
     if not finite:
-        # inf/NaN/非数值曾冒裸 OverflowError (kernel 内 int 转换) —
+        # inf/NaN/非数值会冒裸 OverflowError (kernel 内 int 转换) —
         # 契约: 带上下文的 ValueError
         raise ValueError(
             f"point_in_element: (x, y)=({x!r}, {y!r}) — 坐标必须为有限数值")
     # AABB 快筛: 有限但明显域外的坐标 (如 1e308) 直接判域外 — kernel
-    # 定位器的 int 转换对巨大值溢出曾炸 OverflowError, 域外语义不变 (-1)
+    # 定位器的 int 转换对巨大值溢出会炸 OverflowError, 域外语义不变 (-1)
     lo = mesh.nodes.min(axis=0)
     hi = mesh.nodes.max(axis=0)
     if x < lo[0] or x > hi[0] or y < lo[1] or y > hi[1]:
@@ -343,7 +343,7 @@ def stress_at_point(mesh, result, x, y, mode="element"):
             f"Unknown stress query mode '{mode}'. "
             f"Expected one of {sorted(valid_modes)}.")
     if not isinstance(result, dict) or "stress" not in result:
-        # 非 solve() 输出曾冒裸 KeyError — 契约前置校验
+        # 非 solve() 输出会冒裸 KeyError — 契约前置校验
         raise ValueError(
             "stress_at_point: result 必须是 solve() 的返回 dict 且含 "
             f"'stress' 键, got {type(result).__name__}")
@@ -367,7 +367,7 @@ def stress_at_point(mesh, result, x, y, mode="element"):
 
     # 点-边定位容差必须用局部边长尺度 + 坐标 ULP — 全局 span×1e-8
     # 在纳米网格 (边长 1e-12) 下大于所有真实边长, 全部边被判退化,
-    # 双侧应力静默退化为单侧 (复测 2026-08-02)
+    # 双侧应力静默退化为单侧
     coord_ulp = 64.0 * np.finfo(float).eps * max(
         float(np.max(np.abs(mesh.nodes))), np.finfo(float).tiny)
     neighbor = -1

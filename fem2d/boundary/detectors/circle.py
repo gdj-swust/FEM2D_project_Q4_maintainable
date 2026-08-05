@@ -46,7 +46,7 @@ class CircleDetector(Detector):
 
     def _closed_circle(
             self, coords: np.ndarray, prefix: str) -> Optional[Detection]:
-        conic = _fit_closed_conic(coords, prefix)
+        conic = _fit_closed_conic(coords)
         if conic is None:
             return None
         ellipse, fit_info = conic

@@ -292,7 +292,7 @@ class ElementLocator:
         # 单元尺寸, 包围盒 padding 吞掉整个网格, 点定位退化为全量搜索
         coord_ulp = 64.0 * np.finfo(float).eps * float(
             np.max(np.abs(self.nodes)))
-        # 每轴 ULP — 零跨度轴 (共线/退化网格) 的 extent 曾回落绝对 1.0,
+        # 每轴 ULP — 零跨度轴 (共线/退化网格) 的 extent 回落绝对 1.0 时,
         # 微尺度退化网格分桶数随 1.0 发散
         axis_ulp = 64.0 * np.finfo(float).eps * np.max(
             np.abs(self.nodes), axis=0)

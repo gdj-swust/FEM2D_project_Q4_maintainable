@@ -182,9 +182,9 @@ def _condensation_blocks(mesh, selector):
     for q in range(B.shape[1]):
         Bq, Biq = B[:, q], Bi[:, q]
         # 先加权再二次型 (与 q4 同策略): B̃=√(t·detJ)·B — 微尺度几何下
-        # BᵀDB ~ E/L² 中间量曾溢出 Inf
+        # BᵀDB ~ E/L² 中间量会溢出 Inf
         if np.any(det[:, q] <= 0.0):
-            # 曾 sqrt(max(...,0)) 把负 Jacobian 静默夹成零 (第三轮审查)
+            # sqrt(max(...,0)) 会把负 Jacobian 静默夹成零 (审查发现)
             raise ValueError(
                 "Q4I non-positive Jacobian det(J) at Gauss point "
                 f"q={q} (min {float(det[:, q].min()):.3e})")

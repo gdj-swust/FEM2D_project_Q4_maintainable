@@ -205,12 +205,12 @@ class Q4Element(ElementKernel):
         for q in range(4):
             B = B_gauss[:, q]
             # 先加权再二次型: B̃ = √(t·detJ)·B, Ke = B̃ᵀDB̃ —
-            # 曾先算 BᵀDB ~ E/L² 中间量, 微尺度几何 (L~1e-150) 下溢出
-            # Inf 后再乘 detJ 已来不及。数学等价,
+            # 先算 BᵀDB ~ E/L² 中间量会在微尺度几何 (L~1e-150) 下溢出
+            # Inf, 再乘 detJ 已来不及。数学等价,
             # 中间量尺度 O(√t·D) 不随 L 发散。
             if np.any(det_gauss[:, q] <= 0.0):
-                # 曾 sqrt(max(...,0)) 把负 Jacobian 静默夹成零 (第三轮
-                # 外部审查) — 显式拒绝, 与标量路径一致
+                # sqrt(max(...,0)) 会把负 Jacobian 静默夹成零 — 显式
+                # 拒绝, 与标量路径一致
                 raise ValueError(
                     "Q4 non-positive Jacobian det(J) at Gauss point "
                     f"q={q} (min {float(det_gauss[:, q].min()):.3e})")
@@ -218,7 +218,7 @@ class Q4Element(ElementKernel):
                  )[:, None, None]
             Bw = B * w
             # 注意 einsum 下标: "eai,eaj" 共享应变分量 a —
-            # "eai,ebj" 会让 a/b 独立求和, 数值全错 (2026-08-03 修复时踩坑)
+            # "eai,ebj" 会让 a/b 独立求和, 数值全错 (修复时踩过坑)
             Ke += np.einsum("eai,eaj->eij", Bw, np.einsum(
                 "ab,ebj->eaj", D, Bw))
         return 0.5 * (Ke + np.transpose(Ke, (0, 2, 1)))
@@ -281,7 +281,7 @@ class Q4Element(ElementKernel):
         coords = np.asarray(coords, dtype=float)
         target = np.array([x, y], dtype=float)
         if not (np.all(np.isfinite(target)) and np.all(np.isfinite(coords))):
-            # NaN/Inf 查询或坐标 — 曾静默返回 NaN 形函数并被当作"点在
+            # NaN/Inf 查询或坐标 — 静默返回 NaN 形函数会被当作"点在
             # 单元内" (NaN 比较全假), 污染下游应力插值/域包含判断
             return None
         # Newton 迭代在单元局部坐标系进行 (以首个节点为原点): 绝对坐标下

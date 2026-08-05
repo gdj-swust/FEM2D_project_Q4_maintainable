@@ -27,7 +27,7 @@ def _segment_label(
 # 闭合圆锥曲线共用判定 (旧 _classify_closed_conic 的拟合+门槛部分)
 # ═══════════════════════════════════════════════════════════════
 
-def _fit_closed_conic(coords, prefix: str):
+def _fit_closed_conic(coords):
     """闭合链的整环圆锥拟合 + 平滑门槛 — 通过返回 (ellipse, fit_info),
     Circle/Ellipse 探测器按轴比各自接管. 门槛与旧实现逐位一致."""
     if len(coords) < 8:

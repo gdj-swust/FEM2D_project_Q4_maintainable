@@ -70,7 +70,7 @@ def _interactive_edge_index(segs, region_registry=None):
         # 去重保序: "1,1" 重复选择不得重复施加 (重复 traction 会双倍装配)
         indices = list(dict.fromkeys(indices))
         if len(indices) > 1:
-            # 曾 yield indices[0] 静默丢弃其余匹配: "left" 命中 3 段时
+            # yield indices[0] 会静默丢弃其余匹配: "left" 命中 3 段时
             # 只施加第 1 段, 打印却显示成功
             print(f"    {len(indices)} 个匹配段 — 逐段处理: "
                   f"{', '.join(str(i + 1) for i in indices)}")
@@ -107,7 +107,7 @@ def _apply_fix_bcs(config, mesh, segs, batch_mode, region_registry=None):
     """
     print("\n  --- 边界约束 (Ux=?, Uy=?) ---")
     if config.fix or config.fix_ux or config.fix_uy:
-        # CLI 模式 — fix/fix_ux/fix_uy 参数化合并 (曾三段重复循环)
+        # CLI 模式 — fix/fix_ux/fix_uy 参数化合并 (避免三段重复循环)
         _FIX_LABELS = {"both": "Ux=0, Uy=0", "x": "Ux=0", "y": "Uy=0"}
         for dof, spec in (("both", config.fix),
                           ("x", config.fix_ux), ("y", config.fix_uy)):
@@ -225,13 +225,13 @@ def _apply_tractions(config, mesh, segs, batch_mode, region_registry=None):
         try:
             edge_str, tx, ty, profile = parse_traction(t_spec)
         except ValueError as error:
-            # 解析错误 (如 right:bad) 曾裸 ValueError 泄漏到顶层兜底 →
+            # 解析错误 (如 right:bad) 裸 ValueError 泄漏到顶层兜底 →
             # 退出码 2 (内部错误); 非法面力规格是用户错误 → 1
             raise CliError(f"  [FATAL] 面力规格无效: {error}",
                            exit_code=1) from error
         if edge_str is None:
-            # 无 ':' 前缀 (如 --traction "1e6,0"): 曾报"未找到边 'None'"
-            # 把用户引向检查边名, 真正问题是缺 edge: 前缀
+            # 无 ':' 前缀 (如 --traction "1e6,0"): 报"未找到边 'None'"
+            # 会把用户引向检查边名, 真正问题是缺 edge: 前缀
             msg = (f"面力规格 '{t_spec}' 缺少边前缀 — 正确格式: "
                    f"edge:tx,ty (例: right:1e6,0) 或 edge:p:n")
             if is_batch_traction:
@@ -255,7 +255,7 @@ def _apply_tractions(config, mesh, segs, batch_mode, region_registry=None):
                 mesh, segs, matched, edge_str, tx, ty, profile)
             continue
         # matched 索引由 _resolve_edge_indices (boundary/naming) 契约保证
-        # 恒在 [0, len(segs)) — 曾 idx>=len(segs) 静默 continue, 把内部
+        # 恒在 [0, len(segs)) — idx>=len(segs) 静默 continue 会把内部
         # bug 吞成"面力漏施加"
         for idx in matched:
             ns = segs[idx]['nodes']
@@ -287,14 +287,14 @@ def _apply_concentrated_forces(config, mesh, region_registry, node_id_map,
     try:
         fx, fy = float(parts[1]), float(parts[2])
     except ValueError:
-        # 曾 float() 裸 ValueError 由顶层兜底 → [ERROR] 退出码 2,
-        # 与字段数错误的 [FATAL] 退出码 1 风格分裂
+        # float() 裸 ValueError 由顶层兜底 → [ERROR] 退出码 2, 与
+        # 字段数错误的 [FATAL] 退出码 1 风格分裂
         raise CliError(
             f"  [FATAL] --force 载荷分量无法解析: '{parts[1]},{parts[2]}' "
             f"— 需要两个数值 (例: --force 5,1e6,0)",
             exit_code=1)
     if not (np.isfinite(fx) and np.isfinite(fy)):
-        # float("nan")/float("1e999") 不抛 ValueError — nan/inf 曾直达
+        # float("nan")/float("1e999") 不抛 ValueError — nan/inf 直达
         # mesh.add_force 的 require_finite_scalar 裸 ValueError → 退出码 2;
         # 非有限载荷分量是用户错误 → 1
         raise CliError(
@@ -323,7 +323,7 @@ def _apply_concentrated_forces(config, mesh, region_registry, node_id_map,
                 physical_point_from_geo(source_geo_path, target, mesh))
         except GeoScriptRejected as error:
             # .geo 含 SystemCall 等危险指令 — 输入内容问题 → 退出码 1
-            # (曾裸 ValueError 泄漏到顶层兜底 → 2)
+            # (裸 ValueError 泄漏到顶层兜底 → 2)
             raise CliError(f"  [FATAL] {error}", exit_code=1) from error
         if nid is not None and _point_dist > 0.0:
             print(f"  [WARN] Physical Point '{target}' 未落在网格节点上, "
@@ -332,7 +332,7 @@ def _apply_concentrated_forces(config, mesh, region_registry, node_id_map,
             try:
                 orig_nid = int(target)
             except ValueError:
-                # 失败原因曾统一报"未找到" — 歧义/超距是不同问题,
+                # 失败原因统一报"未找到" — 歧义/超距是不同问题,
                 # 排查方向完全不同
                 reason_hint = {
                     "ambiguous": "该名称映射到多个 Physical Point — 请确认"
@@ -390,7 +390,7 @@ def _apply_body_force(config, mesh, batch_mode):
             # 的 callable 语义一致, 直接透传。不在此预调用 — 节点形心对
             # 带孔/凹域可能在材料域外 (环域形心在孔洞内), 合法体力会被
             # 误拒; 校验 (长度/数值/有限性) 由 evaluate_vector_field 在
-            # 真实 Gauss 点完成 (复测 2026-08-02)。
+            # 真实 Gauss 点完成。
             mesh.body_force = body_input
             print("  体力: 已设置 (callable)")
             # 返回契约必须是二元组 (runner 固定 bfx, bfy = apply_bcs(...)):
@@ -399,7 +399,7 @@ def _apply_body_force(config, mesh, batch_mode):
                     lambda x, y: body_input(x, y)[1])
         if isinstance(body_input, (tuple, list, np.ndarray)):
             # 程序化配置 (AnalysisConfig(body=(bx, by))) — 字段声明为
-            # object, 曾仅按字符串处理而抛 TypeError; 形状校验收敛到
+            # object, 仅按字符串处理会抛 TypeError; 形状校验收敛到
             # 载荷 schema (loads_schema._check_load_pair) — 1/3 分量、NaN 带字段名
             bfx, bfy = _check_load_pair(body_input, "body")
         else:
@@ -410,7 +410,7 @@ def _apply_body_force(config, mesh, batch_mode):
     else:
         bfx, bfy = 0.0, 0.0
     if callable(bfx) or callable(bfy) or bfx != 0.0 or bfy != 0.0:
-        # 曾用 abs>1e-30 阈值: 微尺度模型合法小体力被静默丢弃
+        # abs>1e-30 阈值会把微尺度模型合法小体力静默丢弃
         mesh.body_force = (bfx, bfy)
         print("  体力: 已设置")
     return bfx, bfy

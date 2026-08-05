@@ -222,7 +222,7 @@ class Q4RElement(Q4Element):
         mesh.q4r_reduced_hourglass[selector] = reduced_hg
         # reduced_hg 依赖 D(E,ν,plane) — 记录材料指纹, hourglass_energy
         # 据此检测装配后改材料/平面态导致的静默过期 (几何缓存不随材料
-        # 失效)。plane_type 缺失曾导致 stress→strain 切换后沙漏能沿用
+        # 失效)。plane_type 缺失会导致 stress→strain 切换后沙漏能沿用
         # 旧 D 矩阵 (积分点应力相对差 ~9%)。
         mesh._q4r_hourglass_material = (
             mesh.E, mesh.nu, mesh.thickness, mesh.plane_type)
@@ -260,7 +260,7 @@ class Q4RElement(Q4Element):
         )
         # K_hourglass is positive semidefinite by construction.  Remove only
         # signed round-off at its exact affine nullspace (e.g. -1e-29 J).
-        # 显著负能量 = 负系数或实现错误 — 曾无条件截零掩盖问题。
+        # 显著负能量 = 负系数或实现错误 — 无条件截零会掩盖问题。
         neg_mask = energy < -1e-12 * max(
             float(np.max(np.abs(energy))), 1.0)
         if np.any(neg_mask):

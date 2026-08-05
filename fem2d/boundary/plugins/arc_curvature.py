@@ -88,13 +88,13 @@ class ArcCurvatureDetector(Detector):
                 coords, scale=scale, is_outer=is_outer,
                 closed=False) is not None:
             return None
-        arc = self._arc_algebraic(coords, scale, is_outer)
+        arc = self._arc_algebraic(coords, is_outer)
         if arc is not None:
             return arc
         return self._short_ellipse_guard(coords, scale, is_outer)
 
     def _arc_algebraic(
-            self, coords: np.ndarray, scale: float,
+            self, coords: np.ndarray,
             is_outer: bool) -> Optional[Detection]:
         """κ 恒定弧的代数解: ρ/圆心 = 三点的垂平分线交点 (禁止拟合)."""
         interior = curvature(coords, closed=False)[1:-1]

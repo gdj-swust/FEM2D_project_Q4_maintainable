@@ -65,7 +65,7 @@ def _ask_number(prompt, default=None, *, positive=False, what="数值"):
         if not raw and default is not None:
             return float(default)
         if not raw:
-            # EOF (标准输入关闭) 且无默认值 — 曾在此死循环
+            # EOF (标准输入关闭) 且无默认值 — 否则在此死循环
             raise CliError("\n  [INFO] 未提供数值 — 退出向导", exit_code=0)
         try:
             value = float(raw)

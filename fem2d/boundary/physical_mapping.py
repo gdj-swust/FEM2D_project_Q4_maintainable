@@ -1,7 +1,14 @@
-"""Normalize Gmsh Physical Group labels into semantic boundary groups."""
+"""Normalize Gmsh Physical Group labels into semantic boundary groups.
+
+删除计划: PhysicalEdgeMapper 仅被 map_physical_edges 工厂引用, 生产调用链
+(runner._import_mesh → naming.py:329) 恒传 edge_labels=None 使本类不可达。
+建议 v10 删除: 先清 naming.py:329 处 guard 死分支, 再删本类与工厂,
+调用方统一走 segments_from_physical_curves 公共 API。
+"""
 from __future__ import annotations
 
 import re
+import warnings
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -41,6 +48,12 @@ class PhysicalEdgeMapper:
     def __init__(
             self, mesh, edge_labels, edge_partitions,
             geo_path, diagnostics):
+        warnings.warn(
+            "PhysicalEdgeMapper 已弃用: 改用 map_physical_edges() 工厂; "
+            "类计划在 v10 删除.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.mesh = mesh
         self.edge_labels = edge_labels
         self.edge_partitions = edge_partitions
@@ -189,10 +202,13 @@ class PhysicalEdgeMapper:
 def map_physical_edges(
         mesh, edge_labels, edge_partitions, geo_path, diagnostics):
     """Functional façade for legacy edge-label mapping."""
-    return PhysicalEdgeMapper(
-        mesh,
-        edge_labels,
-        edge_partitions,
-        geo_path,
-        diagnostics,
-    ).build()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        mapper = PhysicalEdgeMapper(
+            mesh,
+            edge_labels,
+            edge_partitions,
+            geo_path,
+            diagnostics,
+        )
+    return mapper.build()

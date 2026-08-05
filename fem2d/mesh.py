@@ -178,7 +178,7 @@ class Mesh:
         nodes = np.asarray(self.nodes, dtype=float)
         elems_raw = np.asarray(self.elements)
 
-        # 标量/非数组输入曾裸 IndexError (0 维数组 shape[0] 越界) — 先验维度
+        # 标量/非数组输入会裸 IndexError (0 维数组 shape[0] 越界) — 先验维度
         if nodes.ndim == 0:
             raise ValueError(
                 f"nodes must be a 2-D array, got scalar {self.nodes!r}")
@@ -403,7 +403,7 @@ class Mesh:
             raise ValueError("elements contain NaN or Inf")
 
     def _validate_bc_state(self):
-        # ── BC 状态 (构造后可被重写, 复测 2026-08-02 建议; 共享 DOF helper) ──
+        # ── BC 状态 (构造后可被重写; 共享 DOF helper) ──
         n_dof = 2 * self._nodes.shape[0]
         fixed = require_dof_index_array(
             self.fixed_dofs, "fixed_dofs", n_dof=n_dof)
@@ -427,7 +427,7 @@ class Mesh:
             require_finite_scalar(v, f"prescribed_vals[{d}]")
 
     def _validate_loads_state(self):
-        # 载荷 schema 校验 (P2-4): 形状错误在求解前响亮失败 — 曾
+        # 载荷 schema 校验 (P2-4): 形状错误在求解前响亮失败 — 否则
         # 多余分量静默忽略 / 单分量裸 IndexError/TypeError。
         for i, cf in enumerate(self.concentrated_forces):
             if not isinstance(cf, dict):
@@ -440,8 +440,8 @@ class Mesh:
                     f"concentrated_forces[{i}] is missing key(s) "
                     f"{sorted(missing)} — full record: {cf!r}")
             # 构造函数直传的载荷不走 add_* API — 节点号校验收敛到
-            # _validate_node_id (整数值浮点 2.0 规范化**写回** — 曾只转
-            # 局部变量验证, 原始记录仍是 2.0, 组装时 IndexError)
+            # _validate_node_id (整数值浮点 2.0 规范化**写回** — 只转
+            # 局部变量验证的话, 原始记录仍是 2.0, 组装时 IndexError)
             nid = self._validate_node_id(cf["node"])
             if not (0 <= nid < self._nodes.shape[0]):
                 raise ValueError(
@@ -480,7 +480,7 @@ class Mesh:
                 raise ValueError(
                     f"surface traction nodes ({ni},{nj}) out of range "
                     f"[0, {self._nodes.shape[0]-1}]")
-            # 内部边载荷必须在此拒绝 — 曾绕过 add_traction 的边界检查,
+            # 内部边载荷必须在此拒绝 — 绕过 add_traction 的边界检查会让
             # solve 成功而误差估计崩溃
             self._validate_boundary_edge(ni, nj)
             st["nodes"] = (ni, nj)   # 规范化写回 (整数)
@@ -614,7 +614,7 @@ class Mesh:
         for d in dofs:
             if d in existing:
                 old_val = self.prescribed_vals.get(d, 0.0)
-                # 曾绝对 1e-12: 微尺度位移 (1e-13 vs 2e-13) 覆盖静默无警告
+                # 绝对 1e-12 会让微尺度位移 (1e-13 vs 2e-13) 覆盖静默无警告
                 #
                 if abs(old_val - value) > 1e-12 * max(
                         abs(old_val), abs(value), np.finfo(float).tiny):
@@ -647,13 +647,13 @@ class Mesh:
                 f"fix_nodes_func: node_list 必须是节点索引列表, "
                 f"got 字符串 {node_list!r}")
         if isinstance(node_list, (int, np.integer)):
-            # 单个节点号曾 for-in 迭代裸 TypeError — 明示期望列表
+            # 单个节点号会被 for-in 迭代成裸 TypeError — 明示期望列表
             raise ValueError(
                 f"fix_nodes_func: node_list 必须是节点索引列表, "
                 f"got 单个节点 {node_list!r}")
         for nid in node_list:
             nid = self._validate_node_id(nid)
-            # 范围检查先于索引 — 越界曾裸 IndexError (与 fix_node 一致)
+            # 范围检查先于索引 — 越界裸 IndexError (与 fix_node 一致)
             if not (0 <= nid < self.n_nodes):
                 raise ValueError(
                     f"fix_nodes_func: nid={nid} out of range "
@@ -672,7 +672,7 @@ class Mesh:
                             f"类型非法: {result!r} — 需要 (ux, uy) 二元组"
                             "或标量") from None
                     if len(result) != 2:
-                        # 多余分量曾静默忽略 — 载荷静默错误
+                        # 多余分量静默忽略 — 载荷静默错误
                         raise ValueError(
                             f"fix_nodes_func: func({x:.4g},{y:.4g}) 返回 "
                             f"{len(result)} 个分量 — 需要 (ux, uy) "
@@ -697,7 +697,7 @@ class Mesh:
         require_finite_scalar(fx, "add_force: fx")
         require_finite_scalar(fy, "add_force: fy")
         if fx != 0.0 or fy != 0.0:
-            # 曾用 abs>1e-30 阈值: 微尺度模型合法小载荷 (1e-31 N) 被静默
+            # abs>1e-30 阈值会把微尺度模型合法小载荷 (1e-31 N) 静默
             # 丢弃, 求解"成功"但位移全零
             self.concentrated_forces.append({"node": nid, "force": (fx, fy)})
 
@@ -803,7 +803,7 @@ class Mesh:
             require_finite_scalar(p, "add_pressure: p")
         # 不缓存外法向: 组装时由当前几何重新计算 (boundary_outward_normal),
         # 这样 replace_nodes/replace_elements 改变几何后载荷自动跟随 —
-        # 缓存法向曾导致改几何后压力沿用旧方向。
+        # 缓存法向会导致改几何后压力沿用旧方向。
         self.surface_tractions.append({
             "nodes": (ni, nj),
             "traction": (p,),
@@ -829,7 +829,7 @@ class Mesh:
         col = 0 if axis == "x" else 1
         val = self.nodes[:, col].min() if edge == "min" else self.nodes[:, col].max()
         span = max(np.ptp(self.nodes[:, 0]), np.ptp(self.nodes[:, 1]))
-        # 曾 span<1e-30 → 1.0 绝对地板: 子 1e-30 跨度模型 tol=1e-8 覆盖
+        # span<1e-30 → 1.0 绝对地板会让子 1e-30 跨度模型 tol=1e-8 覆盖
         # 全部节点, 边界查询静默返回整条边
         if span < 64.0 * np.finfo(float).eps * max(
                 float(np.max(np.abs(self.nodes))), np.finfo(float).tiny):
@@ -917,8 +917,7 @@ class Mesh:
             # 分量特征尺寸: 局部跨度 + 坐标 ULP — 固定 1.0 下限在极小
             # 尺寸模型 (1e-16) 下破坏刚体模态检查的尺度不变性, 合法
             # 约束被误报"仍有转动模态" (内层 1.0 残留
-            # 在坐标<1 且跨度<~3e-29 时仍把旋转列缩到 SVD 阈值下 —
-            # 2026-08-03 补修)
+            # 在坐标<1 且跨度<~3e-29 时仍把旋转列缩到 SVD 阈值下)
             scl = max(np.ptp(xy, axis=0).max(),
                       64.0 * np.finfo(float).eps * max(
                           float(np.max(np.abs(xy))), np.finfo(float).tiny))
@@ -948,7 +947,7 @@ class Mesh:
                     if abs(null[2]) > 0.5:
                         missing.append("转动")
                 elif rank == 2:
-                    # 零空间向量指示真正缺失的模态 — 曾一律报"转动", 但
+                    # 零空间向量指示真正缺失的模态 — 一律报"转动"会掩盖
                     # 三个仅 y 约束的节点缺失的是 x 平动
                     _, _, vt = np.linalg.svd(R)
                     null = vt[2]

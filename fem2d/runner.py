@@ -114,8 +114,8 @@ def _build_mesh(config, resolved, coords, elems, mesh_elem_type,
                 region_registry):
     """网格校验 + 平面态判型 + Mesh 构造 + region 面积报告."""
     # ── 2a. 网格导入后校验 (Gmsh checkMeshCoherence 模式) ──
-    # 传入 mesh_elem_type — 校验网格声明的类型与节点数一致 (2026-08:
-    # 参数名清理, .inp 输入口已移除)
+    # 传入 mesh_elem_type — 校验网格声明的类型与节点数一致 (.inp
+    # 输入口已移除)
     vreport = validate_mesh(coords, elems, mesh_elem_type)
     if vreport["warnings"]:
         for w in vreport["warnings"]:
@@ -129,9 +129,9 @@ def _build_mesh(config, resolved, coords, elems, mesh_elem_type,
     requested_plane = config.plane
     try:
         if config.elem_type:
-            # --elem-type 覆写内核 (CST/Q4/Q4R/Q4I) 平面无关 — 曾按网格原码
-            # 做冲突检查: CPS4 网格 + --elem-type Q4R --plane strain 误报
-            # "cannot use --plane strain"
+            # --elem-type 覆写内核 (CST/Q4/Q4R/Q4I) 平面无关 — 按网格原码
+            # 做冲突检查会把 CPS4 网格 + --elem-type Q4R --plane strain
+            # 误报 "cannot use --plane strain"
             config.plane = _resolve_plane_type(mesh_elem_type, None)
             if requested_plane is not None:
                 config.plane = requested_plane
@@ -140,7 +140,7 @@ def _build_mesh(config, resolved, coords, elems, mesh_elem_type,
                 mesh_elem_type, requested_plane)
     except ValueError as error:
         # 用户参数与网格单元码冲突 (CPE 网格 + --plane stress) — 用户错误
-        # 退出码 1; 曾裸 ValueError 冒泡到顶层 except Exception 被归为
+        # 退出码 1; 裸 ValueError 冒泡到顶层 except Exception 会被归为
         # 内部错误 2, 违反退出码矩阵
         raise CliError(f"  [FATAL] {error}", exit_code=1) from error
     if requested_plane is None and config.plane == "strain":
@@ -277,7 +277,7 @@ def _print_boundaries(config, mesh, segs):
             seg_len = np.sum(np.linalg.norm(np.diff(coords_arr, axis=0), axis=1))
             dim = f"L={seg_len:.4f}"
         print(f"  {i+1:<8} {s['type']:<8} {n_nodes:<6} {label:<20} {dim}")
-    # 曾用 config.mesh: 交互选文件路径时 config.mesh 为 None →
+    # 用 config.mesh: 交互选文件路径时 config.mesh 为 None →
     # os.path.basename(None) TypeError, 边界已列出却报错退出码 2
     #
     demo_fp = config.mesh or "模型文件"
@@ -345,7 +345,7 @@ def _plot(config, mesh, result, scale):
     if all(specified):
         # config.validate 已保证 (max-min)/step 在 1e-9 相对容差内整除 —
         # 但浮点除法 (如 0.3/0.1=2.9999999999999996) 常落在整数下方,
-        # floor 截断会少一个带、末带静默加宽一倍 (0..0.3@0.1 曾生成 [0, 0.1, 0.3], 末带宽 0.2)。
+        # floor 截断会少一个带、末带静默加宽一倍 (0..0.3@0.1 生成 [0, 0.1, 0.3], 末带宽 0.2)。
         ratio = (config.band_max - config.band_min) / config.band_step
         n_bands = int(round(ratio))
         isoband_levels = (
@@ -357,7 +357,7 @@ def _plot(config, mesh, result, scale):
         if (config.band_tag is not None
                 and config.band_tag != "vm"):
             # levels 只应用于匹配 band_tag 的图; 初始/保存图恒为 vm —
-            # 曾日志宣称生效而图中未应用
+            # 日志宣称生效而图中未应用
             print(f"  [WARN] --band-tag {config.band_tag} ≠ vm — "
                   "初始/保存图为 vm, 固定带宽不应用; "
                   "交互模式下切换到对应 tag 后才生效")
@@ -366,7 +366,7 @@ def _plot(config, mesh, result, scale):
     from .visualize import PLOTS, interactive_plot, plot_three
     isoband_tag = config.band_tag if config.band_tag else 'vm'
     sigma_ref = config.jump_ref
-    # 曾内联重写批处理判定 (漏 save/no_plot): 交互终端 + CLI BC 参数时,
+    # 内联重写批处理判定会漏 save/no_plot: 交互终端 + CLI BC 参数时,
     # 输入提示已跳过 (is_batch_mode=True) 但 interactive_plot 仍在
     # input() 阻塞挂起 — 统一用唯一批处理判定
     # keep_open 显式放行交互 (批处理命令也保留窗口); no_plot 绝对优先 —
@@ -378,8 +378,8 @@ def _plot(config, mesh, result, scale):
                save=config.save if config.save else None,
                isoband_levels=isoband_levels, isoband_tag=isoband_tag,
                sigma_ref=sigma_ref)
-    # 成功文案在绘图之后打印 — 曾先打印"云图已生成"再实际绘制,
-    # --save 失败时输出"成功后再失败"的矛盾信息
+    # 成功文案在绘图之后打印 — 先打印"云图已生成"再实际绘制时,
+    # --save 失败会输出"成功后再失败"的矛盾信息
     print("\n  [Plot] 云图已生成 — 可用按键:")
     for key, (_, label) in sorted(PLOTS.items(), key=lambda x: int(x[0])):
         print(f"     [{key:>2}] {label}")
@@ -390,8 +390,8 @@ def _plot(config, mesh, result, scale):
                              isoband_tag=isoband_tag,
                              sigma_ref=sigma_ref)
         except EOFError:
-            # 终端关闭 stdin 时 input() 抛 EOFError — 求解已成功, 曾报
-            # [ERROR] 退出码 2 误导脚本调用 (run_demo 已优雅处理)
+            # 终端关闭 stdin 时 input() 抛 EOFError — 求解已成功, 报
+            # [ERROR] 退出码 2 会误导脚本调用 (run_demo 已优雅处理)
             print("\n[INFO] 非交互环境 (stdin 不可用), 跳过交互绘图")
 
 
@@ -503,8 +503,8 @@ def main(argv=None) -> int:
     """
     # CLI 入口职责: 项目根置于 sys.path, 使 scripts 工具层可导入。
     # run.py 脚本方式运行 sys.path[0] 已是项目根; 此处兜底
-    # python -m fem2d.runner / console 场景。曾由 fem2d.input_source
-    # 模块顶层注入 (import 副作用污染库用户进程)。
+    # python -m fem2d.runner / console 场景。input_source 模块顶层注入
+    # sys.path 是 import 副作用 (污染库用户进程), 注入改在此处。
     _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if _project_root not in sys.path:
         sys.path.insert(0, _project_root)
@@ -524,15 +524,15 @@ def main(argv=None) -> int:
         return error.exit_code
     except ValueError as error:
         # 配置校验失败 (非法参数组合, 如 --band-min 缺 --band-step) — 用户
-        # 错误退出码 1; 曾归入内部错误 2, 与退出码矩阵不一致 (此阶段 config
+        # 错误退出码 1; 归入内部错误 2 与退出码矩阵不一致 (此阶段 config
         # 尚未构建, 无 --debug 概念)
         print(f"[ERROR] {error}")
         return 1
 
     # ── 独立自检: Patch Test + plane stress/strain 材料验证 ──
     if config.self_test and not config.mesh:
-        # 曾静默吞掉非法 BC 参数 (--force garbage!! 与 --self-test 组合
-        # 退出 0, 载荷从未生效也无提示)
+        # 静默吞掉非法 BC 参数会让 --force garbage!! 与 --self-test 组合
+        # 退出 0, 载荷从未生效也无提示
         for _key, _val in (("--fix", config.fix), ("--fix-ux", config.fix_ux),
                            ("--fix-uy", config.fix_uy),
                            ("--traction", config.traction),
@@ -543,11 +543,11 @@ def main(argv=None) -> int:
                       "已忽略 (自检只跑单元数学验证)")
         if config.band_min is not None:
             # 与 --no-plot 同模式: band 参数已通过 config 校验但独立自检
-            # 不绘图 — 曾静默忽略
+            # 不绘图 — 静默忽略会误导用户
             print("  [WARN] --band-min/max/step 在独立自检模式下不生效 — "
                   "已忽略 (自检只跑单元数学验证)")
         if config.list_boundaries:
-            # 曾声称"自检不执行, 仅列出边界"但随后仍执行自检 — 文案撒谎
+            # 声称"自检不执行, 仅列出边界"但随后仍执行自检是文案撒谎
             # 行为: 自检照常, list-boundaries 无输入文件无从列出
             print("  [WARN] --self-test 与 --list-boundaries 组合: "
                   "--list-boundaries 需要输入文件, 独立自检模式下不生效 — "
@@ -563,7 +563,7 @@ def main(argv=None) -> int:
         return error.exit_code
     except KeyboardInterrupt:
         # 求解/解析中途 Ctrl-C (ask 内的 Ctrl-C 已是 CliError) — 向导
-        # banner 承诺"随时 Ctrl-C 退出", 曾泄漏整段 traceback
+        # banner 承诺"随时 Ctrl-C 退出", 泄漏整段 traceback 违背承诺
         print("\n  [INFO] 已中断 (Ctrl-C)")
         return 130
     except Exception as error:
@@ -594,7 +594,7 @@ def main(argv=None) -> int:
         elif any(x is not None for x in (config.band_min, config.band_max,
                                          config.band_step)):
             # band 参数已通过 config.validate 校验但 --no-plot 无绘图 —
-            # 曾静默忽略 (参数看似生效实未生效, 教学用户困惑)
+            # 静默忽略时参数看似生效实未生效, 教学用户困惑
             print("  [INFO] --band-min/max/step 仅在绘图时生效 — "
                   "--no-plot 抑制绘图, 参数已忽略")
     except CliError as error:
