@@ -3,7 +3,8 @@
 > 版本: 9.18.1+ (2026-08-03, 契约清账阶段 1 交付物; 阶段 2/3 完成后已更新:
 > K1-K11 全部修复并带判别性测试; **复查轮 (2026-08-03) 三方一致性审计后
 > 状态列全部回填, 与代码实测一致** — 探针 scripts/audit_contract_probe.py
-> 100 项全过, 见第 M 节)。
+> 100 项全过, 见第 M 节; 2026-08-05 C 覆盖轮: 6c 契约扩展 (接受 (3,)
+> 单向量返回标量) 的伴随更新, 见 von_mises / principal_stresses 行)。
 > 范围: fem2d/ 全部顶层导出 (`fem2d/__init__.py` `__all__` + 惰性导出) +
 > Mesh 全部公共方法 + 输入端入口 (input_source / gmsh_adapter / bc_apply)。
 > 单元内核公式 (element/)、solver 数值逻辑、error_est 公式为行为冻结区,
@@ -113,7 +114,7 @@
 | compute_stresses | (mesh, u) | u: (n_dof,) 有限 | u 形状错 → ValueError(带期望); u NaN/Inf → ValueError "u contains NaN/Inf"; mesh 非法 → 下游 validate_state 未调用 (文档化) | ✅ (K8) |
 | nodal_simple / nodal_weighted | (mesh, elem_stress) | elem_stress: (n_elem, n_comp) | 形状错 → ValueError; 孤立节点 → ValueError(与 L2 一致); 权重/elem_stress 含 NaN → ValueError "contains NaN/Inf" | ✅ (K8) |
 | nodal_L2_projection | (mesh, elem_stress) | (n_elem, n_comp) 或 (n_elem, nqp, n_comp) | ndim ∉ {2,3} → ValueError; 首维 ≠ n_elem → ValueError; 采样数 ≠ nqp → ValueError; 孤立节点 → ValueError(一致质量阵奇异前置); NaN → ValueError | ✅ (K8) |
-| principal_stresses | (stress) | (n, 3) 有限数组 [σx, σy, τxy] | 形状 (n,2)/(n,)/(标量) → ValueError 带期望形状; NaN/Inf → ValueError "contains NaN/Inf" | ✅ (K3) |
+| principal_stresses | (stress) | (n, 3) 有限数组 [σx, σy, τxy]; **或 (3,) 单向量 (6c 扩展, 返回单元素结果元组)** | 形状 (n,2)/(标量)/(n≠3,) 1-D → ValueError 带期望形状; NaN/Inf → ValueError "contains NaN/Inf" | ✅ (K3, 6c) |
 | stress_at_point | (mesh, result, x, y, mode="element") | mode ∈ {element,sides,average,recovered} | mode 非法 → ValueError(带可选值); 点不在网格 → ValueError; result 非 dict 或缺 "stress" → ValueError 带键名; x/y NaN → point_in_element 返回 -1 → ValueError(带坐标) | ✅ (K4) |
 | point_in_element | (mesh, x, y) | x,y 有限标量 | 返回 -1 (不在网格) — 调用方契约; NaN/Inf/复数 → ValueError(带坐标上下文, 9.21.0 坐标守卫) | ✅ |
 | spr_recovery | (mesh, elem_stress) | (n_elem, n_comp) 或 (n_elem, nqp, n_comp) | 首维 ≠ n_elem → ValueError (入口校验); NaN → ValueError "contains NaN/Inf"; 孤立节点 → 无样点节点回退平均 (设计行为) | ✅ (K8) |
@@ -145,7 +146,7 @@
 | API | 签名 | 参数合法形状 | 误用清单 → 应有错误 | 现状 |
 |-----|------|-------------|---------------------|------|
 | D_matrix | (E, nu, plane_type="stress") | E>0 有限; nu∈(-1,0.5); plane ∈ {stress,strain} | E≤0/NaN → ValueError; nu 越界 → ValueError; plane 非法 → ValueError; 非数值 → TypeError 带参数名 | ✅ (K1) |
-| von_mises | (stress, plane_type="stress", nu=0.3) | (..., 3) 有限数组 | plane 非法 → ValueError; 标量/1-D/末维≠3 → ValueError(形状); NaN → ValueError | ✅ (K12, fuzz 发现后修复) |
+| von_mises | (stress, plane_type="stress", nu=0.3) | (..., 3) 有限数组; **或 (3,) 单向量 (6c 扩展, 返回标量 float)** | plane 非法 → ValueError; 标量/末维≠3 → ValueError(形状); NaN → ValueError | ✅ (K12, 6c) |
 | get_element_kernel | (elem_type: str) | 注册过的类型/别名 | 未注册 → ValueError(带注册表列表); None → ValueError | ✅ |
 | register_element | (kernel: ElementKernel) | ElementKernel 实例 | 非实例 → TypeError; 空名 → ValueError; 重复键不同内核 → ValueError(明示) | ✅ |
 | registered_element_types | () | — | — | ✅ |
