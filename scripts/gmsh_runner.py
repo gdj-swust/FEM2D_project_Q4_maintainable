@@ -291,17 +291,23 @@ def sanitize_geo_source(source, *, geo_path=None):
         "// Mesh command removed by FEM2D; FEM2D meshes once",
         sanitized,
     )
+    # Mesh.Format / Mesh.MshFileVersion 剥离无行首锚点 — 旧 ``^\s*`` 可被
+    # 同行前导语句 ('x = 1; Mesh.Format = 39;') 完全绕过, 与 Save/Mesh 2
+    # 的 ``\b`` 匹配不一致, 同类指令应同款处理。值部分排除引号/换行:
+    # [^;]* 会把字符串 'Print("Mesh.Format =");' 的闭合引号吞进值里造成
+    # 引号失衡 (Gmsh 字符串无转义, 值表达式不会含引号)。大小写不敏感 —
+    # Gmsh 关键字不区分大小写 (与 SystemCall 拦截同策略)。
     sanitized = re.sub(
-        r"^\s*Mesh\s*\.\s*Format\s*=\s*[^;]*;",
+        r"\bMesh\s*\.\s*Format\s*=\s*[^;\"\n]*;",
         "// Mesh.Format removed by FEM2D; output is native .msh",
         sanitized,
-        flags=re.MULTILINE,
+        flags=re.IGNORECASE,
     )
     sanitized = re.sub(
-        r"^\s*Mesh\s*\.\s*MshFileVersion\s*=\s*[^;]*;",
+        r"\bMesh\s*\.\s*MshFileVersion\s*=\s*[^;\"\n]*;",
         "// Mesh.MshFileVersion removed by FEM2D; output version is 4.x",
         sanitized,
-        flags=re.MULTILINE,
+        flags=re.IGNORECASE,
     )
     return sanitized
 
@@ -392,8 +398,8 @@ def _is_relative_ref(rest):
 
 def temp_copy_dir(geo_path, requested_dir):
     """临时几何副本目录: --output-dir 指定时用该目录; 源 .geo 含相对
-    Include 时必须留在源目录 (相对引用以所在目录解析, 曾因副本移位导致
-    Include 断裂). 返回实际使用的目录."""
+    Include/Merge 引用时必须留在源目录 (相对引用以所在目录解析, 曾因
+    副本移位导致 Include 断裂). 返回实际使用的目录."""
     base = os.path.dirname(os.path.abspath(geo_path))
     if requested_dir is None:
         return base
