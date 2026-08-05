@@ -52,6 +52,11 @@ def principal_stresses(stress):
         raise TypeError(
             f"principal_stresses: stress 必须为数值数组 [σx, σy, τxy], "
             f"got dtype {stress.dtype}")
+    if not single and stress.dtype.kind == "f" and stress.dtype.itemsize < 8:
+        # float32/16 批量算术停在低精度 (单向量路径恒 float64) — 同数据
+        # 两形态精度不一致; 提升 float64 (float32⊂float64 精确, 无舍入)。
+        # float64 输入不动 — 冻结区逐位不变
+        stress = np.asarray(stress, dtype=float)
     if not np.all(np.isfinite(stress)):
         raise ValueError(
             "principal_stresses: stress contains NaN/Inf — "
