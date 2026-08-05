@@ -369,7 +369,10 @@ def _plot(config, mesh, result, scale):
     # 曾内联重写批处理判定 (漏 save/no_plot): 交互终端 + CLI BC 参数时,
     # 输入提示已跳过 (is_batch_mode=True) 但 interactive_plot 仍在
     # input() 阻塞挂起 — 统一用唯一批处理判定
-    batch_mode = is_batch_mode(config) or bool(config.save) or config.no_plot
+    # keep_open 显式放行交互: 批处理命令也保留窗口 (与 main 的互斥校验
+    # 配套, --keep-open + --no-plot 在此前已报错, 不会到达)
+    batch_mode = (not config.keep_open) and (
+        is_batch_mode(config) or bool(config.save) or config.no_plot)
     plot_three(mesh, result, tag='vm', scale=scale,
                save=config.save if config.save else None,
                isoband_levels=isoband_levels, isoband_tag=isoband_tag,
@@ -509,6 +512,15 @@ def main(argv=None) -> int:
     reconfigure_streams()
     try:
         config = AnalysisConfig.from_args(parse_args(argv))
+        if config.keep_open and config.no_plot:
+            # 防静默: no_plot 会吞掉 keep_open 的窗口请求 — 语义互斥,
+            # 在求解前拦截 (用户错误退出码 1, 与配置校验同级)
+            raise CliError(
+                "  [FATAL] --keep-open 与 --no-plot 互斥 — "
+                "保留交互窗口与抑制绘图不能同时要求", exit_code=1)
+    except CliError as error:
+        print(error)
+        return error.exit_code
     except ValueError as error:
         # 配置校验失败 (非法参数组合, 如 --band-min 缺 --band-step) — 用户
         # 错误退出码 1; 曾归入内部错误 2, 与退出码矩阵不一致 (此阶段 config

@@ -772,3 +772,75 @@ def test_keep_open_flag_plumbing():
     from fem2d.cli import parse_args
     assert AnalysisConfig.from_args(parse_args(["--keep-open"])).keep_open
     assert not AnalysisConfig.from_args(parse_args([])).keep_open
+
+
+def test_plot_keep_open_forces_interactive_with_batch_bc(plot_deps, monkeypatch):
+    """CLI BC + --keep-open (交互终端) → interactive_plot 被调用.
+
+    判别性: 放回旧实现 (batch_mode 不认 keep_open) → 交互不调用, 本测失败.
+    """
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    config = AnalysisConfig(fix="1", keep_open=True)
+    runner_mod._plot(config, "mesh", "result", 1.0)
+    assert plot_deps["interactive"] == 1
+
+
+def test_plot_batch_bc_without_keep_open_no_interactive(plot_deps, monkeypatch):
+    """CLI BC 不带 --keep-open → 交互不调用 (批处理行为锁死, 不能回归)."""
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    runner_mod._plot(AnalysisConfig(fix="1"), "mesh", "result", 1.0)
+    assert plot_deps["interactive"] == 0
+
+
+def test_plot_keep_open_with_save_saves_then_interactive(plot_deps, monkeypatch):
+    """--keep-open --save → 先保存再进交互 (两者都生效)."""
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    config = AnalysisConfig(fix="1", keep_open=True, save="out.png")
+    runner_mod._plot(config, "mesh", "result", 1.0)
+    assert plot_deps["plot_three"]["save"] == "out.png"
+    assert plot_deps["interactive"] == 1
+
+
+def test_plot_keep_open_idempotent_without_bc(plot_deps, monkeypatch):
+    """无 BC (本就交互) + --keep-open → 幂等: 交互照常, 无重复/跳过."""
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    runner_mod._plot(AnalysisConfig(keep_open=True), "mesh", "result", 1.0)
+    assert plot_deps["interactive"] == 1
+
+
+def test_main_keep_open_no_plot_conflict_exit_one(capsys):
+    """--keep-open --no-plot → 互斥, 求解前拦截 exit 1 + 明确报错.
+
+    用不存在的文件证明拦截发生在输入解析之前 (fail-fast);
+    放回旧实现 → argparse 不认 --keep-open, SystemExit(2), 本测失败.
+    """
+    code = main(["nonexistent.msh", "--keep-open", "--no-plot"])
+    assert code == 1
+    out = capsys.readouterr().out
+    assert "--keep-open" in out and "--no-plot" in out and "互斥" in out
+
+
+def test_main_keep_open_non_tty_exit_zero(fake_msh, msh_file, monkeypatch,
+                                          capsys):
+    """--keep-open + 非 TTY stdin → 走现有 EOFError 路径: INFO + 退出 0."""
+    fake_msh(_fake_msh_import())
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    def _interactive(*a, **kw):
+        raise EOFError
+    monkeypatch.setattr(visualize_mod, "interactive_plot", _interactive)
+    code = main([msh_file, "--fix", "1", "--keep-open"])
+    assert code == 0
+    assert ("[INFO] 非交互环境 (stdin 不可用), 跳过交互绘图"
+            in capsys.readouterr().out)
+
+
+def test_keep_open_help_text_combination_rules(capsys):
+    """--help 帮助文本须说明组合规则 (与行为一致, 防文档/行为分叉)."""
+    from fem2d.cli import parse_args
+    with pytest.raises(SystemExit):
+        parse_args(["--help"])
+    out = capsys.readouterr().out
+    assert "--keep-open" in out
+    assert "互斥" in out and "--no-plot" in out
+    assert "q 退出" in out
