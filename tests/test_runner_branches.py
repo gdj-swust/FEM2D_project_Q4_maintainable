@@ -808,6 +808,18 @@ def test_plot_keep_open_idempotent_without_bc(plot_deps, monkeypatch):
     assert plot_deps["interactive"] == 1
 
 
+def test_plot_keep_open_never_overrides_no_plot(plot_deps, monkeypatch):
+    """API 直调兜底: no_plot 绝对优先, keep_open 不得推翻抑制语义.
+
+    CLI 互斥已在 main 拦截; _plot 仍须兜底 (判别性: 放回
+    (not keep_open) and (... or no_plot) 旧公式 → 本测失败).
+    """
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    config = AnalysisConfig(fix="1", keep_open=True, no_plot=True)
+    runner_mod._plot(config, "mesh", "result", 1.0)
+    assert plot_deps["interactive"] == 0
+
+
 def test_main_keep_open_no_plot_conflict_exit_one(capsys):
     """--keep-open --no-plot → 互斥, 求解前拦截 exit 1 + 明确报错.
 

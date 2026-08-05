@@ -369,10 +369,11 @@ def _plot(config, mesh, result, scale):
     # 曾内联重写批处理判定 (漏 save/no_plot): 交互终端 + CLI BC 参数时,
     # 输入提示已跳过 (is_batch_mode=True) 但 interactive_plot 仍在
     # input() 阻塞挂起 — 统一用唯一批处理判定
-    # keep_open 显式放行交互: 批处理命令也保留窗口 (与 main 的互斥校验
-    # 配套, --keep-open + --no-plot 在此前已报错, 不会到达)
-    batch_mode = (not config.keep_open) and (
-        is_batch_mode(config) or bool(config.save) or config.no_plot)
+    # keep_open 显式放行交互 (批处理命令也保留窗口); no_plot 绝对优先 —
+    # CLI 互斥已在 main 拦截, 此处兜底 API 直调, 抑制语义不被推翻
+    batch_mode = config.no_plot or (
+        (not config.keep_open)
+        and (is_batch_mode(config) or bool(config.save)))
     plot_three(mesh, result, tag='vm', scale=scale,
                save=config.save if config.save else None,
                isoband_levels=isoband_levels, isoband_tag=isoband_tag,

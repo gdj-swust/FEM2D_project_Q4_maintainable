@@ -17,9 +17,12 @@
 - 改动面: `fem2d/cli.py` (标志+帮助文本)、`fem2d/config.py` (keep_open
   字段)、`fem2d/runner.py` (_plot 批处理判定一行 + main 互斥校验)。
   `visualize.py`/边界/求解/载荷逻辑零改动。
-- 判别性: `tests/test_runner_branches.py` keep-open 节 8 测 — 放回旧
-  实现, 4 测失败 (放行交互 / save 组合 / 互斥 exit 1 / 非 TTY 退出 0);
-  批处理不交互行为由 1 测锁死。
+- 兜底: `_plot` 的批处理判定把 no_plot 设为绝对优先 — CLI 互斥虽在
+  main 拦截, API 直调 AnalysisConfig(keep_open+no_plot) 时抑制语义
+  也不被推翻。
+- 判别性: `tests/test_runner_branches.py` keep-open 节 9 测 — 放回旧
+  实现, 5 测失败 (放行交互 / save 组合 / 互斥 exit 1 / 非 TTY 退出 0 /
+  no_plot 绝对优先兜底); 批处理不交互行为由 1 测锁死。
 
 ## 审查修复包 2026-08-05 — 5 项已复现缺陷 (来自 2026-08-04 外部审查, 未发版)
 
