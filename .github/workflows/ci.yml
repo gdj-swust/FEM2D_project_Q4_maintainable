@@ -23,7 +23,8 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=10 \
+            python -m pip install --retries 10 --timeout 120 -e ".[dev]"
       - name: Compile check
         run: python -m compileall -q fem2d scripts tests run.py run_demo.py
       - name: ruff
@@ -61,7 +62,9 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]" "numpy${{ matrix.numpy-constraint }}"
+          PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=10 \
+            python -m pip install --retries 10 --timeout 120 \
+            -e ".[dev]" "numpy${{ matrix.numpy-constraint }}"
       - name: Force gmsh-less environment (skip-path check)
         # gmsh 是声明的运行时依赖, wheel 安装必然成功; 本 job 要确定性
         # 验证无 gmsh 环境的 skip 行为, 与 runner 镜像是否预装 libGLU 无关
@@ -92,7 +95,8 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=10 \
+            python -m pip install --retries 10 --timeout 120 -e ".[dev]"
       - name: pytest (gmsh API available)
         run: python -m pytest -q -rs
       - name: pytest with coverage gate (fail_under=90, pyproject)
@@ -157,7 +161,8 @@ jobs:
       - name: Build wheel
         run: |
           python -m pip install --upgrade pip
-          python -m pip install build
+          PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=10 \
+            python -m pip install --retries 10 --timeout 120 build
           python -m build
       - name: Wheel content gate (boundary subpackages must ship)
         # 显式 packages 列表曾漏 fem2d.boundary.detectors/plugins — 任何工具链
@@ -177,8 +182,9 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/wheelsmoke"
           python -m venv "$RUNNER_TEMP/wheelsmoke/venv"
-          "$RUNNER_TEMP/wheelsmoke/venv/bin/python" -m pip install \
-              --force-reinstall "$GITHUB_WORKSPACE"/dist/*.whl
+          PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=10 \
+            "$RUNNER_TEMP/wheelsmoke/venv/bin/python" -m pip install \
+              --retries 10 --timeout 120 --force-reinstall "$GITHUB_WORKSPACE"/dist/*.whl
       - name: Smoke (import + minimal solve, cwd outside source tree)
         # cwd 在 $RUNNER_TEMP (checkout 之外) — 源码路径不会掩盖安装路径
         run: |
