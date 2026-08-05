@@ -55,7 +55,16 @@ def recovery_sample_positions(mesh, n_sample):
 
 def _prepare_samples(mesh, elem_stress):
     """校验输入并返回 ``(sample_xy, sample_values)``。"""
-    elem_stress = np.asarray(elem_stress, dtype=float)
+    raw = np.asarray(elem_stress)
+    if np.iscomplexobj(raw):
+        # complex→float 转换冒裸 TypeError — 与 NaN/Inf 拒绝同族
+        raise ValueError(
+            "spr_recovery: elem_stress 必须为实数 — complex 虚部会被丢弃")
+    if raw.dtype.kind not in ("i", "u", "f", "b"):
+        # str/object 在 astype(float) 冒 numpy 裸错误 — 带参数名拒绝
+        raise TypeError(
+            f"spr_recovery: elem_stress 必须为数值数组, got dtype {raw.dtype}")
+    elem_stress = np.asarray(raw, dtype=float)
     if elem_stress.ndim == 1:
         elem_stress = elem_stress.reshape(-1, 1)
     if elem_stress.ndim not in (2, 3):

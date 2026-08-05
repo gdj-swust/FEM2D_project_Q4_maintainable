@@ -340,11 +340,15 @@ class Mesh:
         if elems_raw.shape[0] == 0:
             raise ValueError("replace_elements: 单元集不能为空")
         # 与 __post_init__ 同族守卫: 布尔掩码会被 rint 静默转 1/0,
-        # 构造出重复节点退化单元 (str 拒绝见 __post_init__ 同族注释)
+        # 构造出重复节点退化单元; str/object 在 ufunc 冒裸 TypeError
         if elems_raw.dtype.kind == "b":
             raise ValueError(
                 "replace_elements: 单元节点索引必须是整数 — "
                 "布尔数组被拒绝 (True/False 会静默转 1/0)")
+        if elems_raw.dtype.kind not in ("i", "u", "f"):
+            raise TypeError(
+                f"replace_elements: 单元节点索引必须是数值数组, "
+                f"got dtype {elems_raw.dtype}")
         if not np.issubdtype(elems_raw.dtype, np.integer):
             bad = elems_raw != np.rint(elems_raw)
             if np.any(bad):
