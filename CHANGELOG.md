@@ -60,6 +60,54 @@
 - 合并后 main 复验同绿; 升版 9.26.0 + wheel 安装冒烟后推送,
   CI 四 job (lint / test-core×4 / test-full / test-wheel) 全绿。
 
+## 9.27.0 (2026-08-05) — C 覆盖轮三包 (C-α 补测 / C-β fuzz+契约 / C-γ 架构文档)
+
+### C-α 覆盖补测 (pkg_coverage, 5 提交)
+
+- **C0 半成品修复**: 上一轮执行者会话崩溃遗留的 7 个 test_cov_*.py (1950 行,
+  从未提交) 修复 — reporting_misc 8 处引用不存在的 API (MeshValidationError /
+  _style_colorbar 等) 全部按 main 源码实际 API 修正。
+- **C1 补缺口**: 覆盖率 96.9% → **98.4%** (8425/8564); element/base.py
+  87.1% → **99.3%** (冻结区, 只测不改); 低区 3 文件 (patch_test 91.7% /
+  arc_curvature 92.7% / verification 93.3%) 全 ≥90%。新增 test_cov_* 14 文件。
+- **缺陷申报修复** (任务书允许, 判别性 test_cov_path_guards.py 锁定 —
+  open(int) 把 int 当 fd 打开, 会读取/关闭调用进程 stdout, 静默破坏输出):
+  - `_safe_geo_source` / `_file_declares_physical_names` / `physical_point_from_geo`
+    / `_geo_script_entry_hint` / `_resolve_geo_lc` / `read_geo_groups` /
+    `parse_spec_config` / `parse_geo_fem_config`: 非 str/os.PathLike 路径 →
+    响亮 TypeError (原: open(int) 破坏 stdout 或宽 except 吞成误报)
+  - `_resolve_edge_indices`: 非 str 选择 → 响亮 ValueError (原: str() 宽容
+    静默落空返回 [])
+  - `_traction_jump_arrays`: (n_elem, 3) 形状契约前置校验 (原: 裸 IndexError)
+  - 全部修复数值零漂移 (漂移门 rel=0.000e+00, 5 个源码文件只加入口校验)
+
+### C-β fuzz 扩面 + 契约表 (pkg_cov_b, 2 提交)
+
+- **C2 fuzz 扩面**: fuzz_api.py 新增 11 个入口 (与 C-α 扩面合并取并集):
+  element_refinement_indicator (result/裸参两路) / compute_traction_jumps
+  (stress/sigma_ref 两路) / _resolve_boundary_selection (通用池/受限列表两路) /
+  physical_point_from_geo / resolve_input_file / resolve_spec_overrides /
+  resolve_geo / run_plane_verification。500 轮 0 problems。
+- **C3 契约表**: docs/api_contract.md 补 `(3,)` 单向量合法输入条目
+  (6c 契约扩展伴随更新, 9.25.0 遗留) — von_mises 返回标量 float /
+  principal_stresses 返回 4 标量元组, 独立表行 (原行不动只加行)。
+
+### C-γ 架构评估 (pkg_cov_c, 1 提交)
+
+- 新增 `docs/ARCHITECTURE_AND_EVOLUTION.md` (204 行): 架构现状评估 (强项/弱项
+  诚实清单) / 可维护性 / 性能 (标注"待 profile 验证", 不做断言) / 演进路线
+  (模态/热应力 = 待办备选, 用户未拍板前不主动做) / 给用户的 5 条建议。
+  数字全部核对现状 (9.26.0 / 98.4% / 1118+ 测试 / CI 七 job)。
+
+### 验收 (独立复跑, 不采信执行者汇报)
+
+- 三包独立: C-α (全量 pytest 0 失败 / 98.4% / 漂移门 0.000e+00 / 判别性齐全),
+  C-β (pytest / 探针 0 FAIL / fuzz 0 problems), C-γ (文档人工核对)。
+- C-α/C-β 对 fuzz_api.py 与 api_contract.md 的并行改动在合并时协调取并集
+  (任务书设计失误: C-α 沿用了旧任务书 C2/C3 段 — 合并已人工统一)。
+- 合并后 main 复验: pytest 0 失败 / 覆盖率 98.4% / 探针 0 FAIL / fuzz
+  41 分支 0 problems / 漂移门 0.000e+00。
+
 ## 9.25.0 (2026-08-05) — 发布链路修复 (外部审查轮 6a/6b/6c)
 
 外部审查 (构建 wheel + 静态检查 + 极端输入) 实锤 4 项缺陷, 三包并行修复:
