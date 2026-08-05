@@ -88,11 +88,13 @@ def _safe_geo_source(geo_path):
     消毒规则唯一实现在 scripts.gmsh_runner.sanitize_geo_source —
     曾双实现分叉。延迟 import: 避免包初始化顺序
     依赖项目根在 sys.path。
+    传入 geo_path 使 Include 引用树递归扫描闭环 (SystemCall 拦截 +
+    循环/钻石检测) — 与子进程路径共用同一扫描器。
     """
     from scripts.gmsh_runner import sanitize_geo_source
     with open(geo_path, "r", encoding="utf-8", errors="ignore") as stream:
         original = stream.read()
-    source = sanitize_geo_source(original)
+    source = sanitize_geo_source(original, geo_path=geo_path)
     if source == original:
         return os.path.abspath(geo_path), None
     descriptor, temporary_path = tempfile.mkstemp(
