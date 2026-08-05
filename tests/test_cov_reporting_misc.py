@@ -302,7 +302,15 @@ def test_generate_geo_import_failure_unlink_error(monkeypatch, tmp_path):
 
 
 def test_physical_point_from_geo_rejected_script(tmp_path):
-    """源 .geo 含危险指令 → GeoScriptRejected 响亮冒出."""
+    """源 .geo 含危险指令 → GeoScriptRejected 响亮冒出.
+
+    无 gmsh 时 physical_point_from_geo 走 "API 不可用" 提前返回路径,
+    不会触发脚本清洗 — 该断言只在 API 可用时成立, 无 gmsh 必须 skip.
+    """
+    try:
+        import gmsh  # noqa: F401 — 仅探测 API 可用性
+    except ImportError:
+        pytest.skip("无 gmsh 环境 — physical_point_from_geo 走 API 不可用路径")
     import fem2d.input_source as IS
     mesh = _mesh()
     geo = tmp_path / "evil.geo"
