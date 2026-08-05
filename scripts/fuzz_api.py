@@ -99,7 +99,7 @@ _SEGS = build_boundary_segments(_mesh())
 
 def _rand_value(rng):
     """随机标量/容器值."""
-    kind = rng.randrange(14)
+    kind = rng.randrange(16)
     if kind == 0:
         return None
     if kind == 1:
@@ -128,6 +128,13 @@ def _rand_value(rng):
         return np.array([True, False, True])
     if kind == 13:
         return np.array([0.5])
+    if kind == 14:
+        # complex (3,) 单向量 — von_mises/principal 单向量 complex 盲区
+        # (R-α A1 修复后必须拒绝, 见 _is_stress_vec)
+        return np.array([1 + 1j, 2.0, 3.0])
+    if kind == 15:
+        # complex (2,3) 批量应力数组
+        return np.array([[1 + 1j, 1.0, 0.0], [1.0, 2.0, 0.5]])
     return 0
 
 
@@ -165,10 +172,18 @@ def _flat2(v):
 
 def _is_stress_vec(v):
     """(3,) 一维数值容器 — von_mises/principal_stresses 单向量合法输入
-    (契约扩展 2026-08-05: 接受 (3,) 单向量返回标量)."""
+    (契约扩展 2026-08-05: 接受 (3,) 单向量返回标量). complex 非法
+    (R-α A1: complex 单向量曾静默丢虚部 — 值池补 complex 数组后,
+    silent_ok 必须为 False, 否则静默成功查不出来)."""
     if isinstance(v, np.ndarray):
-        return v.ndim == 1 and v.shape[0] == 3
-    return isinstance(v, (list, tuple)) and len(v) == 3
+        if v.ndim != 1 or v.shape[0] != 3 or np.iscomplexobj(v):
+            return False
+    elif isinstance(v, (list, tuple)):
+        if len(v) != 3 or np.iscomplexobj(np.asarray(v)):
+            return False
+    else:
+        return False
+    return True
 
 
 DEFAULT_SEED = 20260803
@@ -284,13 +299,18 @@ def main():
         elif i == 29:
             feed(f"estimate_condition K({v!r})", lambda v=v: estimate_condition(v))
         # ── 2026-08-05 C2 扩面 (C-α + C-β 合并): 11 个新入口 ──
+        # (2026-08-06 R-α 修正: 原分支 30/31 完全重复调用
+        # element_refinement_indicator — 分支 31 改为 estimate_error 的
+        # method 参数面, 覆盖该入口此前未触达的调用面)
         elif i == 30:
             feed(f"refinement_indicator result({v!r})",
                  lambda v=v: element_refinement_indicator(_mesh(), v))
         elif i == 31:
-            # result 非 dict/缺 "stress" → ValueError (曾裸 KeyError, 66b3d8e 修)
-            feed(f"element_refinement_indicator({v!r})",
-                 lambda v=v: element_refinement_indicator(_mesh(), v))
+            # estimate_error method 面: 池值恒非 SPR/L2/weighted →
+            # 全部必须报 ValueError (曾无入口覆盖该参数面)
+            feed(f"estimate_error method({v!r})",
+                 lambda v=v: estimate_error(
+                     _mesh(), {"stress": np.ones((2, 3))}, method=v))
         elif i == 32:
             feed(f"traction_jumps stress({v!r})",
                  lambda v=v: compute_traction_jumps(_mesh(), v))

@@ -220,7 +220,14 @@ def nodal_L2_projection(mesh, elem_stress):
     逐单元 recovery_quadrature 协议 (兼容第三方内核)。
     """
     mesh.build_connectivity()
-    elem_stress = np.asarray(elem_stress, dtype=float)
+    raw_stress = np.asarray(elem_stress)
+    if np.iscomplexobj(raw_stress):
+        # numpy≥2 astype(float) 对 complex 静默丢虚部 (ComplexWarning) —
+        # 与 A1 同族拒绝, 否则虚部污染恢复场
+        raise ValueError(
+            "nodal_L2_projection: elem_stress 必须为实数 — "
+            "complex 虚部会被静默丢弃")
+    elem_stress = np.asarray(raw_stress, dtype=float)
     if elem_stress.ndim not in (2, 3):
         raise ValueError(
             "elem_stress must have shape (ne,ncomp) or (ne,nqp,ncomp)")
