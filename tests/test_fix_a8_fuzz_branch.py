@@ -66,17 +66,13 @@ def test_fuzz_branch_30_and_31_distinct():
 
 
 def test_fuzz_value_pool_has_complex_arrays():
-    import sys
-    import types
-
-    spec = {"os": __import__("os"), "sys": sys, "random": __import__("random"),
-            "np": np}
     import importlib.util
+    import random
+
     module_spec = importlib.util.spec_from_file_location(
         "fuzz_api_under_test", FUZZ_PATH)
     module = importlib.util.module_from_spec(module_spec)
     module_spec.loader.exec_module(module)
-    import random
     rng = random.Random(12345)
     kinds = set()
     for _ in range(400):

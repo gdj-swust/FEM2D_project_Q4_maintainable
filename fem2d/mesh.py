@@ -81,6 +81,8 @@ class Mesh:
     _nodes: np.ndarray = field(init=False, repr=False)
     _elements: np.ndarray = field(init=False, repr=False)
     _fixed_dofs: np.ndarray = field(init=False, repr=False)
+    _fixed_set: set | None = field(default=None, init=False, repr=False)
+    _fixed_dirty: bool = field(default=False, init=False, repr=False)
     thickness: float = 1.0
     E: float = 210e9
     nu: float = 0.3
@@ -171,6 +173,7 @@ class Mesh:
         次操作)。内容恒为排序去重 int64, 与历史 np.unique 语义一致。
         """
         if self._fixed_dirty:
+            assert self._fixed_set is not None  # dirty 仅由 fix_node 置位, 彼时 set 已建
             arr = np.array(sorted(self._fixed_set), dtype=int)
             arr.setflags(write=False)
             self._fixed_dofs = arr
