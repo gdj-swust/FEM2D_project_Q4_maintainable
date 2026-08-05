@@ -51,15 +51,13 @@ dev = [
 [project.scripts]
 fem2d = "fem2d.runner:main"
 
-[tool.setuptools]
-# 显式列出包 (tools/ 为数据目录, 不打包; scripts/ 由 __init__.py 声明为
-# 普通包, 保证安装后 import scripts.geo_spec 可用)
-packages = [
-    "fem2d",
-    "fem2d.boundary",
-    "fem2d.element",
-    "scripts",
-]
+[tool.setuptools.packages.find]
+# 自动发现而非显式列表 — 显式列表曾漏掉 fem2d.boundary.detectors 与
+# fem2d.boundary.plugins, 构建的 wheel 安装后 import 直接 ModuleNotFoundError。
+# 发现规则只认含 __init__.py 的目录, 因此 tools/ (纯数据, 无 __init__.py)
+# 天然不打包; include 白名单保证 tests/ 等未来新增包不会混入 wheel。
+include = ["fem2d*", "scripts*"]
+
 
 [tool.setuptools.data-files]
 # 示例模型随 wheel 分发 (安装到 site-packages 旁的 fem2d-models/)
