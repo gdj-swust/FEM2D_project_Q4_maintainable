@@ -25,12 +25,149 @@ _EXPLICIT_MESH_RE = re.compile(
     r"\bMesh\s+\d+\s*;",
     re.IGNORECASE,
 )
-# SystemCall 是 Gmsh 脚本中唯一能执行任意系统命令的指令 — 黑名单拦截
-# (行首匹配; 注释掉的 SystemCall 不触发, Gmsh 解析器忽略注释)
-_SYSTEMCALL_RE = re.compile(
-    r"^\s*SystemCall\b",
-    re.MULTILINE | re.IGNORECASE,
-)
+# SystemCall 是 Gmsh 脚本中唯一能执行任意系统命令的指令 — 黑名单拦截。
+# 检测在"注释剥离后"的任意位置匹配 — 行首正则 (r"^\s*SystemCall\b") 曾可被
+# 同行多语句 ('x = 1; SystemCall "whoami";') 或块注释后紧跟
+# ('/* c */ SystemCall "whoami";') 绕过。注释先剥离再匹配 → 注释内的
+# SystemCall 天然不触发 (Gmsh 解析器忽略注释, 行为保持)。
+_SYSTEMCALL_TOKEN_RE = re.compile(r"\bSystemCall\b", re.IGNORECASE)
+# Include 指令识别 (只认代码位 — 注释/字符串内的 Include 不是指令;
+# 字符串无转义, 引号即字符串边界)
+_INCLUDE_DIRECTIVE_RE = re.compile(r'\bInclude\s*"([^"]*)"', re.IGNORECASE)
+
+
+def _mask_geo_comments(source):
+    """逐字符词法扫描: 注释 (// 行注释与 /* */ 块注释) → 空格, 双引号
+    字符串内容保留原样。换行保留 → 输出与原文等长、换行位置一致 (匹配
+    位置可直接反推原文行号)。
+
+    逐字符而非正则: 双引号字符串内的 // 与 /* 是普通字符, 正则无法区分
+    (必须维护 in_string 状态)。Gmsh 字符串无转义字符; 未闭合字符串按
+    "到行尾结束"处理 (保守, 不猜错注释边界)。
+
+    字符串内容保留: SystemCall 检测要求字符串参数含 SystemCall 字样也
+    命中 (保守拒绝 — 安全优先, 无法可靠区分"字符串参数"与真正调用,
+    误拒纯字符串场景 (echo "SystemCall") 的代价远低于漏放 RCE);
+    Include 检测同样依赖字符串内容保留 (指令的双引号是语法一部分,
+    屏蔽后指令本身会被吞掉 — 曾导致全部 Include 检测失配)。
+    """
+    out = []
+    state = "code"  # code / line (//) / block (/* */) / string ("...")
+    i, n = 0, len(source)
+    while i < n:
+        ch = source[i]
+        nxt = source[i + 1] if i + 1 < n else ""
+        consumed = 1
+        if state == "line":
+            out.append(ch if ch == "\n" else " ")
+            if ch == "\n":
+                state = "code"
+        elif state == "block":
+            if ch == "*" and nxt == "/":
+                out.append("  ")
+                consumed = 2
+                state = "code"
+            else:
+                out.append(ch if ch == "\n" else " ")
+        elif state == "string":
+            if ch == "\n":
+                out.append("\n")  # 未闭合字符串 → 到行尾结束 (保守)
+                state = "code"
+            else:
+                out.append(ch)
+        elif ch == '"':
+            out.append('"')
+            state = "string"
+        elif ch == "/" and nxt == "/":
+            out.append("  ")
+            consumed = 2
+            state = "line"
+        elif ch == "/" and nxt == "*":
+            out.append("  ")
+            consumed = 2
+            state = "block"
+        else:
+            out.append(ch)
+        i += consumed
+    return "".join(out)
+
+
+def _check_systemcall_text(source, label):
+    """注释剥离后任意位置搜 ``\\bSystemCall\\b`` — 命中抛 GeoScriptRejected.
+
+    ``label`` 带文件定位 (如 ".geo" 或 ".geo (Include 链: a.geo → b.geo)");
+    行号由屏蔽文本位置反推 (等长等换行 = 原文行号)。
+    """
+    match = _SYSTEMCALL_TOKEN_RE.search(_mask_geo_comments(source))
+    if match is None:
+        return
+    line_no = source.count("\n", 0, match.start()) + 1
+    lines = source.splitlines()
+    line_text = lines[line_no - 1].strip() if lines else ""
+    raise GeoScriptRejected(
+        f"{label} 第 {line_no} 行含被禁止的 SystemCall 指令: "
+        f"{line_text!r} — SystemCall 会执行任意系统命令. "
+        ".geo 是可信、可执行式输入, 只应运行自己编写的文件 "
+        "(含 Include 引用的文件).")
+
+
+def _iter_geo_includes(source, geo_path):
+    """识别代码位 ``Include "path"`` 指令 → 解析后的绝对路径。
+
+    在注释剥离文本上识别 (注释里的 Include 不是指令)。字符串内容保留且
+    Gmsh 字符串无转义、不可能内含双引号 — 字符串内的 ``Include "`` 只会
+    产生空路径 (跳过); 真正带路径的 Include 必在代码位。相对路径基于
+    ``geo_path`` 所在目录解析; 空路径 Include 跳过 (交给 Gmsh 解析时报错)。
+    """
+    base_dir = os.path.dirname(geo_path)
+    for match in _INCLUDE_DIRECTIVE_RE.finditer(_mask_geo_comments(source)):
+        target = match.group(1).strip()
+        if not target:
+            continue
+        if os.path.isabs(target):
+            yield target
+        else:
+            yield os.path.normpath(os.path.join(base_dir, target))
+
+
+def _scan_include_tree(geo_path, *, done=None, active=None, chain=()):
+    """递归扫描 Include 引用树 — 每个文件执行同样的"剥离注释 + SystemCall
+    检测", 命中即拒绝。
+
+    - 相对 Include 基于被引文件所在目录解析;
+    - ``active`` = 当前递归链: 命中 = 循环引用 → 拒绝并报引用链
+      (如 "Include 循环引用: a.geo → b.geo → a.geo");
+    - ``done`` = 已扫描完成: 钻石形共享引用 (a→b, a→c, b→d, c→d) 只扫一次;
+    - Include 目标文件不存在 → 跳过不报错 (保持现有行为: Gmsh 解析时
+      报错; test_output_dir_policy 依赖"缺失 Include 不拦截")。
+    """
+    geo_path = os.path.abspath(geo_path)
+    key = os.path.normcase(geo_path)  # Windows 路径大小写不敏感
+    if done is None:
+        done, active = set(), set()
+    if key in active:
+        loop = " → ".join(chain + (os.path.basename(geo_path),))
+        raise GeoScriptRejected(f"Include 循环引用: {loop}")
+    if key in done:
+        return
+    active.add(key)
+    chain = chain + (os.path.basename(geo_path),)
+    try:
+        with open(geo_path, "r", encoding="utf-8", errors="ignore") as stream:
+            source = stream.read()
+    except FileNotFoundError:
+        active.discard(key)
+        return  # Include 目标不存在 → 跳过不报错 (现有行为保持: Gmsh 解析时报错)
+    except OSError:
+        active.discard(key)
+        raise GeoScriptRejected(
+            f"Include 文件无法读取: {geo_path}") from None
+    _check_systemcall_text(
+        source, f".geo (Include 链: {' → '.join(chain)})")
+    for child in _iter_geo_includes(source, geo_path):
+        _scan_include_tree(child, done=done, active=active, chain=chain)
+    active.discard(key)
+    done.add(key)
 
 # 本程序生成物的 .msh 标记 — 同名 .msh 覆盖保护据此识别 (gmsh 读回时
 # 忽略 $Comments 段, 2026-08 实测确认 MSH 4.x 实体/物理组完整恢复).
@@ -109,7 +246,7 @@ def build_gmsh_command(
     return command
 
 
-def sanitize_geo_source(source):
+def sanitize_geo_source(source, *, geo_path=None):
     """剥离 .geo 脚本中的 Save / Mesh 命令 / Mesh.Format 赋值 (纯文本).
 
     唯一实现 — gmsh_adapter._safe_geo_source (API 路径) 与子进程路径
@@ -122,15 +259,16 @@ def sanitize_geo_source(source):
       v2.2 无法注入生成物标记 ($Comments 仅 4.x 支持), 覆盖保护失效;
     - ``SystemCall`` 可执行任意系统命令 — 黑名单拒绝整个脚本 (RCE 面;
       .geo 是"可信、可执行式输入", 只应运行自己编写的文件)。
+
+    ``geo_path`` (源文件路径, 可选): 提供时连同 Include 引用树一起递归
+    扫描 (SystemCall 检测 + 循环引用检测); 仅文本调用时只查 ``source``
+    本身 (Include 相对路径无法解析)。
     """
-    for match in _SYSTEMCALL_RE.finditer(source):
-        line_no = source.count("\n", 0, match.start()) + 1
-        line_text = source.splitlines()[line_no - 1].strip()
-        raise GeoScriptRejected(
-            f".geo 第 {line_no} 行含被禁止的 SystemCall 指令: "
-            f"{line_text!r} — SystemCall 会执行任意系统命令. "
-            ".geo 是可信、可执行式输入, 只应运行自己编写的文件 "
-            "(含 Include 引用的文件).")
+    # 顺序: 先 SystemCall 安全检查 (拒绝即抛, 不再往下), 再做替换 —
+    # 替换注入的是注释文本且不含 SystemCall 字样, 顺序对检测结果无影响。
+    _check_systemcall_text(source, ".geo")
+    if geo_path is not None:
+        _scan_include_tree(geo_path)
     sanitized = _EXPLICIT_SAVE_RE.sub(
         "// Save removed by FEM2D; FEM2D owns publication", source)
     sanitized = _EXPLICIT_MESH_RE.sub(
@@ -260,7 +398,7 @@ def _geometry_without_explicit_save(geo_path, temp_dir=None):
     # (Physical Curve) 必须写入 .msh。零复制优化不可行: 多重 SaveAll
     # 赋值 (先 1 后 0, 生效的是 0) 无法通过正则静态判定, 曾导致边界
     # 单元丢失 (复测 2026-08-02); 一次小文件复制的成本远低于解析风险。
-    sanitized = sanitize_geo_source(source)
+    sanitized = sanitize_geo_source(source, geo_path=geo_path)
     # The subprocess fallback must export 1-D boundary elements as well as the
     # 2-D displacement mesh. Append the option after user commands so an
     # earlier ``Mesh.SaveAll = 0`` cannot silently discard Physical Curves.
