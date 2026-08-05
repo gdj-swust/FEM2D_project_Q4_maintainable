@@ -17,6 +17,9 @@
 
 边名称: left/right/top/bottom/hole 或数字(1-based) 或 @段名 (如 @底部)
 
+输出编码: 统一 UTF-8 (重定向/管道不再按系统代码页 GBK 退化);
+cmd 中重定向后查看乱码 → 先 chcp 65001。
+
 入口选择指南 (什么场景用哪条, 一行一条 — 详见 docs/input_entries.md):
   python run.py <文件.geo/.msh/.txt/.spec>  # 标准入口: 任意模型文件, 完整求解
   python run_demo.py                        # 演示: 内置示例, 免模型文件
@@ -27,6 +30,21 @@
 import sys
 
 from fem2d.runner import main
+
+# 输出编码策略: 统一 UTF-8 — 交互控制台 (WinConsoleIO) 本就 UTF-8;
+# 重定向/管道输出默认按 locale 编码 (中文 Windows = cp936/GBK) → 跨
+# 工具乱码 + 非 GBK 字形 (⁻/ℓ 等) 被替换成 '?'。脚本入口强制 UTF-8,
+# 不随系统代码页退化。runner.main 的 reconfigure_streams (errors.py)
+# 只设 errors=replace 不设 encoding — 该文件属 B 结构轮边界, 此处补齐;
+# run_demo.py / console script 需同款处理 (转交 B 轮)。
+def force_utf8_streams():
+    """重配 stdout/stderr 为 UTF-8 (errors=replace), 失败保持原流."""
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            try:
+                _stream.reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
 
 ENTRY_GUIDE = """\
 
@@ -57,5 +75,6 @@ def print_help_with_entry_guide(argv):
 
 
 if __name__ == "__main__":
+    force_utf8_streams()
     print_help_with_entry_guide(sys.argv[1:])
     sys.exit(main())

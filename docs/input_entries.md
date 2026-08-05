@@ -33,3 +33,11 @@
 | `.inp` 文件传入 (Abaqus 输入口已移除) | 提示改传 `.geo`/`.msh`/`.spec` + 入口指南 |
 | `.inp` 内容其实是 Gmsh `.geo` 脚本 | 提示"该文件内容是 .geo 脚本 — 用 run.py 或 gmsh" |
 | 未知扩展名 (如 `.dat`/`.fem`) | 提示仅支持 `.spec/.geo/.txt/.msh` + 入口指南 |
+
+## 4. 输出编码策略 (Windows 中文)
+
+- 程序输出统一 **UTF-8** (交互控制台本就 UTF-8; 重定向/管道输出由
+  `run.py` 强制 UTF-8, 不随系统代码页退化)。
+- 若在 cmd/PowerShell 中重定向后用 `type` 查看出现乱码: 控制台代码页
+  是 GBK 而文件是 UTF-8 — 先 `chcp 65001` 再查看, 或直接用编辑器
+  (记事本/VS Code) 打开。
