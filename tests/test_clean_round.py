@@ -9,9 +9,26 @@
 from __future__ import annotations
 
 import inspect
+import warnings
+
+import numpy as np
+import pytest
 
 from fem2d.boundary.detectors._shared import _fit_closed_conic
+from fem2d.boundary.model import BoundaryDiagnostics
+from fem2d.boundary.physical_mapping import (
+    PhysicalEdgeMapper,
+    map_physical_edges,
+)
 from fem2d.boundary.plugins.arc_curvature import ArcCurvatureDetector
+from fem2d.mesh import Mesh
+
+
+def _tiny_mesh() -> Mesh:
+    nodes = np.array(
+        [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]], dtype=float)
+    elems = np.array([[0, 1, 2], [0, 2, 3]])
+    return Mesh(nodes, elems)
 
 
 # ── T1: _fit_closed_conic 无死参数 prefix ──────────────────────────
@@ -27,3 +44,23 @@ def test_t2_arc_algebraic_drops_scale_param():
     params = list(
         inspect.signature(ArcCurvatureDetector._arc_algebraic).parameters)
     assert params == ["self", "coords", "is_outer"]
+
+
+# ── T3: PhysicalEdgeMapper 弃用 — 直接构造警告, 工厂静默 ──────────
+
+def test_t3_direct_construction_warns_deprecation():
+    mesh = _tiny_mesh()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        with pytest.raises(DeprecationWarning):
+            PhysicalEdgeMapper(mesh, {}, {}, None, BoundaryDiagnostics())
+
+
+def test_t3_factory_path_is_silent():
+    mesh = _tiny_mesh()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        mapped = map_physical_edges(
+            mesh, {}, {}, None, BoundaryDiagnostics())
+    assert mapped is not None
+    assert mapped.boundary_edges
