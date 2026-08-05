@@ -316,6 +316,11 @@ def _traction_jump_arrays(mesh, elem_stress, sigma_ref=None):
     _validate_sigma_ref(sigma_ref)
     mesh.build_connectivity()
     stress = np.asarray(elem_stress, dtype=float)
+    if stress.ndim != 2 or stress.shape[1] != 3:
+        # 裸 IndexError (stress[e1]) 会把用户引向错误的数组索引方向 —
+        # 形状契约 (n_elem, 3) 前置校验
+        raise ValueError(
+            f"elem_stress 必须为 (n_elem, 3) 数组, 得到形状 {stress.shape}")
     edge_data = mesh.internal_edge_data
     if edge_data is None or len(edge_data) == 0:
         empty = np.empty(0, dtype=float)

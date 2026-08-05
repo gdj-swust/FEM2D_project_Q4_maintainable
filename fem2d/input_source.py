@@ -203,6 +203,12 @@ def physical_point_from_geo(geo_path, name, mesh):
      / no_geo_source) — 曾统一 (None,None,None) 让调用方把歧义/超距也
     报成"未找到"。
     """
+    if geo_path is not None and not isinstance(geo_path, (str, os.PathLike)):
+        # 非 str 路径 (如误传节点编号): open(int) 会把 int 当 fd 打开
+        # 关闭 stdout, 且被宽 except 吞成 gmsh_unavailable 会误导排查 —
+        # 类型错误响亮冒出 (None 保留 no_geo_source 既有契约)
+        raise TypeError(
+            f"geo 路径必须为 str/os.PathLike, 得到 {type(geo_path).__name__}")
     if not geo_path:
         # .msh 直接输入无源 .geo — _safe_geo_source(None) 抛 TypeError,
         # 被宽 except 吞掉, 误报 "Gmsh API 不可用"
@@ -302,6 +308,11 @@ def _geo_script_entry_hint(fp):
     该文件是 Gmsh 几何脚本而非网格数据 — 正确做法: 把 .geo 直接交给
     run.py (自动调 Gmsh 网格化), 或先用 gmsh 出 .msh 再传入.
     """
+    if not isinstance(fp, (str, os.PathLike)):
+        # open(int) 会把 int 当 fd 打开并关闭 stdout — 非 str 路径
+        # 静默破坏调用进程
+        raise TypeError(
+            f"文件路径必须为 str/os.PathLike, 得到 {type(fp).__name__}")
     try:
         with open(fp, 'r', encoding='utf-8', errors='ignore') as fh:
             head = fh.read(2048)
@@ -424,6 +435,10 @@ def _resolve_geo_lc(fp, config, ask, temp_dir=None):
     ``temp_dir`` (--output-dir): 临时副本位置 — 含相对 Include 的 .geo
     由 temp_copy_dir 强制留在源目录。
     """
+    if not isinstance(fp, (str, os.PathLike)):
+        # open(int) 会把 int 当 fd 打开并关闭 stdout (与 _geo_script_entry_hint 同)
+        raise TypeError(
+            f"文件路径必须为 str/os.PathLike, 得到 {type(fp).__name__}")
     with open(fp, 'r', encoding='utf-8', errors='ignore') as f:
         geo_text = f.read()
     batch = is_batch_mode(config)

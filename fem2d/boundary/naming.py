@@ -271,7 +271,13 @@ def _resolve_edge_indices(edge_str, segs, region_registry=None):
     """
     if edge_str is None:
         return []
-    s = str(edge_str).strip()
+    if not isinstance(edge_str, str):
+        # str() 宽容会把 bool/float/容器静默 str() 化成无匹配选择串,
+        # 非法类型静默落空 (fuzz 抓: True/0.5/[1.0] 均无异常返回 [])
+        raise ValueError(
+            f"边界选择必须为字符串 (编号/名称/@组名), 得到 "
+            f"{type(edge_str).__name__}")
+    s = edge_str.strip()
     if not s:
         return []
     if s.startswith("@"):

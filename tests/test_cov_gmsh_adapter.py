@@ -112,6 +112,16 @@ def test_read_geo_curve_groups_missing_file():
     assert read_geo_curve_groups("definitely_missing.geo") is None
 
 
+def test_safe_geo_source_rejects_non_path():
+    """非 str 路径 → TypeError — open(int) 会把 int 当 fd 打开并
+    关闭 stdout (修复: 误传节点编号等 int 不再静默破坏调用进程)."""
+    for bad in (123, 0, None, np.float64(1.5), b"x.geo"):
+        with pytest.raises(TypeError, match="str/os.PathLike"):
+            _safe_geo_source(bad)
+    # 判别性: 修复前 open(123) 读取 fd 123 或关闭 fd — stdout 存活
+    assert sys.stdout is not None and sys.stdout.fileno() >= 0
+
+
 # ── 假 API 对象上的辅助函数 (真实 gmsh 无关) ────────────────────────────────
 
 class _GetTypeOnly:
