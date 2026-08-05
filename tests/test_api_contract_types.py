@@ -24,10 +24,11 @@ def _mesh():
 # ── K3: principal_stresses 形状与有限性 ──
 
 def test_principal_stresses_wrong_shape_has_context():
+    # (3,) 单向量是合法输入 (2026-08-05 契约扩展); 标量/末维≠3 仍拒绝
     with pytest.raises(ValueError, match="\\(n, 3\\)"):
         principal_stresses(np.ones((2, 2)))
     with pytest.raises(ValueError, match="\\(n, 3\\)"):
-        principal_stresses(np.ones(3))
+        principal_stresses(np.ones(4))
     with pytest.raises(ValueError, match="\\(n, 3\\)"):
         principal_stresses(5.0)
 
@@ -44,11 +45,12 @@ def test_principal_stresses_valid_shape_ok():
 
 def test_von_mises_wrong_shape_has_context():
     # fuzz 发现: 标量/1-D/末维≠3 曾冒裸 IndexError
+    # (3,) 单向量是合法输入 (2026-08-05 契约扩展); 标量/末维≠3 仍拒绝
     from fem2d import von_mises
     with pytest.raises(ValueError, match=r"\(\.\.\., 3\)"):
         von_mises(5.0)
     with pytest.raises(ValueError, match=r"\(\.\.\., 3\)"):
-        von_mises(np.ones(3))
+        von_mises(np.ones(4))
     with pytest.raises(ValueError, match=r"\(\.\.\., 3\)"):
         von_mises(np.ones((2, 2)))
 

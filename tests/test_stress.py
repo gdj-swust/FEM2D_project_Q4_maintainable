@@ -235,3 +235,105 @@ def test_point_in_element_coordinate_guards():
     for bad in ((np.inf, 0.5), (np.nan, 0.5), ("abc", 0.5)):
         with pytest.raises(ValueError, match="有限数值"):
             point_in_element(m, *bad)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 6. von_mises / principal_stresses 单向量契约 (判别性 + 逐位回归)
+# ═══════════════════════════════════════════════════════════════
+
+def test_von_mises_single_vector_scalar():
+    """(3,) 单向量 → 标量 float, 且 == 批量 (1,3) 去掉首维的值.
+
+    判别性: 去掉单向量分支 (恢复 ndim>=2 形状检查) → 本用例必须失败.
+    """
+    from fem2d.material import von_mises
+
+    v = [1.0, 2.0, 0.5]
+    single = von_mises(v, "stress")
+    batch = von_mises(np.array([v]), "stress")
+    assert isinstance(single, float) and np.ndim(single) == 0
+    assert single == batch[0]
+    # plane strain 分支同样支持单向量
+    single_strain = von_mises(v, "strain", nu=0.3)
+    assert isinstance(single_strain, float)
+    assert single_strain == von_mises(np.array([v]), "strain", nu=0.3)[0]
+
+
+def test_von_mises_single_vector_bad_shapes_still_rejected():
+    """坏形状仍 ValueError; NaN/Inf 仍拒绝."""
+    from fem2d.material import von_mises
+
+    with pytest.raises(ValueError, match=r"\(\.\.\., 3\)"):
+        von_mises(5.0)
+    with pytest.raises(ValueError, match=r"\(\.\.\., 3\)"):
+        von_mises(np.ones(4))
+    with pytest.raises(ValueError, match=r"\(\.\.\., 3\)"):
+        von_mises(np.ones((2, 2)))
+    with pytest.raises(ValueError, match="NaN/Inf"):
+        von_mises(np.array([np.nan, 1.0, 0.5]))
+    with pytest.raises(ValueError, match="NaN/Inf"):
+        von_mises(np.array([[np.inf, 1.0, 0.5]]))
+
+
+def test_von_mises_batch_bit_exact():
+    """(n,3) 批量路径逐位不变 (2026-08-05 修复前数值固化锁死)."""
+    from fem2d.material import von_mises
+
+    s = np.array([[100.0, 50.0, 10.0], [-30.0, 20.0, 5.0]])
+    np.testing.assert_array_equal(
+        von_mises(s, "stress"),
+        np.array([88.31760866327846, 44.44097208657795]))
+    np.testing.assert_array_equal(
+        von_mises(s, "strain", nu=0.3),
+        np.array([55.45268253204709, 44.204072210600685]))
+    np.testing.assert_array_equal(
+        von_mises(np.array([[100.0, 50.0, 10.0]]), "stress"),
+        np.array([88.31760866327846]))
+
+
+def test_principal_stresses_single_vector_scalar():
+    """(3,) 单向量 → 4 个标量 float, 且 == 批量 (1,3) 去掉首维的值.
+
+    判别性: 去掉单向量分支 (恢复 ndim==2 形状检查) → 本用例必须失败.
+    """
+    from fem2d.stress import principal_stresses
+
+    v = [100.0, 50.0, 10.0]
+    s1, s2, radius, theta = principal_stresses(v)
+    b1, b2, br, bt = principal_stresses(np.array([v]))
+    for val in (s1, s2, radius, theta):
+        assert isinstance(val, float) and np.ndim(val) == 0
+    assert s1 == b1[0] and s2 == b2[0]
+    assert radius == br[0] and theta == bt[0]
+
+
+def test_principal_stresses_single_vector_bad_shapes_still_rejected():
+    """坏形状仍 ValueError; NaN/Inf 仍拒绝."""
+    from fem2d.stress import principal_stresses
+
+    with pytest.raises(ValueError, match=r"\(n, 3\)"):
+        principal_stresses(5.0)
+    with pytest.raises(ValueError, match=r"\(n, 3\)"):
+        principal_stresses(np.ones(4))
+    with pytest.raises(ValueError, match=r"\(n, 3\)"):
+        principal_stresses(np.ones((2, 2)))
+    with pytest.raises(ValueError, match="NaN/Inf"):
+        principal_stresses(np.array([np.nan, 1.0, 0.5]))
+    with pytest.raises(ValueError, match="NaN/Inf"):
+        principal_stresses(np.array([[np.inf, 1.0, 0.5]]))
+
+
+def test_principal_stresses_batch_bit_exact():
+    """(n,3) 批量路径逐位不变 (2026-08-05 修复前数值固化锁死)."""
+    from fem2d.stress import principal_stresses
+
+    s = np.array([[100.0, 50.0, 10.0], [-30.0, 20.0, 5.0]])
+    p1, p2, radius, theta = principal_stresses(s)
+    np.testing.assert_array_equal(
+        p1, np.array([101.92582403567252, 20.495097567963924]))
+    np.testing.assert_array_equal(
+        p2, np.array([48.07417596432748, -30.495097567963924]))
+    np.testing.assert_array_equal(
+        radius, np.array([26.92582403567252, 25.495097567963924]))
+    np.testing.assert_array_equal(
+        theta, np.array([0.19025318855618245, 1.4720985468699563]))

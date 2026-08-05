@@ -141,6 +141,14 @@ def _flat2(v):
     return isinstance(v, (list, tuple)) and len(v) == 2
 
 
+def _is_stress_vec(v):
+    """(3,) 一维数值容器 — von_mises/principal_stresses 单向量合法输入
+    (契约扩展 2026-08-05: 接受 (3,) 单向量返回标量)."""
+    if isinstance(v, np.ndarray):
+        return v.ndim == 1 and v.shape[0] == 3
+    return isinstance(v, (list, tuple)) and len(v) == 3
+
+
 DEFAULT_SEED = 20260803
 
 
@@ -200,9 +208,11 @@ def main():
         elif i == 8:
             feed(f"estimate_error({v!r})", lambda v=v: estimate_error(_mesh(), v))
         elif i == 9:
-            feed(f"principal({v!r})", lambda v=v: principal_stresses(v))
+            feed(f"principal({v!r})", lambda v=v: principal_stresses(v),
+                 silent_ok=_is_stress_vec(v))  # (3,) 单向量契约 (2026-08-05)
         elif i == 10:
-            feed(f"von_mises({v!r})", lambda v=v: von_mises(v))
+            feed(f"von_mises({v!r})", lambda v=v: von_mises(v),
+                 silent_ok=_is_stress_vec(v))  # (3,) 单向量契约 (2026-08-05)
         elif i == 11:
             feed(f"D_matrix({v!r})", lambda v=v: D_matrix(v, 0.3),
                  silent_ok=_is_real(v) and v > 0)  # 合法 E: 有限正数

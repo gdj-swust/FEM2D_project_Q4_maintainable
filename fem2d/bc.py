@@ -229,7 +229,17 @@ def apply_penalty(K, F, fixed_dofs, prescribed_vals=None, penalty=None,
     diag = np.abs(K.diagonal())
     max_diag = diag.max() if diag.max() > 0 else 1.0
     if penalty is None:
-        penalty = max_diag * 1e8
+        factor = 1e8
+        max_allowed = np.finfo(float).max / factor
+        if max_diag > max_allowed:
+            raise OverflowError(
+                "apply_penalty: 自动罚因子将溢出 "
+                f"(max|K_ii|={max_diag:.3e} × {factor} → inf); "
+                "请改用 elimination 约束或缩放模型量纲")
+        penalty = max_diag * factor
+        if not np.isfinite(penalty):
+            raise OverflowError(
+                "apply_penalty: 自动罚因子非有限, 请改用 elimination 约束")
     else:
         penalty = require_finite_scalar(penalty, "apply_penalty: penalty")
         if penalty < max_diag * 1e4:

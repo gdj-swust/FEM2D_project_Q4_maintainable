@@ -43,17 +43,20 @@ def D_matrix(E, nu, plane_type="stress"):
 
 
 def von_mises(stress, plane_type="stress", nu=0.3):
-    """Return von Mises stress for one or many in-plane stress vectors.
+    """Return von Mises stress for a single ``[σx, σy, τxy]`` vector
+    or an array of many in-plane stress vectors ``(..., 3)``.
 
+    单向量 ``(3,)`` 返回标量 float; 批量 ``(..., 3)`` 保持原返回形状。
     归一化计算防溢出: 极端但有限的应力 (如 1e308) 下分量平方 → inf,
     inf−inf → NaN。先按最大|分量|缩放为无量纲量, 再乘回尺度。
     """
     stress = np.asarray(stress)
-    if stress.ndim < 2 or stress.shape[-1] != 3:
-        # 标量/1-D/末维≠3 曾冒裸 IndexError (fuzz 2026-08-03)
+    single = stress.ndim == 1 and stress.shape[0] == 3
+    if not single and (stress.ndim < 2 or stress.shape[-1] != 3):
+        # 标量/0-D/末维≠3 曾冒裸 IndexError (fuzz 2026-08-03)
         raise ValueError(
-            f"von_mises: stress 必须为 (..., 3) 数组 [σx, σy, τxy], "
-            f"got {stress.shape}")
+            f"von_mises: stress 必须为 (3,) 单向量或 (..., 3) 数组 "
+            f"[σx, σy, τxy], got {stress.shape}")
     if not np.all(np.isfinite(stress)):
         raise ValueError(
             "von_mises: stress contains NaN/Inf — 对非法输入静默返回 "
@@ -79,4 +82,5 @@ def von_mises(stress, plane_type="stress", nu=0.3):
     # 乘回可能真溢出 (vm 超过 float64 上限) — 数学正确的结果, 静默返回
     # inf; NaN 已由归一化消除 (inf−inf 不再发生)
     with np.errstate(over="ignore"):
-        return scale * vm_hat
+        vm = scale * vm_hat
+    return float(vm) if single else vm

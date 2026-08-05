@@ -179,3 +179,66 @@ def test_bc_api_rejects_invalid_inputs():
         apply_elimination(K, F, [1, 2, 3, 4, 5], [0, 0], [0.0, 1.0])
     u, r = apply_elimination(K, F, [1, 2, 3, 4, 5], [0, 0], [0.0, 0.0])
     assert u.shape == (6,)
+
+
+# ═══════════════════════════════════════════════════════════════
+# apply_penalty 自动罚因子溢出保护 (判别性 + 边界 + 逐位回归)
+# ═══════════════════════════════════════════════════════════════
+
+def test_apply_penalty_auto_overflow_raises():
+    """max|K_ii| 极大且输入全有限 → 自动罚因子 1e8×max_diag 溢出为 inf
+    必须抛 OverflowError 指向根因 (曾静默把 inf 放进 K_mod).
+
+    判别性: 注释掉溢出保护 (penalty = max_diag * 1e8 → inf, 无异常) →
+    本用例必须失败.
+    """
+    from scipy.sparse import csr_matrix
+    from fem2d.bc import apply_penalty
+
+    K = csr_matrix(np.diag([1e301, 1e301]))
+    F = np.zeros(2)
+    with pytest.raises(OverflowError, match="溢出"):
+        apply_penalty(K, F, [0], [0.0])
+
+
+def test_apply_penalty_auto_overflow_boundary():
+    """边界: max_diag 相对 finfo.max/1e8 — 略大 → 抛, 略小 → 不抛."""
+    from scipy.sparse import csr_matrix
+    from fem2d.bc import apply_penalty
+
+    max_allowed = np.finfo(float).max / 1e8
+    K_over = csr_matrix(
+        np.diag([max_allowed * (1.0 + 1e-6), 1.0]))
+    with pytest.raises(OverflowError, match="溢出"):
+        apply_penalty(K_over, np.zeros(2), [0], [0.0])
+    K_under = csr_matrix(
+        np.diag([max_allowed * (1.0 - 1e-6), 1.0]))
+    K_mod, F_mod, penalty = apply_penalty(K_under, np.zeros(2), [0], [0.0])
+    assert np.isfinite(penalty)
+    assert np.all(np.isfinite(K_mod.data))
+    assert np.all(np.isfinite(F_mod))
+
+
+def test_apply_penalty_normal_path_bit_exact():
+    """有限输入正常路径逐位不变 (2026-08-05 修复前数值固化锁死)."""
+    from scipy.sparse import csr_matrix
+    from fem2d.bc import apply_penalty
+
+    K = csr_matrix(np.diag([1.0e11, 2.0e11, 3.0e11, 4.0e11]))
+    F = np.array([1.0, 2.0, 3.0, 4.0])
+    # 零给定位移
+    K_mod, F_mod, penalty = apply_penalty(K, F, [0], [0.0])
+    assert float(penalty) == float("4e19")
+    assert K_mod.data[0] == float("4.00000001e19")
+    np.testing.assert_array_equal(
+        K_mod.data[1:], np.array([2.0e11, 3.0e11, 4.0e11]))
+    np.testing.assert_array_equal(F_mod, F)
+    # 非零给定位移
+    K_mod2, F_mod2, penalty2 = apply_penalty(K, F, [1, 2], [1.0e-3, -2.0e-3])
+    assert float(penalty2) == float("4e19")
+    assert K_mod2.data[1] == float("4.00000002e19")
+    assert K_mod2.data[2] == float("4.00000003e19")
+    assert float(F_mod2[0]) == 1.0
+    assert float(F_mod2[1]) == 4e16
+    assert float(F_mod2[2]) == -8e16
+    assert float(F_mod2[3]) == 4.0

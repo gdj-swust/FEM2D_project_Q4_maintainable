@@ -25,17 +25,21 @@ def compute_stresses(mesh, u):
 def principal_stresses(stress):
     """Compute in-plane principal stresses and maximum in-plane shear.
 
-    返回四元组 ``(σ1, σ2, τ_max, θ)``:
+    接受 ``(n, 3)`` 批量数组或 ``(3,)`` 单向量。单向量返回 4 个标量
+    float; 批量返回四元组 ``(σ1, σ2, τ_max, θ)`` (各为 (n,) ndarray):
       σ1, σ2 — 最大/最小主应力 (由构造恒有 σ1 ≥ σ2)
       τ_max  — 最大面内剪应力 = (σ1 − σ2)/2
       θ      — 主应力方向角 = 0.5·atan2(2τxy, σx−σy) [rad],
                即从 σx 轴到 σ1 方向的角度 (与 xy 全局坐标系一致)
     """
     stress = np.asarray(stress)
+    single = stress.ndim == 1 and stress.shape[0] == 3
+    if single:
+        stress = stress[None, :]
     if stress.ndim != 2 or stress.shape[1] != 3:
         # (n,2)/(n,)/(标量) 曾冒裸 IndexError — 形状契约前置校验
         raise ValueError(
-            "principal_stresses: stress 必须为 (n, 3) 数组 "
+            "principal_stresses: stress 必须为 (3,) 单向量或 (n, 3) 数组 "
             f"[σx, σy, τxy], got {stress.shape}")
     if not np.all(np.isfinite(stress)):
         raise ValueError(
@@ -48,6 +52,10 @@ def principal_stresses(stress):
     half_diff = 0.5 * sx - 0.5 * sy
     radius = np.hypot(half_diff, txy)
     theta = 0.5 * np.arctan2(txy, half_diff)   # = atan2(2txy, sx−sy)
+    if single:
+        return (float(average[0] + radius[0]),
+                float(average[0] - radius[0]),
+                float(radius[0]), float(theta[0]))
     return average + radius, average - radius, radius, theta
 
 
