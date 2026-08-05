@@ -143,3 +143,62 @@ jobs:
           print(f"regression drift vs pinned baseline: max rel = {rel:.3e}")
           assert rel < 1e-9, f"数值漂移: max rel = {rel:.3e}"
           PYEOF
+
+  test-wheel:
+    # 安装路径冒烟 (2026-08-05 发布链路轮 6a): 其余 job 均 `pip install -e`
+    # (测源码路径) — wheel 缺包会被源码树掩盖。本 job 构建 wheel、在源码树外
+    # 的临时目录安装, 锁定"安装后 import + 最小求解"链路; 不需要 gmsh。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+          python -m build
+      - name: Wheel content gate (boundary subpackages must ship)
+        # 显式 packages 列表曾漏 fem2d.boundary.detectors/plugins — 任何工具链
+        # 下缺包即红, 不依赖 build 后端的 manifest 自愈行为。
+        run: |
+          python - <<'PYEOF'
+          import glob
+          import zipfile
+          whl = glob.glob("dist/*.whl")[0]
+          with zipfile.ZipFile(whl) as z:
+              names = z.namelist()
+          for sub in ("fem2d/boundary/detectors/", "fem2d/boundary/plugins/"):
+              assert any(n.startswith(sub) for n in names), f"wheel 缺 {sub}"
+          print("wheel content OK: detectors + plugins present")
+          PYEOF
+      - name: Install wheel outside source tree
+        run: |
+          mkdir -p "$RUNNER_TEMP/wheelsmoke"
+          python -m venv "$RUNNER_TEMP/wheelsmoke/venv"
+          "$RUNNER_TEMP/wheelsmoke/venv/bin/python" -m pip install \
+              --force-reinstall "$GITHUB_WORKSPACE"/dist/*.whl
+      - name: Smoke (import + minimal solve, cwd outside source tree)
+        # cwd 在 $RUNNER_TEMP (checkout 之外) — 源码路径不会掩盖安装路径
+        run: |
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheelsmoke/venv/bin/python" - <<'PYEOF'
+          import numpy as np
+          import fem2d
+          import fem2d.boundary.detectors
+          import fem2d.boundary.plugins
+          import scripts.geo_spec
+          print(fem2d.registered_element_types())
+          from fem2d import Mesh, solve
+          nodes = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=float)
+          elems = np.array([[0, 1, 2, 3]], dtype=int)
+          mesh = Mesh(nodes, elems, E=2.1e11, nu=0.3,
+                      thickness=0.01, elem_type="CPS4")
+          mesh.fix_node(0)
+          mesh.fix_node(1)
+          mesh.add_force(2, 0.0, 1e6)
+          result = solve(mesh, verbose=False)
+          assert np.all(np.isfinite(result["u"])), "位移非有限"
+          print("wheel smoke OK: max|u| =", float(np.max(np.abs(result["u"]))))
+          PYEOF
