@@ -102,6 +102,21 @@ scripts/fuzz_api.py            误用 fuzz（固定种子，500/2000 轮）
 scripts/regression_compare.py  数值漂移对照（带参运行）
 ```
 
+## 九·补、任务书档案（磁盘存档，gitignore 不入库）
+
+仓库根目录有 **9 份 PROMPT_*.md**（`.gitignore` 第 22 行 `PROMPT*.md` 刻意排除——任务书是临时文档；**需要时直接磁盘读取，别 git add**）：
+
+| 文件 | 轮次 | 用途 |
+|---|---|---|
+| PROMPT_CI_GREEN_20260804.md | 轮0 | CI 全绿修复 + 机制补漏（golden 容差/fuzz 种子/漂移门/极端拓扑） |
+| PROMPT_BOUNDARY_REFACTOR_20260804.md | 轮1 | 边界层插件化重构（三阶段：快照→注册表→示例插件） |
+| PROMPT_BOUNDARY_PLUGINS_20260805.md | 轮2 | 三识别插件（椭圆标签/@组名/曲率分段）+ 3 挑剔点硬约束 |
+| PROMPT_REVIEW_FIXES_20260805.md | 轮3 | 审查修复包 5 项（hypot/警告/退出码/能量钳/.geo） |
+| PROMPT_KEEP_OPEN_20260805.md | 轮4 | --keep-open 选项（判别性测试 4 场景） |
+| PROMPT_API_CONTRACT*.md / PROMPT_FINAL_REGRESSION.md / PROMPT_PKG5.md | 前任轮次 | 契约清账/终轮回归/pkg5（早期任务书，可当结构参考） |
+
+**新任务书直接照抄结构**：背景（已定位根因）→ 任务（可验收）→ 文件边界 → 行为冻结区 → 工程约定 → 验收（判别性/四件套/CI 全绿/另眼审查）→ 汇报格式。
+
 ## 十、本任期教训（照做，别重蹈）
 
 1. **总指挥先获批再动源码**：派发前必须获得用户明确批准；用户说"你来做"≠ 授权改源码（曾因此挨批）
