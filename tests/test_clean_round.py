@@ -9,7 +9,9 @@
 from __future__ import annotations
 
 import inspect
+import re
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -22,6 +24,10 @@ from fem2d.boundary.physical_mapping import (
 )
 from fem2d.boundary.plugins.arc_curvature import ArcCurvatureDetector
 from fem2d.mesh import Mesh
+
+_NARRATIVE_COMMENT_RE = re.compile(
+    r"^\s*#.*(曾|旧实现|旧版本|当时|最初|后来|2026-0|遗留)")
+_NARRATIVE_LIMIT = 20
 
 
 def _tiny_mesh() -> Mesh:
@@ -64,3 +70,21 @@ def test_t3_factory_path_is_silent():
             mesh, {}, {}, None, BoundaryDiagnostics())
     assert mapped is not None
     assert mapped.boundary_edges
+
+
+# ── T4: 历史叙事注释计数门 (fem2d/ 全部 .py ≤ 20) ──────────────────
+
+def test_t4_narrative_comment_count_within_limit():
+    repo_root = Path(__file__).resolve().parents[1]
+    violations = []
+    hits = 0
+    for path in sorted((repo_root / "fem2d").rglob("*.py")):
+        for lineno, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), 1):
+            if _NARRATIVE_COMMENT_RE.match(line):
+                hits += 1
+                violations.append(
+                    f"{path.relative_to(repo_root)}:{lineno}: {line}")
+    assert hits <= _NARRATIVE_LIMIT, (
+        f"叙事注释 {hits} > 上限 {_NARRATIVE_LIMIT}:\n"
+        + "\n".join(violations))

@@ -58,8 +58,8 @@ def orient2d(ax, ay, bx, by, cx, cy):
 
     # Step B: 原始坐标 as_integer_ratio 任意精度整数符号判定 (零浮点
     # 误差)。对 ax/ay/bx/by/cx/cy 各调 as_integer_ratio() (Python float
-    # 规范精确), 再用整数完成精确减法与乘法 — 曾先做浮点差
-    # (ax − cx) 再精确化, 减法舍入使符号可翻转 (复测 2026-08-02 反例)。
+    # 规范精确), 再用整数完成精确减法与乘法 — 先做浮点差
+    # (ax − cx) 再精确化时, 减法舍入使符号可翻转 (复测反例)。
     # 注意: np.float64.as_integer_ratio() 不精确, 必须先转 Python float。
     na, da = float(ax).as_integer_ratio()
     ny, dy = float(ay).as_integer_ratio()
@@ -78,7 +78,7 @@ def orient2d(ax, ay, bx, by, cx, cy):
     y2 = nb * dc - nc * db      # bcx 分子
     num = x1 * y1 * (dy * dw * db * dc) - x2 * y2 * (da * dc * dz * dw)
     # 符号精确; 量级取浮点 det 的绝对值 (NaN — 极端尺度乘积上溢 —
-    # 时用 ±_TINY 占位, 曾返回 NaN 使调用方符号判定失效)
+    # 时用 ±_TINY 占位, 返回 NaN 会使调用方符号判定失效)
     magnitude = abs(det) if (det != 0.0 and math.isfinite(det)) else _TINY
     if num > 0:
         return magnitude

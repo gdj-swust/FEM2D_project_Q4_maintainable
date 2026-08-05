@@ -23,9 +23,9 @@ _FINE_CONIC_MIN_PRIMITIVES = 16
 # 统一容差 — Gmsh GEdge.cpp:115 tol = geom.tolerance × lc
 # ═══════════════════════════════════════════════════════════════
 
-# 坐标尺度 ULP — 唯一实现在 preprocess (曾与 geometry 各复制一份,
-# 2026-08-03 冗余清理合并)。微尺度模型的零长/退化判据: 绝对 1e-15
-# 下限曾使微尺度模型的每条边都被判零长, 角点全被跳过。
+# 坐标尺度 ULP — 唯一实现在 preprocess (与 geometry 各复制一份
+# 是冗余, 已合并)。微尺度模型的零长/退化判据: 绝对 1e-15
+# 下限会让微尺度模型的每条边都被判零长, 角点全被跳过。
 from ..preprocess import _coordinate_ulp as _coords_ulp
 
 
@@ -40,7 +40,7 @@ def compute_tolerance(coords, geom_tol=1e-6):
     diffs = np.diff(coords, axis=0)
     edge_lens = np.sqrt(diffs[:, 0]**2 + diffs[:, 1]**2)
     lc = np.median(edge_lens) if len(edge_lens) > 0 else 1.0
-    # eps*10 绝对下限曾大于整个微尺度模型 (1e-16) — 只防 lc 为 0
+    # eps*10 绝对下限会大于整个微尺度模型 (1e-16) — 只防 lc 为 0
     return max(geom_tol * lc, np.finfo(float).tiny)
 
 
@@ -63,7 +63,7 @@ def curvature(coords, closed=True):
     kappa = np.zeros(n)
 
     # 零长边判据基于坐标尺度, 不用绝对 1e-15 — 微尺度模型 (边长 1e-16)
-    # 曾全部 κ=0, 曲率分段静默失效
+    # 否则全部 κ=0, 曲率分段静默失效
     zero_len = min(
         1e-15,
         64.0 * np.finfo(float).eps
@@ -156,7 +156,7 @@ def sharp_corner_indices(coords, angle_threshold_deg=35.0):
     n = len(coords)
     ulp = _coords_ulp(coords)
     # 闭合重复点 (首尾精确重合或落在 ULP 内): 与 curvature() 同款处理 —
-    # 曾使闭合链的首个角点 (prev 指向重复点 → 零长边) 被静默跳过
+    # 会使闭合链的首个角点 (prev 指向重复点 → 零长边) 被静默跳过
     #
     has_duplicate = bool(
         n > 2
@@ -173,7 +173,7 @@ def sharp_corner_indices(coords, angle_threshold_deg=35.0):
         v1 = coords[i] - coords[prev]
         v2 = coords[nxt] - coords[i]
         l1, l2 = np.linalg.norm(v1), np.linalg.norm(v2)
-        # 曾绝对 1e-15: 微尺度多边形的所有角点被跳过
+        # 绝对 1e-15 会让微尺度多边形的所有角点被跳过
         if l1 <= ulp or l2 <= ulp:
             continue
         # orient2d: prev → i → nxt 的定向量 (平行四边形的有向面积)
@@ -372,9 +372,9 @@ def classify(coords, scale, is_outer, closed=None, *, native_entities=()):
 def _segment_is_closed(coords, tolerance, closed):
     if closed is not None:
         return bool(closed)
-    # 曾 1.0 物理尺度下限: 微尺度圆弧 (跨度 1e-16) 的闭合容差被抬到
-    # ~7e-15 > 整个模型, 开放圆弧被误判为闭合曲线 (外部审查复现,
-    # 2026-08-03)。坐标 ULP 尺度 — 与 _coords_ulp 约定一致。
+    # 1.0 物理尺度下限会把微尺度圆弧 (跨度 1e-16) 的闭合容差抬到
+    # ~7e-15 > 整个模型, 开放圆弧被误判为闭合曲线。坐标 ULP 尺度 —
+    # 与 _coords_ulp 约定一致。
     coordinate_scale = max(
         float(np.ptp(coords[:, 0])),
         float(np.ptp(coords[:, 1])),
@@ -481,7 +481,7 @@ def fit_ellipse(points):
     xm, ym = x.mean(), y.mean()
     xs, ys = x - xm, y - ym
     scl = np.sqrt(xs.std()**2 + ys.std()**2)
-    # 曾绝对 1e-15: 微尺度椭圆 (散布 1e-16) 拟合静默返回 None → 整段
+    # 绝对 1e-15 会让微尺度椭圆 (散布 1e-16) 拟合静默返回 None → 整段
     # 落入 curve 分类
     if scl <= _coords_ulp(points):
         return None
@@ -583,7 +583,7 @@ def fit_closed_ellipse(points):
     if len(coords) < 8 or not np.all(np.isfinite(coords)):
         return None, {}
 
-    # 曾 1.0 物理尺度下限: 微尺度 (跨度 ≲2e-13) 整环首末顶点间距
+    # 1.0 物理尺度下限会让微尺度 (跨度 ≲2e-13) 整环首末顶点间距
     # 恒 ≤ eps×1.0×32 ≈ 7.1e-15, 被误判"重复闭合点"→ 静默截掉末顶点,
     # 被截顶点的拟合残差不再被验证。与 _segment_is_closed 同款 ULP
     # 相对化 — 坐标尺度多大, 容差就多大。

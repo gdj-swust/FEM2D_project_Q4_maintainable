@@ -21,7 +21,7 @@ def _load_component_ok(value):
     try:
         # 显式拒绝数组容器 — float(np.array([x])) 的弃用转换随 numpy 版本
         # 变化 (2.3 仅警告仍转换, 2.5 抛 TypeError), 契约必须版本无关:
-        # 0 维数组 → .item() 取标量; 1 维及以上 → 非法 (曾单元素数组被
+        # 0 维数组 → .item() 取标量; 1 维及以上 → 非法 (单元素数组被
         # 静默当作标量接受)
         if isinstance(value, np.ndarray):
             if value.ndim != 0:

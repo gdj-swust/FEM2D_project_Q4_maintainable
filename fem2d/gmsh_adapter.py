@@ -280,9 +280,9 @@ def _extract_regions(
             node_ids = tuple(sorted(physical_nodes))
             if not node_ids and coords is not None and entity_tags:
                 # 域内 Point 的构造节点被 _extract_mesh 剔除 (不在任何 2D
-                # 单元内, 如孔心) — node_ids 曾恒空且无提示, 与边界点
+                # 单元内, 如孔心) — node_ids 恒空且无提示, 与边界点
                 # 行为不一致; 回退最近位移节点并警告。
-                # 域外 Physical Point 曾同样回退到最近节点, 集中力施加到
+                # 域外 Physical Point 同样回退到最近节点时, 集中力施加到
                 # 完全错误的位置 — 域外必须拒绝 (node_ids 留空, 下游报错)
                 try:
                     coords_arr = np.asarray(coords, dtype=float)
@@ -311,8 +311,8 @@ def _extract_regions(
                                 f"集中力将报错")
                             continue
                         # 单元级判域 (与 input_source 一致): 孔心/凹域
-                        # 缺口点在 AABB 内但不属于任何单元 — 曾回退到
-                        # 最近节点, 集中力施加到材料域外位置 (静默错)
+                        # 缺口点在 AABB 内但不属于任何单元 — 回退到
+                        # 最近节点会把集中力施加到材料域外位置 (静默错)
                         if elements is not None:
                             tmp = Mesh(
                                 coords_arr, elements, elem_type=elem_type)
@@ -441,7 +441,7 @@ def _extract_regions(
                 curve_surface_occurrences[entity_tag])),
         ))
 
-    # 物理组/CAD 成功提取才宣称边界完整 — 曾无条件 True, MSH 2.x / 裸
+    # 物理组/CAD 成功提取才宣称边界完整 — 无条件 True 会让 MSH 2.x / 裸
     # 网格输入下完整性校验误判为覆盖完整, 掩盖静默降级。
     # 只用 registry.curves 会把"只有 Physical Surface、无 Physical Curve
     # 组"的常见用法静默降级: cad_curves 已由 getEntities(2)+getBoundary
@@ -618,7 +618,7 @@ def import_msh(msh_path, *, require_quads=False, plane_type="stress"):
     API 路径共享同一提取逻辑, 保证两条路径语义一致。
     """
     if not os.path.isfile(msh_path):
-        # 文件不存在曾透传 gmsh 底层 "Unable to open file" — 前置明确
+        # 文件不存在会透传 gmsh 底层 "Unable to open file" — 前置明确
         # 报错 (与 generate_from_geo 的 FileNotFoundError 契约一致)
         raise FileNotFoundError(f"Mesh file not found: {msh_path}")
     with _gmsh_session() as active:
@@ -631,7 +631,7 @@ def import_msh(msh_path, *, require_quads=False, plane_type="stress"):
                 and _file_declares_physical_names(msh_path)):
             # MSH 2.x 的 $Elements physical 字段与 $PhysicalNames 标签自相
             # 矛盾, 4.1 缺 $Entities 段同样使 gmsh 读回后物理组为空 —
-            # 文件里声明的边名 (bottom/左端 等) 全部不可用, 曾静默丢失
+            # 文件里声明的边名 (bottom/左端 等) 全部不可用, 静默丢失
             #
             print(
                 "  [WARN] .msh 声明了 $PhysicalNames 但 gmsh 未能恢复物理组 — "
@@ -646,7 +646,7 @@ def _write_atomic(gmsh_module, output_path):
     output_dir = os.path.dirname(final_path)
     os.makedirs(output_dir, exist_ok=True)
     # 临时文件后缀必须与最终输出一致 — Gmsh 按扩展名推断格式,
-    # .inp 后缀曾把原生 .msh 内容写成 Abaqus 格式 (评审发现).
+    # .inp 后缀会把原生 .msh 内容写成 Abaqus 格式.
     suffix = os.path.splitext(final_path)[1] or ".msh"
     descriptor, temporary_path = tempfile.mkstemp(
         prefix=".fem2d-gmsh-api-", suffix=suffix, dir=output_dir)

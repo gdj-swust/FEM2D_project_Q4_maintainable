@@ -23,8 +23,8 @@ from .config import AnalysisConfig
 from .errors import CliError, GeoScriptRejected
 
 # scripts/ 是工具脚本层 (geo_spec / gmsh_runner), 不在 fem2d 包内。
-# 曾模块顶层注入项目根 (import 副作用, 库用户进程的 sys.path 被全局
-# 污染) — 现由 CLI 入口 (runner.main) 负责常规路径, 库方式调用首次
+# 模块顶层注入项目根是 import 副作用 (库用户进程的 sys.path 被全局
+# 污染) — CLI 入口 (runner.main) 负责常规路径, 库方式调用首次
 # 使用时才惰性注入 (见 _import_scripts)。
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -204,7 +204,7 @@ def physical_point_from_geo(geo_path, name, mesh):
     报成"未找到"。
     """
     if not geo_path:
-        # .msh 直接输入无源 .geo — 曾 _safe_geo_source(None) 抛 TypeError
+        # .msh 直接输入无源 .geo — _safe_geo_source(None) 抛 TypeError,
         # 被宽 except 吞掉, 误报 "Gmsh API 不可用"
         return None, None, None, "no_geo_source"
     try:
@@ -218,7 +218,7 @@ def physical_point_from_geo(geo_path, name, mesh):
     try:
         with _gmsh_session(gmsh_module) as active:
             # 用 stripped 副本打开: .geo 里的 Mesh/Save 命令若直接执行会
-            # 静默覆盖同名 .inp 并丢失 source binding (曾复现: 读 l_bracket
+            # 静默覆盖同名 .inp 并丢失 source binding (复现: 读 l_bracket
             # 的 .inp 时 sibling .geo 被 API 打开, l_bracket.inp 被重写).
             command_geo, temporary_geo = _safe_geo_source(geo_path)
             active.open(command_geo)
@@ -242,8 +242,8 @@ def physical_point_from_geo(geo_path, name, mesh):
         # 响亮冒出 (归因 "gmsh_unavailable" 会误导排查方向)
         raise
     except Exception:
-        # 仅 gmsh 会话/读取失败 → gmsh_unavailable (曾包住下方内部逻辑,
-        # 算法错误被误报为 "Gmsh 不可用", 错误归因误导排查)
+        # 仅 gmsh 会话/读取失败 → gmsh_unavailable (包住下方内部逻辑会
+        # 把算法错误误报为 "Gmsh 不可用", 错误归因误导排查)
         return None, None, None, "gmsh_unavailable"
     finally:
         if temporary_geo is not None and os.path.isfile(temporary_geo):
@@ -269,7 +269,7 @@ def physical_point_from_geo(geo_path, name, mesh):
         return None, None, None, "outside_domain"
     # 二级过滤: 真实域包含 — 点必须落在某个单元内。凹域/孔洞内但
     # 不属于实体的 construction point 会在 AABB 内却不属于任何单元,
-    # 旧实现会把它施加到任意最近节点。
+    # 否则会被施加到任意最近节点。
     from fem2d.stress import point_in_element
     if point_in_element(mesh, found[0][0], found[0][1]) < 0:
         return None, None, None, "outside_domain"
@@ -332,8 +332,8 @@ def resolve_spec_overrides(fp, config):
                 f"  [FATAL] .spec 中 plane='{value}' — 仅支持 stress 或 strain",
                 exit_code=1)
         if field == "no_plot":
-            # 接受 1/0/true/false/yes/no (曾只认字面 "true"; 其他字符串
-            # 静默当 False, 拼写错误不易发现 白名单)
+            # 接受 1/0/true/false/yes/no (只认字面 "true" 时其他字符串
+            # 静默当 False, 拼写错误不易发现)
             text = str(value).strip().lower()
             if text in ("1", "true", "yes"):
                 value = True
@@ -347,7 +347,7 @@ def resolve_spec_overrides(fp, config):
             try:
                 value = float(value)
             except ValueError:
-                # 'E = 2,1e11' 曾报无键名上下文的裸 ValueError
+                # 'E = 2,1e11' 报无键名上下文的裸 ValueError
                 #
                 raise ValueError(
                     f".spec 键 '{spec_key}' 值 {value!r} 无法解析为数值 — "
@@ -364,7 +364,7 @@ def resolve_spec_overrides(fp, config):
 
     for spec_key in spec:
         if spec_key not in _SPEC_FIELD_MAP and spec_key != "mesh":
-            # 未知键曾静默忽略: 拼错 traction/force 等键名时载荷不生效,
+            # 未知键静默忽略: 拼错 traction/force 等键名时载荷不生效,
             # 求解照常"成功"
             print(f"  [WARN] .spec 键 '{spec_key}' 不被识别, 已忽略 — "
                   f"可用键: {sorted(_SPEC_FIELD_MAP) + ['mesh']}")
@@ -382,8 +382,8 @@ def resolve_spec_overrides(fp, config):
     return mesh_fp
 
 
-# lc 赋值行: 允许前导空白 (" lc = 0.5" 也必须命中 — 曾只匹配行首紧贴,
-# 导致报告"已修改"而临时文件实际未变)。
+# lc 赋值行: 允许前导空白 (" lc = 0.5" 也必须命中 — 只匹配行首紧贴
+# 会导致报告"已修改"而临时文件实际未变)。
 _LC_PATTERN = r'^\s*lc\s*=\s*([\d.eE+\-]+)'
 _LC_SUB_PATTERN = r'^\s*lc\s*=\s*[\d.eE+\-]+'
 
@@ -403,8 +403,8 @@ def _resolve_geo_lc(fp, config, ask, temp_dir=None):
     m = re.search(_LC_PATTERN, geo_text, re.MULTILINE)
     if m is None:
         # 无 lc 变量 — 覆盖请求无法兑现, 明确告知而非假装修改。
-        # 交互判定与 bc_apply 统一用 is_batch_mode — 曾手写条件漏掉
-        # fix_ux/fix_uy, 批处理下静默不提示
+        # 交互判定与 bc_apply 统一用 is_batch_mode — 手写条件漏掉
+        # fix_ux/fix_uy 时, 批处理下静默不提示
         if config.lc is not None or not batch:
             print(
                 "  [WARN] .geo 中未找到 'lc' 赋值行 (例如 'lc = 0.1;'), "
@@ -419,12 +419,12 @@ def _resolve_geo_lc(fp, config, ask, temp_dir=None):
             f"  网格密度 lc [当前={current_lc}]: ")
         new_lc = float(lc_str) if lc_str else None
 
-    # 精确相等才视为未更改 — 曾 1e-15 容差使微尺度 lc (如 2e-16 vs 1e-16)
+    # 精确相等才视为未更改 — 1e-15 容差会使微尺度 lc (如 2e-16 vs 1e-16)
     # 的覆盖被静默忽略
     if new_lc is None or new_lc == current_lc:
         return fp, None
-    # 只替换第一个 lc 赋值 (多 lc 变量几何曾被全文替换一起覆盖;
-    # 多 lc 变量几何曾全文替换误伤), 其余 lc 行保留原值并警告
+    # 只替换第一个 lc 赋值 (多 lc 变量几何被全文替换会一起覆盖误伤),
+    # 其余 lc 行保留原值并警告
     lc_lines = re.findall(_LC_PATTERN, geo_text, re.MULTILINE)
     if len(lc_lines) > 1:
         print(
@@ -466,14 +466,14 @@ def resolve_geo(fp, config, ask=None):
     source_geo_path = os.path.abspath(fp)
 
     # 输出位置预检: 只读输入/输出目录在 gmsh 子进程启动前给出清晰错误
-    # (裸 PermissionError 曾冒泡, 用户看不出是输出位置问题)
+    # (裸 PermissionError 冒泡时用户看不出是输出位置问题)
     out_dir = artifact_dir(fp, config.output_dir)
     ensure_artifact_dir_writable(out_dir)
 
     # 先解析 @FEM: 注解 — 合并逻辑与 runner._apply_geo_fem_config 共用
     # (CLI 显式参数 > 配置; 配置内部 traction+pressure 可并存)。
     # 在此一次性合并并打印 [auto]; runner 对 .geo/.txt 输入不再二次解析
-    # (曾二次解析把自动写入的载荷误判为 CLI 显式, 产生错误 WARN)。
+    # (二次解析会把自动写入的载荷误判为 CLI 显式, 产生错误 WARN)。
     from fem2d.preprocess import merge_geo_fem_config, parse_geo_fem_config
     merge_geo_fem_config(parse_geo_fem_config(fp), config, verbose=True)
 
@@ -489,7 +489,7 @@ def resolve_geo(fp, config, ask=None):
         )
     except GeoScriptRejected as error:
         # .geo 含 SystemCall 等危险指令 — 输入内容问题 (用户错误) → 1;
-        # 曾裸 ValueError 冒泡到顶层兜底 → 2
+        # 裸 ValueError 冒泡到顶层兜底 → 2
         raise CliError(f"  [FATAL] {error}", exit_code=1) from error
     finally:
         if temp_geo is not None and os.path.isfile(temp_geo):
@@ -525,7 +525,7 @@ def resolve_txt(fp, config):
             # 同名 .geo 是以前 .txt 的生成物 — 覆盖无损失, 但明确提示
             print(f"  [WARN] 覆盖已生成的 {geo_p} — 内容以 .txt 为准")
         else:
-            # 手写 .geo: 生成到临时副本, 原始文件不碰 — 曾静默覆盖导致
+            # 手写 .geo: 生成到临时副本, 原始文件不碰 — 静默覆盖会让
             # 用户手写几何永久丢失
             fd, tmp_geo = tempfile.mkstemp(
                 prefix='.fem2d-txt-', suffix='.geo',
@@ -541,8 +541,8 @@ def resolve_txt(fp, config):
         geo_spec.generate_geo(geo_spec.parse_spec(fp), geo_p,
                               quad=config.quad)
     except (ValueError, IndexError) as error:
-        # IndexError 防御: 曾 '内孔 圆 x=' 透传裸 'list index out of range'
-        # (修复后 parse_spec 不再抛, 双保险)
+        # IndexError 防御: '内孔 圆 x=' 透传裸 'list index out of range'
+        # (parse_spec 修复后不再抛, 双保险)
         raise CliError(
             f"  [FATAL] 几何生成失败: {error}",
             exit_code=1)
@@ -569,17 +569,17 @@ def resolve_input_file(fp, config, ask=None):
         from fem2d.cli import ask as default_ask
         ask = default_ask
 
-    # 扩展名大小写不敏感 (Windows 上 .MSH/.GEO 曾直接被拒)
+    # 扩展名大小写不敏感 (Windows 上 .MSH/.GEO 会被直接拒)
     ext = os.path.splitext(fp)[1].lower()
 
     # .spec → 解析后取 mesh 路径 (相对路径以 .spec 所在目录为基准)
     if ext == '.spec':
         fp = resolve_spec_overrides(fp, config)
-        # 重新计算扩展名 — 曾沿用 .spec, 后续分支全部失配落入
+        # 重新计算扩展名 — 沿用 .spec 会让后续分支全部失配落入
         # "不支持的输入" (所有 .spec 输入失效, 集成测试缺失未捕获)
         ext = os.path.splitext(fp)[1].lower()
 
-    # .inp (Abaqus) 输入口已移除 (2026-08) — 网格唯一来源为 .geo/.txt/.msh
+    # .inp (Abaqus) 输入口已移除 — 网格唯一来源为 .geo/.txt/.msh
     if ext == '.inp':
         raise CliError(
             '[ERROR] Abaqus .inp 输入已移除 — 请提供 .geo (Gmsh 几何)、'
@@ -600,8 +600,8 @@ def resolve_input_file(fp, config, ask=None):
         quad_applied = config.quad
         # .txt 生成的 .geo 含 @FEM 注解 — 由 runner._apply_geo_fem_config 合并
         if config.lc is not None:
-            # --lc 只对 .geo 输入生效 (.txt 用自身的 网格 行) — 曾静默
-            # 忽略, 用户以为加密了实际没有
+            # --lc 只对 .geo 输入生效 (.txt 用自身的 网格 行) — 静默忽略时
+            # 用户以为加密了实际没有
             print("  [WARN] --lc 只对 .geo 输入生效 — .txt 用自身的"
                   " '网格' 行, --lc 已忽略 (请在 .txt 中修改 网格 值)")
     elif ext == '.msh':

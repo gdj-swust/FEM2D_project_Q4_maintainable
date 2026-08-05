@@ -208,8 +208,8 @@ class ElementKernel(ABC):
         if det_j.ndim == 1:
             det_j = det_j[:, None]
         if not np.all(np.isfinite(det_j)):
-            # 超大坐标浮点溢出会产生 NaN/Inf — 曾 report.ok=True 后给
-            # 出误导性刚体约束错误
+            # 超大坐标浮点溢出会产生 NaN/Inf — report.ok=True 后给出
+            # 误导性刚体约束错误
             bad = np.flatnonzero(~np.isfinite(det_j))
             raise RuntimeError(
                 f"{self.name} Jacobian determinants contain NaN/Inf "
@@ -249,8 +249,8 @@ class ElementKernel(ABC):
                                 y: float) -> int:
         """Generic point location using the kernel's shape-function inverse."""
         mesh.build_connectivity()
-        # 自然坐标容差 (无量纲) — 与模型尺度无关。旧实现传 1e-12×全局
-        # span: 对 1e12 尺度的网格容差放大到 1, 重心坐标 [-0.5,0.75,0.75]
+        # 自然坐标容差 (无量纲) — 与模型尺度无关。传 1e-12×全局
+        # span 时, 对 1e12 尺度的网格容差放大到 1, 重心坐标 [-0.5,0.75,0.75]
         # 的域外点被误判在单元内。需要物理残差容差的内核
         # (如 Q4 的牛顿迭代) 自己内部乘以局部单元尺度 — 单元内判断
         # 只用局部几何, 不随整个模型的跨度放宽。

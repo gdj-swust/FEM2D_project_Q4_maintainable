@@ -64,7 +64,7 @@ def parse_spec_config(filepath):
         for lineno, raw_line in enumerate(f, 1):
             line = raw_line.strip()
             if lineno == 1:
-                # Windows 记事本 UTF-8 BOM 曾把首行键变成 '﻿mesh',
+                # Windows 记事本 UTF-8 BOM 会把首行键变成 '﻿mesh',
                 # mesh 键丢失 → FATAL 报空路径
                 line = line.lstrip("﻿")
             # 剥离行尾注释 (例: mesh = test.txt  # 说明)
@@ -114,8 +114,8 @@ def parse_geo_fem_config(geo_path: str):
                         f"'{line.strip()}' — fix 需要单个边名, 含逗号")
                 config['fix'].append(val)
             elif key == 'traction':
-                # 格式: edge,tx,ty 或 edge,tx,ty,profile — 字段过多曾
-                # 静默丢弃, 载荷消失无提示
+                # 格式: edge,tx,ty 或 edge,tx,ty,profile — 字段过多静默
+                # 丢弃时载荷消失无提示
                 parts = val.split(',')
                 if len(parts) < 3 or len(parts) > 4:
                     raise ValueError(
@@ -145,7 +145,7 @@ def parse_geo_fem_config(geo_path: str):
                         f"实际 {len(parts)} 个字段")
                 config['body'] = val
             else:
-                # 未知 @FEM: 键 (如 geo_spec 曾生成的 bc=) 曾静默丢弃,
+                # 未知 @FEM: 键 (如 geo_spec 生成的 bc=) 静默丢弃时
                 # 载荷消失无提示
                 print(f"  [WARN] .geo @FEM: 未知键 '{key}' 已忽略 — "
                       "支持: fix/traction/pressure/body")
@@ -169,7 +169,7 @@ def merge_geo_fem_config(geo_fem, config, *, verbose=True):
             print(f"  [auto] fix: {config.fix}")
     elif geo_fem['fix'] and config.fix and verbose:
         # 与 traction 分支一致: .geo @FEM:fix 被 CLI --fix 覆盖须提示 —
-        # 曾静默替换, 用户以为 .geo 约束已生效
+        # 静默替换会让用户以为 .geo 约束已生效
         print(
             "  [WARN] .geo 配置含 fix 但 CLI 已显式指定 --fix — "
             "按 CLI 优先, .geo 约束未施加")
@@ -203,7 +203,7 @@ class MeshValidationError(Exception):
     """网格校验致命错误 — 无法继续求解."""
 
 
-# ── validate_mesh 的独立校验步骤 (每步可单测, 2026-08 拆分) ──
+# ── validate_mesh 的独立校验步骤 (每步可单测) ──
 
 _LOCAL_EDGES = {
     3: ((0, 1), (1, 2), (2, 0)),
@@ -322,8 +322,8 @@ def _find_degenerate_elements(nodes, elements):
         if not bad and len(conn) == 4:
             # 蝴蝶形 (自交) 四边形: 两片三角有向面积异号, 净面积仍为正
             # 而漏检 — 求解器 Jacobian 检查会以 inverted 拒绝, 导入校验
-            # 必须给出同样诊断。两片三角分解复用 _signed_area (曾内联
-            # 逐字重复同一公式, 修一处分叉另一处仍错)
+            # 必须给出同样诊断。两片三角分解复用 _signed_area (内联
+            # 逐字重复同一公式时, 修一处分叉另一处仍错)
             c = nodes[conn]
             a1 = _signed_area(c[:3])
             a2 = _signed_area(np.vstack([c[2], c[3], c[0]]))
@@ -434,7 +434,7 @@ def validate_mesh(nodes, elements, elem_type=None, tol=None):
         # 会把用户引向错误方向
         raise MeshValidationError(
             "节点坐标含 NaN/Inf — 网格导入前必须清理")
-    # 先验证连接关系的有限性/整数值, 再转换 — 曾先 dtype=int 把浮点
+    # 先验证连接关系的有限性/整数值, 再转换 — 先 dtype=int 会把浮点
     # 1.9 静默截断成 1, 校验错误通过
     elems_raw = np.asarray(elements)
     if not np.issubdtype(elems_raw.dtype, np.integer):
@@ -454,7 +454,7 @@ def validate_mesh(nodes, elements, elem_type=None, tol=None):
         elems_raw = np.rint(elems_raw)
     elements = elems_raw.astype(np.int64, copy=False)
     if elements.shape[1] not in _LOCAL_EDGES:
-        # 5/6 列连接曾在 _find_zero_edges 抛裸 KeyError
+        # 5/6 列连接会在 _find_zero_edges 抛裸 KeyError
         raise MeshValidationError(
             f"单元连接宽度 {elements.shape[1]} 不受支持 — 仅支持 "
             f"{sorted(_LOCAL_EDGES)} 节点 (三角/四边形)")

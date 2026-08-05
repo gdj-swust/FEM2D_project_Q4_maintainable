@@ -140,8 +140,8 @@ class AnalysisConfig:
             raise ValueError(f"band_tag='{self.band_tag}' — 非法应力分量")
 
     def _validate_band_args(self):
-        # Isoband 固定带宽: 三参数全有或全无 (曾只在绘图路径校验,
-        # --no-plot 时静默忽略无效参数)
+        # Isoband 固定带宽: 三参数全有或全无 (只在绘图路径校验时,
+        # --no-plot 会静默忽略无效参数)
         band_args = (self.band_min, self.band_max, self.band_step)
         if any(x is not None for x in band_args) and not all(
                 x is not None for x in band_args):
@@ -160,7 +160,7 @@ class AnalysisConfig:
             raise ValueError(
                 f"--band-step ({self.band_step:.3g}) 必须 <= "
                 f"--band-max - --band-min ({self.band_max - self.band_min:.3g})")
-        # 预计层数上限: np.arange 曾无界分配 (step=1e-12 时万亿层
+        # 预计层数上限: np.arange 无界分配时 (step=1e-12 时万亿层
         # 耗尽内存 / 1e-320 时除出 inf 再 int() 抛 OverflowError;
         # )。正常报告几十到几百层足够。
         ratio = (self.band_max - self.band_min) / self.band_step

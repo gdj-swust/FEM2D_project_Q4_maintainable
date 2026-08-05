@@ -47,7 +47,7 @@ def assemble(mesh, n_dof):
     """
     mesh.build_connectivity()
     if n_dof != 2 * mesh.n_nodes:
-        # 独立调用传错 n_dof 曾裸 IndexError (集中力越界写) — 契约前置
+        # 独立调用传错 n_dof 会裸 IndexError (集中力越界写) — 契约前置
         raise ValueError(
             f"assemble_loads: n_dof={n_dof} 必须等于 2×节点数 "
             f"({2 * mesh.n_nodes})")
@@ -93,8 +93,8 @@ def assemble(mesh, n_dof):
         xi_c,yi_c=mesh.nodes[ni]; xj_c,yj_c=mesh.nodes[nj]
         dx, dy = xj_c - xi_c, yj_c - yi_c
         L = float(np.hypot(dx, dy))
-        # 零长判据基于该边端点的局部坐标尺度 — 曾用 max(全局节点, 1.0)
-        # 下限, 微米/纳米模型 (边长 1e-16) 全被判退化
+        # 零长判据基于该边端点的局部坐标尺度 — max(全局节点, 1.0)
+        # 下限会让微米/纳米模型 (边长 1e-16) 全被判退化
         edge_ulp = 64.0 * np.finfo(float).eps * max(
             float(max(abs(xi_c), abs(xj_c), abs(yi_c), abs(yj_c))),
             np.finfo(float).tiny)
@@ -117,7 +117,7 @@ def assemble(mesh, n_dof):
                     try:
                         p_val = p_raw(xg, yg)
                     except Exception as error:
-                        # 1/x 除零等表达式错误 — 曾裸异常无载荷上下文,
+                        # 1/x 除零等表达式错误 — 裸异常无载荷上下文,
                         # 面力路径已有包装, 压力路径补齐
                         raise ValueError(
                             f"边 ({ni},{nj}) 压力表达式在 Gauss 点 "
@@ -125,7 +125,7 @@ def assemble(mesh, n_dof):
                 else:
                     p_val = p_raw
                 if callable(p_val) or not _load_component_ok(p_val):
-                    # callable 返回 str/序列/None/NaN 曾裸 TypeError/ValueError
+                    # callable 返回 str/序列/None/NaN 会裸 TypeError/ValueError
                     # (np.isfinite 真值判定) 无载荷上下文 — 统一走 loads_schema
                     # 标量校验, 与面力路径契约一致
                     raise ValueError(
@@ -140,7 +140,7 @@ def assemble(mesh, n_dof):
                 F[2*nj] += fe * Nj * tx; F[2*nj+1] += fe * Nj * ty
         else:
             # 全局坐标面力 (tx, ty), 3 点 Gauss 积分
-            # 边界边校验 — 曾缺失: replace_elements 使该边变内部边后,
+            # 边界边校验 — 缺失时 replace_elements 使该边变内部边后,
             # 压力路径抛错而面力路径静默施加到内部边
             mesh._validate_boundary_edge(ni, nj)
             for w, xi_g in LINE_GAUSS:
@@ -149,7 +149,7 @@ def assemble(mesh, n_dof):
                 try:
                     tx,ty = evaluate_vector_field(trac, xg, yg)
                 except Exception as error:
-                    # 1/x 除零 / sqrt(x-10) 域错误曾无载荷上下文裸抛
+                    # 1/x 除零 / sqrt(x-10) 域错误无载荷上下文裸抛
                     #
                     raise ValueError(
                         f"边 ({ni},{nj}) 面力表达式在 Gauss 点 "
@@ -181,7 +181,7 @@ def parse_traction(s: str):
     返回: (edge_name, tx, ty, profile)  其中 profile ∈ {None, 'p', 'l', 'n'}
     """
     if not isinstance(s, str):
-        # 非 str (int/None) 曾冒裸 TypeError ('in' 判据) — 类型契约前置
+        # 非 str (int/None) 会冒裸 TypeError ('in' 判据) — 类型契约前置
         raise ValueError(
             f"parse_traction: 需要面力规格字符串 (如 'right:1e6,0'), "
             f"got {type(s).__name__}: {s!r}")
@@ -252,7 +252,7 @@ def make_edge_profile_func(
 
     def fx(x, y, _tx=tx):
         # 坐标函数 (表达式面力) 与弧长分布的合法组合: f = tx(x,y)·s(arc)
-        # 直接 _tx * factor 会对 callable 抛 TypeError (曾静默失败路径)
+        # 直接 _tx * factor 会对 callable 抛 TypeError
         value = _tx(x, y) if callable(_tx) else _tx
         return value * _profile_factor(profile, _coordinate(x, y))
 
@@ -324,7 +324,7 @@ def _compile_expr(expr: str):
     try:
         tree = ast.parse(expr.strip(), mode='eval')
     except SyntaxError as error:
-        # '1e6x,0' 等语法错误曾抛裸 SyntaxError 无表达式上下文
+        # '1e6x,0' 等语法错误抛裸 SyntaxError 无表达式上下文
         #
         raise ValueError(
             f"表达式语法错误: {error.msg} — 表达式: '{expr}' "
@@ -341,11 +341,11 @@ def parse_vec2(s: str):
     含 x/y → 编译为 lambda x,y: expr; 纯数字 → float
     """
     if not isinstance(s, str):
-        # 非 str (None/int) 曾冒裸 AttributeError (.replace) — 类型契约前置
+        # 非 str (None/int) 会冒裸 AttributeError (.replace) — 类型契约前置
         raise ValueError(
             f"parse_vec2: 需要载荷分量字符串 (如 '1e6,0'), "
             f"got {type(s).__name__}: {s!r}")
-    # 全角逗号曾报"需要两个分量"误导用户以为少写逗号
+    # 全角逗号报"需要两个分量"会误导用户以为少写逗号
     parts = s.replace("，", ",").split(',')
     if len(parts) != 2:
         raise ValueError(
@@ -356,7 +356,7 @@ def parse_vec2(s: str):
         p = p.strip()
         if p.lower() in ("nan", "+nan", "-nan", "inf", "+inf", "-inf",
                          "infinity", "+infinity", "-infinity"):
-            # CLI 的 NaN/Inf 体力/面力曾静默不施加载荷 (bc_apply 的
+            # CLI 的 NaN/Inf 体力/面力会静默不施加载荷 (bc_apply 的
             # abs(bfx) > 1e-30 对 NaN 恒 False)
             raise ValueError(
                 f"载荷分量 {p!r} 不是有限数值 — NaN/Inf 会被静默忽略")
@@ -375,7 +375,7 @@ def parse_vec2(s: str):
                     f"注意: 不含 x/y 的函数表达式 (如 sin(pi/2)) 不会被识别为空间函数, "
                     f"请直接写数值 (如 1.0).")
             if not np.isfinite(value):
-                # 数值溢出 (如 1e999 → inf) — CLI 曾静默忽略
+                # 数值溢出 (如 1e999 → inf) — CLI 静默忽略
                 raise ValueError(
                     f"载荷分量 {p!r} 不是有限数值 ({value})")
             results.append(value)

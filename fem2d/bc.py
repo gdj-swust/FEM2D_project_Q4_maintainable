@@ -58,8 +58,8 @@ def apply_elimination(
         K, F, free_dofs, fixed_dofs, prescribed_vals,
         system_validated=_system_validated)
 
-    # solver 名称在任何分支前校验 — 曾纯 Dirichlet 分支在名称检查前
-    # 返回, linear_solver="bogus" 静默成功
+    # solver 名称在任何分支前校验 — 纯 Dirichlet 分支在名称检查前
+    # 返回会让 linear_solver="bogus" 静默成功
     solver_key = str(linear_solver).strip().lower()
     if solver_key == "cg-block":
         solver_key = "cg"
@@ -307,7 +307,7 @@ def _validate_dof_partition(free_dofs, fixed_dofs, n_dof):
     free = require_dof_index_array(
         free_dofs, "free_dofs", n_dof=n_dof, bool_error=ValueError)
     if np.unique(free).size != free.size:
-        # 自身重复曾延迟到 SuperLU 奇异才报错
+        # 自身重复会延迟到 SuperLU 奇异才报错
         dup = free[np.flatnonzero(
             np.diff(np.sort(free)) == 0)]
         raise ValueError(

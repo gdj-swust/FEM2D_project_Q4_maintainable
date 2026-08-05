@@ -30,7 +30,7 @@ class LineDetector(Detector):
         delta_x = x[-1] - x[0]
         delta_y = y[-1] - y[0]
         length = float(np.hypot(delta_x, delta_y))
-        # 曾绝对 1e-15: 微尺度直边全被判零长 → 整环合并成单个 curve 段
+        # 绝对 1e-15 会让微尺度直边全被判零长 → 整环合并成单个 curve 段
         #
         if length <= tolerance or length <= _coords_ulp(coords):
             return None

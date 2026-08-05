@@ -39,7 +39,7 @@ def _check_symmetry(K):
     """
     n = K.shape[0]
     if K.nnz and not np.all(np.isfinite(K.data)):
-        # 装配溢出 (微尺度几何 BᵀDB ~ E/L² 中间量 Inf) 曾透传到 splu,
+        # 装配溢出 (微尺度几何 BᵀDB ~ E/L² 中间量 Inf) 会透传到 splu,
         # 误报 "Factor is exactly singular"; NaN > tolerance 恒 False,
         # 对称检查也放行 — 显式拒绝
         n_bad = int(np.count_nonzero(~np.isfinite(K.data)))
@@ -96,7 +96,7 @@ def assemble_sparse_vectorized(
     total = ne * nldof * nldof
     # 行/列索引由 element_dofs 广播而来 — 一次性生成 (保持 int32 省一半内存)。
     # 标准 COO 语义: data[i,j,k] = K_e[j,k] → K[rows, cols] = K[dofs[i,j], dofs[i,k]],
-    # 即 rows 对应 j 维、cols 对应 k 维 (曾写反 — 内置刚度对称故数值不受影响,
+    # 即 rows 对应 j 维、cols 对应 k 维 (写反时 — 内置刚度对称故数值不受影响,
     # 但第三方非对称内核会得到转置)。
     rows = np.broadcast_to(
         dofs[:, :, None], (ne, nldof, nldof)).reshape(-1)

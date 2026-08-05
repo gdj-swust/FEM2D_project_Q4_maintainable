@@ -208,8 +208,8 @@ def _closed_conic_segment(nodes, loop, loop_id):
         "loop_id": int(loop_id),
         **fit_info,
     }
-    # 轴比/标签判据统一到 geometry._axis_ratio (曾复制旧 1e-30 分母逻辑,
-    # 微尺度椭圆误判整圆)
+    # 轴比/标签判据统一到 geometry._axis_ratio (复制 1e-30 分母逻辑
+    # 会让微尺度椭圆误判整圆)
     _ratio, is_circle = _axis_ratio(semi_major, semi_minor)
     if is_circle:
         radius = 0.5 * (semi_major + semi_minor)
@@ -348,7 +348,7 @@ def _general_position_ray(px, py, vertices, edges):
     vx = np.array([point[0] for point in vertices])
     vy = np.array([point[1] for point in vertices])
     span = max(float(np.ptp(vx)), float(np.ptp(vy)))
-    # 1.0 floor 曾使微尺度 (跨度 <1) 模型的射线外推量/扰动被抬到 1.0
+    # 1.0 floor 会使微尺度 (跨度 <1) 模型的射线外推量/扰动抬到 1.0
     # 与 eps×1.0 — 比多边形边长 (1e-15 级) 大 13+ 个量级, 射线斜率
     # 与顶点量化尺度失配。扰动只需 > 顶点坐标 ULP 即可保证一般位置,
     # tiny 兜底仅防全零坐标时出现 0。
@@ -714,7 +714,7 @@ def has_boundary_self_intersection(loop_nodes):
     coords = np.asarray(vertices, dtype=float)
     if not np.all(np.isfinite(coords)):
         return True
-    # 容差基于局部坐标尺度, 不得强制 1.0 下限 — 曾让尺度 ≤1e-14 的合法
+    # 容差基于局部坐标尺度, 不得强制 1.0 下限 — 会让尺度 ≤1e-14 的合法
     # 模型每条边都被判零长, 误报 "Self-intersecting" 拒绝
     magnitude = max(float(np.max(np.abs(coords))), np.finfo(float).tiny)
     span = max(
@@ -732,7 +732,7 @@ def has_boundary_self_intersection(loop_nodes):
         start = vertices[index]
         end = vertices[(index + 1) % n]
         # 闭合链接缝边 (P_{n-1}→P_0) 是环的闭合, 不是零长边特征 — 三角
-        # 采样等数值噪声会在此产生 ULP 量级的微小闭合边, 曾使微尺度
+        # 采样等数值噪声会在此产生 ULP 量级的微小闭合边, 会使微尺度
         # 模型每条边界都被判自交拒绝
         if index != n - 1 and (
                 abs(start[0] - end[0]) <= tolerance

@@ -20,7 +20,7 @@ def D_matrix(E, nu, plane_type="stress"):
         D *= factor
     elif plane_type == "strain":
         if nu > 0.45:
-            # 全库统一 warnings.warn (曾 print stderr, 库调用方无法过滤/
+            # 全库统一 warnings.warn (print stderr 时库调用方无法过滤/
             # 捕获) — 文案化交给报告层
             warnings.warn(
                 f"ν = {nu} > 0.45 in plane strain → "
@@ -53,7 +53,7 @@ def von_mises(stress, plane_type="stress", nu=0.3):
     stress = np.asarray(stress)
     single = stress.ndim == 1 and stress.shape[0] == 3
     if not single and (stress.ndim < 2 or stress.shape[-1] != 3):
-        # 标量/0-D/末维≠3 曾冒裸 IndexError (fuzz 2026-08-03)
+        # 标量/0-D/末维≠3 会冒裸 IndexError (fuzz 发现)
         raise ValueError(
             f"von_mises: stress 必须为 (3,) 单向量或 (..., 3) 数组 "
             f"[σx, σy, τxy], got {stress.shape}")

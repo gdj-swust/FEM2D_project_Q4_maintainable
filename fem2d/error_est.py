@@ -96,7 +96,7 @@ def _element_energy_errors(mesh, method, stress, stress_qp, s_star, D_inv):
                 s_star_pt = np.einsum("qn,enc->eqc", shape, s_star[conn])
                 if stress_qp is None or method == "weighted":
                     # weighted 的 σ* 来自单元均值恢复 — 与积分点原始应力
-                    # 量纲语义不可比, 曾混用导致精确线性场报 ~14% 虚假误差
+                    # 量纲语义不可比, 混用会导致精确线性场报 ~14% 虚假误差
                     s_h = stress[start:stop, None, :]
                 else:
                     s_h = stress_qp[start:stop]
@@ -172,7 +172,7 @@ def estimate(mesh, result, method="SPR", verbose=True):
         elem_contrib: (n_elem,) ndarray — 各单元误差贡献百分比 (%)
     """
     if not isinstance(result, dict) or "stress" not in result:
-        # 非 solve() 输出的 dict 曾冒裸 KeyError — 契约前置校验
+        # 非 solve() 输出的 dict 会冒裸 KeyError — 契约前置校验
         raise ValueError(
             "estimate_error: result 必须是 solve() 的返回 dict 且含 "
             f"'stress' 键, got {type(result).__name__}")
@@ -235,7 +235,7 @@ def estimate(mesh, result, method="SPR", verbose=True):
     # 尺度因子) — 归一化空间的比值完全尺度无关。绝对量 (total_err/
     # U_norm) 乘回供报告; factor=0 (零应力场) 时绝对量全零。
     if err_sq_sum == 0.0:
-        # 真零误差场: eta=0 (曾 0/0=NaN)
+        # 真零误差场: eta=0 (0/0=NaN)
         total_err = 0.0
         eta = 0.0
     else:
@@ -312,7 +312,7 @@ def _traction_jump_arrays(mesh, elem_stress, sigma_ref=None):
     ``edge_data`` columns are ``node_a,node_b,eid1,eid2``.
     """
     # 公共参数先校验, 再走空数据快速返回 — 单单元网格 (无内部边) 时
-    # 校验曾位于提前返回之后, 非法 sigma_ref 被静默接受并返回空列表.
+    # 校验位于提前返回之后会让非法 sigma_ref 被静默接受并返回空列表.
     _validate_sigma_ref(sigma_ref)
     mesh.build_connectivity()
     stress = np.asarray(elem_stress, dtype=float)
@@ -432,7 +432,7 @@ def element_refinement_indicator(mesh, result):
     """
     mesh.build_connectivity()
     if not isinstance(result, dict) or "stress" not in result:
-        # 与 estimate 同契约 — 非 solve() 输出曾冒裸 KeyError
+        # 与 estimate 同契约 — 非 solve() 输出会冒裸 KeyError
         raise ValueError(
             "element_refinement_indicator: result 必须是 solve() 的返回 "
             f"dict 且含 'stress' 键, got {type(result).__name__}")

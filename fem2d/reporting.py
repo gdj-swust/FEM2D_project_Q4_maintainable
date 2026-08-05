@@ -13,12 +13,12 @@ def displacement_scale(mesh, u):
     """
     u2 = u.reshape(-1, 2)
     # np.hypot: 平方和先平方再开方在 |u|~1e308 时溢出成 inf, 有限模长
-    # 被算成 inf → 放大系数退 0 (曾"变形图比例 0x"而无解可看)
+    # 被算成 inf → 放大系数退 0 ("变形图比例 0x"而无解可看)
     mag = np.hypot(u2[:, 0], u2[:, 1])
     span = (mesh.nodes[:, 0].max() - mesh.nodes[:, 0].min()
             + mesh.nodes[:, 1].max() - mesh.nodes[:, 1].min()) / 2
     if mag.max() == 0.0:
-        # 零位移 (全约束/零载荷): 放大系数无意义 — 曾 1e-30 分母给出
+        # 零位移 (全约束/零载荷): 放大系数无意义 — 1e-30 分母给出
         # 误导性的 1e6 上限
         return 1.0
     return max(0.0, min(span / mag.max() * 0.1, 1e6))
@@ -53,7 +53,7 @@ def print_result_summary(config, mesh, result, z2, q, scale,
     print(f"{'='*55}")
     print("  求解状态:      [OK] 成功")
     # 标签与 solver 实际公式对齐: 分子只含自由 DOF 残差, penalty 路径是
-    # 修改系统残差 — 曾标签声称全系统公式
+    # 修改系统残差 — 标签不能声称全系统公式
     print(f"  求解系统残差 (后向误差) = {result['residual']:.2e}  "
           f"{'[OK] 正常' if result['residual'] < 1e-8 else '[WARN] 偏大'}")
     if cond_info and cond_info.get('condition_number') is not None:
@@ -88,7 +88,7 @@ def print_result_summary(config, mesh, result, z2, q, scale,
     print(f"    Y向: {u2[:,1].min():.6e} ~ {u2[:,1].max():.6e} m  "
           f"(|max|={max(abs(u2[:,1].min()), abs(u2[:,1].max())):.6e})")
     if mag.max() == 0.0:
-        # 曾显示误导性的 "变形放大 1000000x" (零位移时 1e-30 分母)
+        # 显示误导性的 "变形放大 1000000x" (零位移时 1e-30 分母)
         #
         print("    (零位移 — 无变形放大)")
     else:
@@ -137,7 +137,7 @@ def build_warnings(config, mesh, z2, bending_stiff, n_through_x, n_through_y):
 
     # Q4R 专用提示: compact 公式限制 (非编码错误, 见 q4r.py) —
     # 建议 Q4I 交叉验证。判据用 kernel.name: --elem-type Q4R 覆写后
-    # elem_type=="Q4R" (kernel.name), CPS4R 白名单判断曾使警告静默消失
+    # elem_type=="Q4R" (kernel.name), CPS4R 白名单判断会使警告静默消失
     kernel = getattr(mesh, "element_kernel", None)
     if getattr(kernel, "name", None) == "Q4R":
         warnings.append(

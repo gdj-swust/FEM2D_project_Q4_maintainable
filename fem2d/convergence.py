@@ -118,7 +118,7 @@ def run_cantilever_convergence(
         print(f"{'='*60}\n")
 
     # Timoshenko-Goodier closed form (comparison only, NOT the rate reference)
-    # P>0 = 向下 (与 _parabolic_shear_traction 同一约定, 2026-08 统一)
+    # P>0 = 向下 (与 _parabolic_shear_traction 同一约定)
     uy_tip_tg = abs(_timoshenko_tip_deflection(L, H, t, P_mag, E, nu))
 
     results = {"h": [], "uy_tip": [], "sigma_sample": [], "n_dof": [],
@@ -201,7 +201,7 @@ def run_cantilever_convergence(
         uy_richardson = uy_tip[-1]
 
     # 使用 Richardson 外推值作参考 (不是最细网格自参考 — 那会让 e_N≡0)。
-    # 分母 1e-30 绝对地板曾使微尺度误差序列失真 (与 error_est 同族,
+    # 分母 1e-30 绝对地板会使微尺度误差序列失真 (与 error_est 同族),
     # 参考值恒非零 (Richardson), tiny 仅防除零。
     uy_err = np.abs(uy_tip - uy_richardson) / (
         np.abs(uy_richardson) + np.finfo(float).tiny)
@@ -210,9 +210,9 @@ def run_cantilever_convergence(
         np.abs(s_ref_actual) + np.finfo(float).tiny)
 
     # Per-level local convergence rates。
-    # 曾 1e-15 地板 + 1e-14 门槛: 精细层误差 (<1e-14) 的速率被截成 0,
+    # 1e-15 地板 + 1e-14 门槛会把精细层误差 (<1e-14) 的速率截成 0,
     # 收敛序列 [1e-3,1e-6,1e-10,1e-15,1e-16] 的最细层报 k=0.00 。仅当下一层误差恰为 0 (机器精度收敛) 才跳过。
-    # 三块 (ku/ks/ke) 同一模式堆成数组一次向量化 — 曾逐字重复三次
+    # 三块 (ku/ks/ke) 同一模式堆成数组一次向量化 — 避免逐字重复三次
     prev = np.array([uy_err[:-1], s_err[:-1], eta_vals[:-1]])
     nxt = np.array([uy_err[1:], s_err[1:], eta_vals[1:]])
     r_local = np.log(h[:-1] / h[1:])
@@ -234,7 +234,7 @@ def run_cantilever_convergence(
         s_err_fit = s_err[n_skip:]
         eta_fit = eta_vals[n_skip:]
         log_h = np.log(h_fit)
-        # 地板只防 log(0) — 曾 1e-15 截平真实速率
+        # 地板只防 log(0) — 1e-15 会截平真实速率
         uy_rate = np.polyfit(log_h, np.log(np.maximum(
             uy_err_fit, np.finfo(float).tiny)), 1)[0]
         s_rate = np.polyfit(log_h, np.log(np.maximum(
@@ -252,8 +252,8 @@ def run_cantilever_convergence(
         print("  uy_tip and eta are unaffected — both are global quantities.")
         print("\n  Richardson-extrapolated FE reference:")
         print(f"    uy_tip ~ {uy_richardson:.6e} m")
-        # 曾标 "self-referenced vs finest" — 实际误差基于 Richardson 参考
-        # (2026-08-03 去除自参考偏差后)
+        # 标 "self-referenced vs finest" 会掩盖自参考偏差 — 实际误差
+        # 基于 Richardson 参考
         print("\n  Per-level convergence rates (Richardson ref):")
         for i in range(len(per_level)):
             ku, ks, ke = per_level[i]
