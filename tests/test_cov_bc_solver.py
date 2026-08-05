@@ -11,7 +11,7 @@ import fem2d.bc as bc_mod
 import fem2d.solver as solver_mod
 from fem2d import Mesh
 from fem2d.bc import apply_elimination, apply_penalty
-from fem2d.loads_schema import _check_load_pair, _check_load_scalar
+from fem2d.loads_schema import _check_load_scalar
 from fem2d.topology_core import (
     CSRLists,
     EdgeIncidence,

@@ -5,7 +5,6 @@ arc_curvature: 退化/共线/圆链保护分支;
 conic_merge: 合并门控 (键拒绝/边歧义/切线不连续/方向恢复).
 """
 import numpy as np
-import pytest
 
 from fem2d.boundary.conic_merge import ConicSegmentMerger
 from fem2d.boundary.plugins.arc_curvature import ArcCurvatureDetector
@@ -125,10 +124,6 @@ def test_record_physical_region_compat_path():
     from fem2d.boundary.registry_mapping import canonical_edge
     diag = _Diag()
     m = _mapper(diag)
-    region = CadCurveRegion(
-        entity_tag=7, entity_type="Circle", node_ids=(0, 1, 2, 3),
-        edge_pairs=((0, 1), (1, 2), (2, 3), (3, 0)),
-        surface_occurrences=())
     # 用 CurveRegion 形状的假区域: 需要 physical_tag/name/entity_tags/
     # entity_types/edge_pairs 字段
     from fem2d.regions import CurveRegion

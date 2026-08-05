@@ -5,9 +5,6 @@ CI 无 gmsh 安装也全绿; 仅 2 个真实 API 路径测试走子进程 (cover
 gmsh C 扩展在 Windows 上互斥 — 主进程永不 import gmsh), 无 gmsh
 环境 skip 而非失败.
 """
-import importlib
-import io
-import contextlib
 import json
 import os
 import subprocess

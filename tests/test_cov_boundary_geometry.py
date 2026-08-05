@@ -3,9 +3,6 @@
 触发方式: 直接调用内部几何函数 (无副作用), 或构造退化网格走公开入口
 detect(). 每个用例断言分支语义, 不为凑行数.
 """
-import io
-import contextlib
-
 import numpy as np
 import pytest
 
