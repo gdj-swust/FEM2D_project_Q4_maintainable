@@ -802,7 +802,7 @@ class Mesh:
             raise ValueError(
                 f"Edge ({ni},{nj}) is shared by {len(eids)} elements; "
                 f"surface tractions require a boundary edge (exactly 1 element).")
-        self.surface_tractions.append({"nodes": (ni, nj), "traction": (tx, ty)})
+        self._append_traction({"nodes": (ni, nj), "traction": (tx, ty)})
 
     def add_pressure(self, ni, nj, p):
         """添加边上的法向压力 [Pa] — 自动从单元方向计算 t = -p·n (Bathe §4.2.1)
@@ -827,11 +827,42 @@ class Mesh:
         # 不缓存外法向: 组装时由当前几何重新计算 (boundary_outward_normal),
         # 这样 replace_nodes/replace_elements 改变几何后载荷自动跟随 —
         # 缓存法向会导致改几何后压力沿用旧方向。
-        self.surface_tractions.append({
+        self._append_traction({
             "nodes": (ni, nj),
             "traction": (p,),
             "is_pressure": True,
         })
+
+    def _append_traction(self, record):
+        """追加面力记录 — 同一边界边重复施加曾静默双倍载荷 (位移精确
+        ×2, 审查实测比值 2.0000)。
+
+        保持累加语义 (载荷拆分是既有锁定契约:
+        test_error_indicator_invariant_to_load_splitting), 因此
+        重复施加 → 响亮警告而非去重; 交互路径 (bc_apply 段选择去重)
+        在段选择层防重, API 路径在施加层提醒。节点对按无序 (min,max)
+        归一 — add_pressure(ni,nj) 与 add_pressure(nj,ni) 是同一载荷。
+        """
+        ni, nj = record["nodes"]
+        key = (min(ni, nj), max(ni, nj))
+        is_pressure = bool(record.get("is_pressure", False))
+        for existing in self.surface_tractions:
+            a, b = existing["nodes"]
+            if (min(a, b), max(a, b)) == key \
+                    and bool(existing.get("is_pressure", False)) == is_pressure:
+                if _same_traction(existing["traction"], record["traction"]):
+                    warnings.warn(
+                        f"边 {key} 已施加完全相同面力 "
+                        f"{existing['traction']!r} — 重复施加将使载荷翻倍 "
+                        "(×2)。若为误操作请移除重复记录。",
+                        UserWarning, stacklevel=3)
+                else:
+                    warnings.warn(
+                        f"边 {key} 已施加不同面力 {existing['traction']!r} — "
+                        f"新面力 {record['traction']!r} 将线性叠加。"
+                        "若为误操作请移除重复记录。",
+                        UserWarning, stacklevel=3)
+        self.surface_tractions.append(record)
 
     def nodes_on_edge(self, axis, edge, tol=None):
         """查找边界框特定边上的节点.
@@ -1003,3 +1034,20 @@ class Mesh:
                 f"{self.elem_type}/{self.element_kernel.name}  "
                 f"{self.n_dof} DOFs  Jacobian: {'OK' if ok else f'{len(bad)} BAD'}  "
                 f"boundary: {n_bdy} edges")
+
+
+def _same_traction(a, b):
+    """两条面力记录的值是否完全相同 (callable 按对象同一性比较).
+
+    add_traction/add_pressure 已验证分量有限, 此处只需数值相等。
+    callable (空间分布面力) 无法按值比较, 同对象引用视为同一载荷。
+    """
+    if len(a) != len(b):
+        return False
+    for x, y in zip(a, b):
+        if callable(x) or callable(y):
+            if x is not y:
+                return False
+        elif x != y:
+            return False
+    return True
