@@ -407,43 +407,10 @@ def _estimate_stress_jumps(mesh, result):
     }
 
 
-def element_refinement_indicator(mesh, result):
-    """显式残差型后验误差估计器 (Verfürth 1996, §3.2).
-
-    来源: 弱形式 a(e,v) = L(v) − a(u_h,v), 分部积分:
-      Σ_K ∫_K (f + ∇·σ^h)·v dx + Σ_e ∫_e [[σ^h n]]·v ds + Σ_{e∈Γ_t} ∫_e (t̄ − σ^h n)·v ds
-    取局部 bubble 函数为检验函数 v, 用 Cauchy-Schwarz + bubble 的 h-缩放得:
-      η_K² = h_K²·∫_K|f+∇·σ^h|²dx + ½ Σ h_e·∫_e|[[σ^h n]]|²ds + Σ h_e·∫_e|t̄−σ^h n|²ds
-
-    CST 中 σ^h 为常数，下面的边/域残差缩放是精确的。Q4 使用单元
-    Gauss 平均应力形成稳健的排序型指标；Q4 的能量误差百分比应以
-    :func:`estimate` 的积分点 Z2 结果为准。
-      ① 内部: h_K² × A_K × |f|²     (A_K = 单元面积)
-      ② 边跳跃: h_e² × |(σ⁺−σ⁻)n|²  (∫_e|J|²ds = h_e·|J|², 再×h_e = h_e²·|J|²)
-      ③ 加载边: h_e² × |σ^h n − t̄|²
-      ④ Dirichlet边: 跳过 (反力未知, 不能当自由边)
-
-    返回 (n_elem,) ndarray — η_K [Pa·m], 值越高优先加密.
-    用于单元排序和 Dörfler 标记, 本身不是误差百分比.
-
-    全部中间量在对数空间累加 (logsumexp) — 几何/应力尺度极端时
-    h²·|J|² 等项直接相乘会溢出为 inf (排序静默失效) 或下溢为 0
-    (项丢失); 对数空间两项均不发生, 最终开方乘回。
-    """
-    mesh.build_connectivity()
-    if not isinstance(result, dict) or "stress" not in result:
-        # 与 estimate 同契约 — 非 solve() 输出会冒裸 KeyError
-        raise ValueError(
-            "element_refinement_indicator: result 必须是 solve() 的返回 "
-            f"dict 且含 'stress' 键, got {type(result).__name__}")
-    stress = result["stress"]
-    n_elem = mesh.n_elements
-    nodes = mesh.nodes
-
-    # ── 1. 内部边牵引跳跃 (数组路径 — 免去每条边一个 dict) ──
+def _internal_edge_jump_logs(mesh, stress, eta_log):
+    """内部边牵引跳跃 (数组路径 — 免去每条边一个 dict)."""
     edge_data, edge_lengths, jump_abs, _ = _traction_jump_arrays(
         mesh, stress)
-    eta_log = np.full(n_elem, -np.inf)
     if len(edge_data):
         # h_e × ‖J‖²_{L²(e)} = h_e × (h_e × jump²) = h_e² × jump²
         # jump=0 (零应力边) → log(0)=-inf, logaddexp 视作无该项
@@ -453,37 +420,42 @@ def element_refinement_indicator(mesh, result):
         np.logaddexp.at(eta_log, edge_data[:, 3], log_term)
     eta_log += math.log(0.5)
 
-    # ── 2. 体力残差: h_K²·∫_K|f^B|²dx = h_K²·A_K·|f|² ──
-    if mesh.body_force is not None:
-        for eid in range(n_elem):
-            xc, yc = mesh.centroids[eid]
-            bx, by = evaluate_vector_field(mesh.body_force, xc, yc)
-            f_norm2 = bx**2 + by**2
-            if f_norm2 == 0.0:
-                continue
-            conn = mesh.elements[eid]
-            h_K = max(
-                np.linalg.norm(nodes[conn[ib]] - nodes[conn[ia]])
-                for ia, ib in mesh.element_kernel.local_edges)
-            A_K = abs(mesh.areas[eid])
-            if h_K == 0.0 or A_K == 0.0:
-                continue
-            eta_log[eid] = np.logaddexp(
-                eta_log[eid],
-                2.0 * math.log(h_K) + math.log(A_K) + math.log(f_norm2))
 
-    # ── 3. Neumann 边界牵引残差 + 自由边界残差 ──
-    # 加载边: h_e·∫_e|σ^h·n−t̄|²ds = h_e²·|σ^h·n−t̄|² (常数)
-    # 自由边: h_e·∫_e|σ^h·n−0|²ds = h_e²·|σ^h·n|²
+def _body_force_residual_logs(mesh, nodes, n_elem, eta_log):
+    """体力残差: h_K²·∫_K|f^B|²dx = h_K²·A_K·|f|²."""
+    if mesh.body_force is None:
+        return
+    for eid in range(n_elem):
+        xc, yc = mesh.centroids[eid]
+        bx, by = evaluate_vector_field(mesh.body_force, xc, yc)
+        f_norm2 = bx**2 + by**2
+        if f_norm2 == 0.0:
+            continue
+        conn = mesh.elements[eid]
+        h_K = max(
+            np.linalg.norm(nodes[conn[ib]] - nodes[conn[ia]])
+            for ia, ib in mesh.element_kernel.local_edges)
+        A_K = abs(mesh.areas[eid])
+        if h_K == 0.0 or A_K == 0.0:
+            continue
+        eta_log[eid] = np.logaddexp(
+            eta_log[eid],
+            2.0 * math.log(h_K) + math.log(A_K) + math.log(f_norm2))
+
+
+def _element_sigma_tensors(stress, n_elem):
+    """应力向量 → (n_elem, 2, 2) 对称张量场 (σ^h 逐单元常数)."""
     sigma_e = np.zeros((n_elem, 2, 2))
     sigma_e[:, 0, 0] = stress[:, 0]
     sigma_e[:, 1, 1] = stress[:, 1]
     sigma_e[:, 0, 1] = stress[:, 2]
     sigma_e[:, 1, 0] = stress[:, 2]
+    return sigma_e
 
-    # 收集已施加面力的边并按边合并 — 同一条边被拆成多个面力记录时,
-    # 残差必须用合并后的 t̄ (拆分方式不应改变误差指标)。
-    loaded_edges = set()
+
+def _collect_loaded_edges(mesh):
+    """收集已施加面力的边并按边合并 — 同一条边被拆成多个面力记录时,
+    残差必须用合并后的 t̄ (拆分方式不应改变误差指标)."""
     loaded_by_edge = {}  # key → [st, ...]
     for st in mesh.surface_tractions:
         ni, nj = st["nodes"]
@@ -493,7 +465,12 @@ def element_refinement_indicator(mesh, result):
         if len(mesh.edge_to_elems[key]) == 0:
             continue
         loaded_by_edge.setdefault(key, []).append(st)
+    return loaded_by_edge
 
+
+def _neumann_edge_residuals(mesh, nodes, sigma_e, loaded_by_edge, eta_log):
+    """加载边: h_e·∫_e|σ^h·n−t̄|²ds = h_e²·|σ^h·n−t̄|² (常数)."""
+    loaded_edges = set()
     for key, st_list in loaded_by_edge.items():
         eid = mesh.edge_to_elems[key][0]
         loaded_edges.add(key)
@@ -536,11 +513,16 @@ def element_refinement_indicator(mesh, result):
         if integral > 0.0:
             eta_log[eid] = np.logaddexp(
                 eta_log[eid], 2.0 * math.log(h_e) + math.log(integral))
+    return loaded_edges
 
-    # Dirichlet / 自由边界边
-    # Dirichlet边(固支): 反力未知, 不能算 σ^h·n − 0, 必须跳过
-    # 仅-Ux/Uy边: 保留未约束方向的残差
-    # 自由边: t̄=0, 全量残差 ‖σ^h·n‖
+
+def _boundary_edge_residuals(mesh, nodes, sigma_e, loaded_edges, eta_log):
+    """Dirichlet / 自由边界边残差 — 固支跳过, 部分约束只保留未约束方向.
+
+    Dirichlet边(固支): 反力未知, 不能算 σ^h·n − 0, 必须跳过
+    仅-Ux/Uy边: 保留未约束方向的残差
+    自由边: t̄=0, 全量残差 ‖σ^h·n‖
+    """
     fixed_dofs_set = set(mesh.fixed_dofs.tolist())
     all_boundary_edges = set(mesh.boundary_edges)
     for (a, b) in all_boundary_edges:
@@ -586,5 +568,54 @@ def element_refinement_indicator(mesh, result):
         if res2 > 0.0:
             eta_log[eid] = np.logaddexp(
                 eta_log[eid], 2.0 * math.log(h_e) + math.log(res2))
+
+
+def element_refinement_indicator(mesh, result):
+    """显式残差型后验误差估计器 (Verfürth 1996, §3.2).
+
+    来源: 弱形式 a(e,v) = L(v) − a(u_h,v), 分部积分:
+      Σ_K ∫_K (f + ∇·σ^h)·v dx + Σ_e ∫_e [[σ^h n]]·v ds + Σ_{e∈Γ_t} ∫_e (t̄ − σ^h n)·v ds
+    取局部 bubble 函数为检验函数 v, 用 Cauchy-Schwarz + bubble 的 h-缩放得:
+      η_K² = h_K²·∫_K|f+∇·σ^h|²dx + ½ Σ h_e·∫_e|[[σ^h n]]|²ds + Σ h_e·∫_e|t̄−σ^h n|²ds
+
+    CST 中 σ^h 为常数，下面的边/域残差缩放是精确的。Q4 使用单元
+    Gauss 平均应力形成稳健的排序型指标；Q4 的能量误差百分比应以
+    :func:`estimate` 的积分点 Z2 结果为准。
+      ① 内部: h_K² × A_K × |f|²     (A_K = 单元面积)
+      ② 边跳跃: h_e² × |(σ⁺−σ⁻)n|²  (∫_e|J|²ds = h_e·|J|², 再×h_e = h_e²·|J|²)
+      ③ 加载边: h_e² × |σ^h n − t̄|²
+      ④ Dirichlet边: 跳过 (反力未知, 不能当自由边)
+
+    返回 (n_elem,) ndarray — η_K [Pa·m], 值越高优先加密.
+    用于单元排序和 Dörfler 标记, 本身不是误差百分比.
+
+    全部中间量在对数空间累加 (logsumexp) — 几何/应力尺度极端时
+    h²·|J|² 等项直接相乘会溢出为 inf (排序静默失效) 或下溢为 0
+    (项丢失); 对数空间两项均不发生, 最终开方乘回。
+    """
+    mesh.build_connectivity()
+    if not isinstance(result, dict) or "stress" not in result:
+        # 与 estimate 同契约 — 非 solve() 输出会冒裸 KeyError
+        raise ValueError(
+            "element_refinement_indicator: result 必须是 solve() 的返回 "
+            f"dict 且含 'stress' 键, got {type(result).__name__}")
+    stress = result["stress"]
+    n_elem = mesh.n_elements
+    nodes = mesh.nodes
+
+    # 对数空间累加 (logsumexp) — 几何/应力尺度极端时直接相乘会
+    # 溢出为 inf 或下溢为 0; 对数空间两项均不发生, 最终开方乘回。
+    eta_log = np.full(n_elem, -np.inf)
+    _internal_edge_jump_logs(mesh, stress, eta_log)
+    _body_force_residual_logs(mesh, nodes, n_elem, eta_log)
+
+    # ── 3. Neumann 边界牵引残差 + 自由边界残差 ──
+    # 加载边: h_e·∫_e|σ^h·n−t̄|²ds = h_e²·|σ^h·n−t̄|² (常数)
+    # 自由边: h_e·∫_e|σ^h·n−0|²ds = h_e²·|σ^h·n|²
+    sigma_e = _element_sigma_tensors(stress, n_elem)
+    loaded_by_edge = _collect_loaded_edges(mesh)
+    loaded_edges = _neumann_edge_residuals(
+        mesh, nodes, sigma_e, loaded_by_edge, eta_log)
+    _boundary_edge_residuals(mesh, nodes, sigma_e, loaded_edges, eta_log)
 
     return np.exp(0.5 * eta_log)

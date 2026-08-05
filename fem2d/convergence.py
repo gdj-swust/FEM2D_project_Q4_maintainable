@@ -92,6 +92,202 @@ def _find_tip_node(mesh, tol=1e-6):
     return best
 
 
+def _print_header(elem_type, L, H, t, E, nu, P_mag):
+    print(f"\n{'='*60}")
+    print(f"  {elem_type} Convergence - Timoshenko Parabolic Shear Cantilever")
+    print(f"  L={L}m  H={H}m  t={t}m  E={E:.1e}Pa  nu={nu}  P={P_mag}N")
+    print("  Bathe sec 4.3.5: expected O(h) energy/stress, O(h^2) displ")
+    print("  Reference: Richardson-extrapolated FE limit")
+    print(f"{'='*60}\n")
+
+
+def _cantilever_mesh(L, H, nx, ny, E, nu, t, P_mag, elem_type):
+    """Build one refinement-level mesh with BCs.
+
+    左端固支 (整排节点 u=v=0); 右端施加精确抛物线剪面力。
+    """
+    nodes, elements = _gen_cantilever_mesh(
+        L, H, nx, ny, elem_type=elem_type)
+    mesh = Mesh(nodes=nodes, elements=elements, E=E, nu=nu,
+                thickness=t, plane_type="stress",
+                elem_type=elem_type)
+
+    # BC: left end fixed
+    left_nodes = mesh.nodes_on_edge("x", "min", tol=1e-6)
+    for n in left_nodes:
+        mesh.fix_node(int(n), "both", 0.0)
+
+    # Right end: parabolic shear traction (downward, P > 0)
+    right_nodes = mesh.nodes_on_edge("x", "max", tol=1e-6)
+    right_sorted = sorted(right_nodes, key=lambda n: mesh.nodes[int(n), 1])
+
+    def exact_shear_traction(x, y):
+        del x
+        return _parabolic_shear_traction(y, H, t, P_mag)
+
+    for k in range(len(right_sorted) - 1):
+        a, b = int(right_sorted[k]), int(right_sorted[k + 1])
+        # loads_core 在每条边的 3 点 Gauss 位置调用该函数，因此
+        # 二次抛物线面力被精确积分，不会把载荷离散误差混入单元收敛率。
+        mesh.add_traction(a, b, 0.0, exact_shear_traction)
+    return mesh
+
+
+def _sample_level(mesh, result, L, H, I, P_mag):
+    """Tip deflection + bending stress sample at (L/2, H/2) (smooth region).
+
+    弯曲应力不取 max|σ_xx|（会被固定端角点奇异性污染），改为在
+    x=L/2, y=H/2 处采样（远离边界条件突变点，光滑解区域）。
+    """
+    u2 = result["u"].reshape(-1, 2)
+    tip_nid = _find_tip_node(mesh)
+    uy_tip = abs(u2[tip_nid, 1])
+
+    mid_eid = point_in_element(mesh, L/2, H/2)
+    if mid_eid >= 0:
+        s_sample_fem = abs(result["stress"][mid_eid, 0])
+    else:
+        s_sample_fem = np.max(np.abs(result["stress"][:, 0]))
+    return uy_tip, s_sample_fem
+
+
+def _print_level_report(h_char, n_dof, uy_tip, uy_tip_tg,
+                        s_sample_fem, s_sample_tg, z2_eta):
+    uy_err_vs_tg = abs(uy_tip - uy_tip_tg) / uy_tip_tg * 100
+    s_err_vs_tg = abs(s_sample_fem - s_sample_tg) / s_sample_tg * 100
+    print(f"  h={h_char:.4f}  nDOF={n_dof:5d}  "
+          f"uy_tip={uy_tip:.6e} (vs TG: {uy_err_vs_tg:.1f}%)  "
+          f"s_xx@L/2,H/2={s_sample_fem:.3e} (vs TG: {s_err_vs_tg:.1f}%)  "
+          f"eta={z2_eta:.2f}%")
+
+
+def _record_level(results, mesh, h_char, uy_tip, s_sample_fem, z2):
+    results["h"].append(h_char)
+    results["uy_tip"].append(uy_tip)
+    results["sigma_sample"].append(s_sample_fem)
+    results["n_dof"].append(mesh.n_dof)
+    results["eta"].append(z2["eta"])
+    results["total_error"].append(z2["total_error"])
+
+
+def _result_arrays(results):
+    return (
+        np.array(results["h"]),
+        np.array(results["uy_tip"]),
+        np.array(results["sigma_sample"]),
+        np.array(results["eta"]),
+    )
+
+
+def _finalize_results(results, uy_rate, s_rate, e_rate, uy_tip_tg,
+                      s_sample_tg, uy_richardson):
+    results["uy_rate"] = uy_rate
+    results["s_rate"] = s_rate
+    results["e_rate"] = e_rate
+    results["uy_tip_theory"] = uy_tip_tg
+    results["sigma_sample_tg"] = s_sample_tg
+    results["uy_richardson"] = uy_richardson
+    return results
+
+
+def _reference_errors(h, uy_tip, s_max):
+    """Richardson 外推参考 + 误差序列 (分母 tiny 仅防除零, 不用绝对地板)."""
+    if len(h) >= 2:
+        r = h[-2] / h[-1]
+        uy_richardson = uy_tip[-1] + (uy_tip[-1] - uy_tip[-2]) / (r**2 - 1)
+        s_ref_actual = s_max[-1] + (s_max[-1] - s_max[-2]) / (r**1 - 1)
+    else:
+        # 使用 Richardson 外推值作参考 (不是最细网格自参考 — 那会让 e_N≡0)
+        uy_richardson = uy_tip[-1]
+        s_ref_actual = s_max[-1]
+    uy_err = np.abs(uy_tip - uy_richardson) / (
+        np.abs(uy_richardson) + np.finfo(float).tiny)
+    s_err = np.abs(s_max - s_ref_actual) / (
+        np.abs(s_ref_actual) + np.finfo(float).tiny)
+    return uy_richardson, uy_err, s_ref_actual, s_err
+
+
+def _local_rates(h, uy_err, s_err, eta_vals):
+    """Per-level 局部收敛速率 — 三块 (ku/ks/ke) 同一模式堆成数组一次
+    向量化, 避免逐字重复三次."""
+    prev = np.array([uy_err[:-1], s_err[:-1], eta_vals[:-1]])
+    nxt = np.array([uy_err[1:], s_err[1:], eta_vals[1:]])
+    r_local = np.log(h[:-1] / h[1:])
+    rates = np.zeros_like(prev)
+    valid = nxt > 0.0
+    # valid 是 (3, n-1) 掩码 — r_local 按列取 (同一列三行共享同一 r_local)
+    rates[valid] = np.log(
+        np.maximum(prev[valid], np.finfo(float).tiny) / nxt[valid]
+    ) / r_local[np.where(valid)[1]]
+    return [tuple(row) for row in rates.T]
+
+
+def _global_rates(h, uy_err, s_err, eta_vals):
+    """Global fit: 只拟合渐近区 (最细 3-4 层, 跳过最粗层)."""
+    if len(h) < 3:
+        return 0.0, 0.0, 0.0, np.array([], dtype=float)
+    n_skip = max(1, len(h) - 4)  # skip coarsest 1-2 levels (not asymptotic)
+    h_fit = h[n_skip:]
+    log_h = np.log(h_fit)
+    # 地板只防 log(0) — 1e-15 会截平真实速率
+    uy_rate = np.polyfit(log_h, np.log(np.maximum(
+        uy_err[n_skip:], np.finfo(float).tiny)), 1)[0]
+    s_rate = np.polyfit(log_h, np.log(np.maximum(
+        s_err[n_skip:], np.finfo(float).tiny)), 1)[0]
+    e_rate = np.polyfit(log_h, np.log(np.maximum(
+        eta_vals[n_skip:], np.finfo(float).tiny)), 1)[0]
+    return uy_rate, s_rate, e_rate, h_fit
+
+
+def _print_richardson_report(uy_tip_tg, s_sample_tg, uy_richardson, h,
+                             per_level, h_fit, uy_rate, s_rate, e_rate,
+                             elem_type):
+    print("\n  Timoshenko-Goodier closed form (comparison only):")
+    print(f"    uy_tip = {uy_tip_tg:.6e} m")
+    print(f"    sigma_xx@L/2,H/2 = {s_sample_tg:.3e} Pa")
+    print("\n  NOTE: stress sampled at (L/2, H/2) — a point far from the clamped")
+    print("  corner singularity (BC type jump at x=0, y=+-H/2). This avoids the")
+    print("  singularity-driven divergence that would contaminate max|sigma_xx|.")
+    print("  uy_tip and eta are unaffected — both are global quantities.")
+    print("\n  Richardson-extrapolated FE reference:")
+    print(f"    uy_tip ~ {uy_richardson:.6e} m")
+    # 标 "self-referenced vs finest" 会掩盖自参考偏差 — 实际误差
+    # 基于 Richardson 参考
+    print("\n  Per-level convergence rates (Richardson ref):")
+    for i in range(len(per_level)):
+        ku, ks, ke = per_level[i]
+        print(f"    h={h[i]:.4f} -> {h[i+1]:.4f}:  "
+              f"k_u={ku:+.2f}  k_s={ks:+.2f}  k_e={ke:+.2f}")
+    if len(h_fit):
+        print(
+            f"\n  Asymptotic convergence rates "
+            f"(Richardson ref, finest {len(h_fit)} levels):")
+        print(
+            f"    Tip displacement:     k = {uy_rate:.2f}  "
+            f"(expected: ~2.0)")
+        print(
+            f"    sigma_xx @ L/2,H/2:  k = {s_rate:.2f}  "
+            f"(expected: ~1.0)")
+        print(
+            f"    Z2 energy (eta):      k = {e_rate:.2f}  "
+            f"(expected: ~1.0)")
+
+        if (1.5 < uy_rate < 2.5 and 0.5 < s_rate < 1.5
+                and 0.5 < e_rate < 1.5):
+            print(
+                f"\n  [PASS] Convergence rates consistent with "
+                f"{elem_type} expectations")
+            print("         u~O(h^2), sigma~O(h), eta~O(h)")
+        else:
+            print(
+                f"\n  [CHECK] Fitted rates: u={uy_rate:.2f} "
+                f"s={s_rate:.2f} e={e_rate:.2f}")
+            print("          Expected: u~2.0  s~1.0  e~1.0")
+    else:
+        print(
+            "\n  Asymptotic rates require at least 3 refinement levels.")
+
+
 def run_cantilever_convergence(
         refinements=5, verbose=True, elem_type="CPS3"):
     """Timoshenko parabolic shear cantilever convergence study.
@@ -110,16 +306,13 @@ def run_cantilever_convergence(
     I = t * H**3 / 12.0
 
     if verbose:
-        print(f"\n{'='*60}")
-        print(f"  {elem_type} Convergence - Timoshenko Parabolic Shear Cantilever")
-        print(f"  L={L}m  H={H}m  t={t}m  E={E:.1e}Pa  nu={nu}  P={P_mag}N")
-        print("  Bathe sec 4.3.5: expected O(h) energy/stress, O(h^2) displ")
-        print("  Reference: Richardson-extrapolated FE limit")
-        print(f"{'='*60}\n")
+        _print_header(elem_type, L, H, t, E, nu, P_mag)
 
     # Timoshenko-Goodier closed form (comparison only, NOT the rate reference)
     # P>0 = 向下 (与 _parabolic_shear_traction 同一约定)
     uy_tip_tg = abs(_timoshenko_tip_deflection(L, H, t, P_mag, E, nu))
+    # σ_xx@L/2,H/2 TG 理论值: -P(L-L/2)(H/2)/I = PLH/(4I)
+    s_sample_tg = P_mag * L * H / (4.0 * I)
 
     results = {"h": [], "uy_tip": [], "sigma_sample": [], "n_dof": [],
                "eta": [], "total_error": []}
@@ -128,174 +321,33 @@ def run_cantilever_convergence(
         nx = 4 * (2 ** level)   # start at nx=4, not 2
         ny = 2 * (2 ** level)
 
-        nodes, elements = _gen_cantilever_mesh(
-            L, H, nx, ny, elem_type=elem_type)
-        mesh = Mesh(nodes=nodes, elements=elements, E=E, nu=nu,
-                    thickness=t, plane_type="stress",
-                    elem_type=elem_type)
-
-        # BC: left end fixed
-        left_nodes = mesh.nodes_on_edge("x", "min", tol=1e-6)
-        for n in left_nodes:
-            mesh.fix_node(int(n), "both", 0.0)
-
-        # Right end: parabolic shear traction (downward, P > 0)
-        right_nodes = mesh.nodes_on_edge("x", "max", tol=1e-6)
-        right_sorted = sorted(right_nodes, key=lambda n: mesh.nodes[int(n), 1])
-
-        def exact_shear_traction(x, y):
-            del x
-            return _parabolic_shear_traction(y, H, t, P_mag)
-
-        for k in range(len(right_sorted) - 1):
-            a, b = int(right_sorted[k]), int(right_sorted[k + 1])
-            # loads_core 在每条边的 3 点 Gauss 位置调用该函数，因此
-            # 二次抛物线面力被精确积分，不会把载荷离散误差混入单元收敛率。
-            mesh.add_traction(a, b, 0.0, exact_shear_traction)
-
+        mesh = _cantilever_mesh(L, H, nx, ny, E, nu, t, P_mag, elem_type)
         result = solve(mesh, method="elimination", verbose=verbose)
 
-        u2 = result["u"].reshape(-1, 2)
-        tip_nid = _find_tip_node(mesh)
-        uy_tip = abs(u2[tip_nid, 1])
-
-        # 弯曲应力: 不取 max|σ_xx|（会被固定端角点奇异性污染），
-        # 改为在 x=L/2, y=H/2 处采样（远离边界条件突变点，光滑解区域）。
-        # 该点 TG 理论值: σ_xx = -P(L-L/2)(H/2)/I = PLH/(4I)
-        mid_eid = point_in_element(mesh, L/2, H/2)
-        if mid_eid >= 0:
-            s_sample_fem = abs(result["stress"][mid_eid, 0])
-        else:
-            s_sample_fem = np.max(np.abs(result["stress"][:, 0]))
-        s_sample_tg = P_mag * L * H / (4.0 * I)  # |σ_xx| at (L/2, H/2): M*y/I = P(L/2)(H/2)/I
-
+        uy_tip, s_sample_fem = _sample_level(mesh, result, L, H, I, P_mag)
         z2 = estimate(mesh, result, method="SPR", verbose=False)
-
         h_char = L / nx
-
-        results["h"].append(h_char)
-        results["uy_tip"].append(uy_tip)
-        results["sigma_sample"].append(s_sample_fem)
-        results["n_dof"].append(mesh.n_dof)
-        results["eta"].append(z2["eta"])
-        results["total_error"].append(z2["total_error"])
+        _record_level(results, mesh, h_char, uy_tip, s_sample_fem, z2)
 
         if verbose:
-            uy_err_vs_tg = abs(uy_tip - uy_tip_tg) / uy_tip_tg * 100
-            s_err_vs_tg = abs(s_sample_fem - s_sample_tg) / s_sample_tg * 100
-            print(f"  h={h_char:.4f}  nDOF={mesh.n_dof:5d}  "
-                  f"uy_tip={uy_tip:.6e} (vs TG: {uy_err_vs_tg:.1f}%)  "
-                  f"s_xx@L/2,H/2={s_sample_fem:.3e} (vs TG: {s_err_vs_tg:.1f}%)  "
-                  f"eta={z2['eta']:.2f}%")
+            _print_level_report(h_char, mesh.n_dof, uy_tip, uy_tip_tg,
+                                s_sample_fem, s_sample_tg, z2["eta"])
 
-    h = np.array(results["h"])
-    uy_tip = np.array(results["uy_tip"])
-    s_max = np.array(results["sigma_sample"])
-    eta_vals = np.array(results["eta"])
+    h, uy_tip, s_max, eta_vals = _result_arrays(results)
 
-    # Richardson extrapolation
-    if len(h) >= 2:
-        r = h[-2] / h[-1]
-        uy_richardson = uy_tip[-1] + (uy_tip[-1] - uy_tip[-2]) / (r**2 - 1)
-    else:
-        uy_richardson = uy_tip[-1]
-
-    # 使用 Richardson 外推值作参考 (不是最细网格自参考 — 那会让 e_N≡0)。
-    # 分母 1e-30 绝对地板会使微尺度误差序列失真 (与 error_est 同族),
-    # 参考值恒非零 (Richardson), tiny 仅防除零。
-    uy_err = np.abs(uy_tip - uy_richardson) / (
-        np.abs(uy_richardson) + np.finfo(float).tiny)
-    s_ref_actual = s_max[-1] + (s_max[-1] - s_max[-2]) / (r**1 - 1) if len(h) >= 2 else s_max[-1]
-    s_err = np.abs(s_max - s_ref_actual) / (
-        np.abs(s_ref_actual) + np.finfo(float).tiny)
-
-    # Per-level local convergence rates。
-    # 1e-15 地板 + 1e-14 门槛会把精细层误差 (<1e-14) 的速率截成 0,
-    # 收敛序列 [1e-3,1e-6,1e-10,1e-15,1e-16] 的最细层报 k=0.00 。仅当下一层误差恰为 0 (机器精度收敛) 才跳过。
-    # 三块 (ku/ks/ke) 同一模式堆成数组一次向量化 — 避免逐字重复三次
-    prev = np.array([uy_err[:-1], s_err[:-1], eta_vals[:-1]])
-    nxt = np.array([uy_err[1:], s_err[1:], eta_vals[1:]])
-    r_local = np.log(h[:-1] / h[1:])
-    rates = np.zeros_like(prev)
-    valid = nxt > 0.0
-    # valid 是 (3, n-1) 掩码 — r_local 按列取 (同一列三行共享同一 r_local)
-    rates[valid] = np.log(
-        np.maximum(prev[valid], np.finfo(float).tiny) / nxt[valid]
-    ) / r_local[np.where(valid)[1]]
-    per_level = [tuple(row) for row in rates.T]
-
-    # Global fit: only fit asymptotic region (finest 3-4 levels, skip coarsest)
-    uy_rate = s_rate = e_rate = 0.0
-    h_fit = np.array([], dtype=float)
-    if len(h) >= 3:
-        n_skip = max(1, len(h) - 4)  # skip coarsest 1-2 levels (not asymptotic)
-        h_fit = h[n_skip:]
-        uy_err_fit = uy_err[n_skip:]
-        s_err_fit = s_err[n_skip:]
-        eta_fit = eta_vals[n_skip:]
-        log_h = np.log(h_fit)
-        # 地板只防 log(0) — 1e-15 会截平真实速率
-        uy_rate = np.polyfit(log_h, np.log(np.maximum(
-            uy_err_fit, np.finfo(float).tiny)), 1)[0]
-        s_rate = np.polyfit(log_h, np.log(np.maximum(
-            s_err_fit, np.finfo(float).tiny)), 1)[0]
-        e_rate = np.polyfit(log_h, np.log(np.maximum(
-            eta_fit, np.finfo(float).tiny)), 1)[0]
+    uy_richardson, uy_err, s_ref_actual, s_err = _reference_errors(
+        h, uy_tip, s_max)
+    per_level = _local_rates(h, uy_err, s_err, eta_vals)
+    uy_rate, s_rate, e_rate, h_fit = _global_rates(h, uy_err, s_err, eta_vals)
 
     if verbose:
-        print("\n  Timoshenko-Goodier closed form (comparison only):")
-        print(f"    uy_tip = {uy_tip_tg:.6e} m")
-        print(f"    sigma_xx@L/2,H/2 = {s_sample_tg:.3e} Pa")
-        print("\n  NOTE: stress sampled at (L/2, H/2) — a point far from the clamped")
-        print("  corner singularity (BC type jump at x=0, y=+-H/2). This avoids the")
-        print("  singularity-driven divergence that would contaminate max|sigma_xx|.")
-        print("  uy_tip and eta are unaffected — both are global quantities.")
-        print("\n  Richardson-extrapolated FE reference:")
-        print(f"    uy_tip ~ {uy_richardson:.6e} m")
-        # 标 "self-referenced vs finest" 会掩盖自参考偏差 — 实际误差
-        # 基于 Richardson 参考
-        print("\n  Per-level convergence rates (Richardson ref):")
-        for i in range(len(per_level)):
-            ku, ks, ke = per_level[i]
-            print(f"    h={h[i]:.4f} -> {h[i+1]:.4f}:  "
-                  f"k_u={ku:+.2f}  k_s={ks:+.2f}  k_e={ke:+.2f}")
-        if len(h_fit):
-            print(
-                f"\n  Asymptotic convergence rates "
-                f"(Richardson ref, finest {len(h_fit)} levels):")
-            print(
-                f"    Tip displacement:     k = {uy_rate:.2f}  "
-                f"(expected: ~2.0)")
-            print(
-                f"    sigma_xx @ L/2,H/2:  k = {s_rate:.2f}  "
-                f"(expected: ~1.0)")
-            print(
-                f"    Z2 energy (eta):      k = {e_rate:.2f}  "
-                f"(expected: ~1.0)")
+        _print_richardson_report(
+            uy_tip_tg, s_sample_tg, uy_richardson, h, per_level,
+            h_fit, uy_rate, s_rate, e_rate, elem_type)
 
-            if (1.5 < uy_rate < 2.5 and 0.5 < s_rate < 1.5
-                    and 0.5 < e_rate < 1.5):
-                print(
-                    f"\n  [PASS] Convergence rates consistent with "
-                    f"{elem_type} expectations")
-                print("         u~O(h^2), sigma~O(h), eta~O(h)")
-            else:
-                print(
-                    f"\n  [CHECK] Fitted rates: u={uy_rate:.2f} "
-                    f"s={s_rate:.2f} e={e_rate:.2f}")
-                print("          Expected: u~2.0  s~1.0  e~1.0")
-        else:
-            print(
-                "\n  Asymptotic rates require at least 3 refinement levels.")
-
-    results["uy_rate"] = uy_rate
-    results["s_rate"] = s_rate
-    results["e_rate"] = e_rate
-    results["uy_tip_theory"] = uy_tip_tg
-    results["sigma_sample_tg"] = s_sample_tg
-    results["uy_richardson"] = uy_richardson
-
-    return results
+    return _finalize_results(
+        results, uy_rate, s_rate, e_rate, uy_tip_tg,
+        s_sample_tg, uy_richardson)
 
 
 if __name__ == "__main__":

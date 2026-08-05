@@ -296,6 +296,102 @@ def _resolve_edge_indices(edge_str, segs, region_registry=None):
 # Physical Curve → 边界段重建
 # ═══════════════════════════════════════════════════════════════
 
+def _normalize_edge_inputs(edge_labels, edge_partitions, edge_metadata,
+                           diagnostics):
+    """输入归一: 默认值填充 + edge_labels dict 类型校验."""
+    if edge_labels is None:
+        edge_labels = {}
+    elif not isinstance(edge_labels, dict):
+        raise ValueError(
+            f"edge_labels 必须是 dict (Physical Curve 名称 → 边组), "
+            f"收到 {type(edge_labels).__name__}")
+    edge_partitions = edge_partitions or {}
+    edge_metadata = edge_metadata or {}
+    diagnostics = (
+        diagnostics if diagnostics is not None
+        else BoundaryDiagnostics())
+    return edge_labels, edge_partitions, edge_metadata, diagnostics
+
+
+def _build_edge_context(auto_segs):
+    """自动段信息 → 边上下文 (outer/深度/环/方向), 供 builder 分类."""
+    edge_context = {}
+    for auto in auto_segs:
+        auto_info = auto.get("info", {})
+        is_outer = bool(auto_info.get("is_outer", False))
+        for a, b in zip(auto['nodes'], auto['nodes'][1:]):
+            edge = canonical_edge(a, b)
+            edge_context[edge] = {
+                'is_outer': is_outer,
+                'loop_depth': int(auto_info.get(
+                    "loop_depth", 0 if is_outer else 1)),
+                'loop_id': int(auto_info.get("loop_id", -1)),
+                'direction': (int(a), int(b)),
+            }
+    return edge_context
+
+
+def _append_named_edges(builder, named_edges, combo_names, covered):
+    """Physical Curve 命名边组 → 完整链 (整体分类, 不切碎样条/渐变曲率)."""
+    for name, partition in sorted(
+            named_edges, key=lambda item: (item[0].casefold(), item[1])):
+        edges = named_edges[(name, partition)]
+        source_info = {
+            "physical_names": combo_names[name],
+            **builder.metadata_for_edges(edges),
+        }
+        for chain in ordered_edge_chains(edges):
+            builder.append_chain(
+                chain, name,
+                source_info,
+                # A real Gmsh entity is already the authoritative CAD split.
+                allow_geometric_split=not bool(partition))
+        covered.update(edges)
+
+
+def _append_cad_remainder(builder, edge_partitions, boundary_edges, covered):
+    """未命名的 CAD 实体也保留为精确硬段 (覆盖自动几何猜测)."""
+    cad_remainder = defaultdict(set)
+    for edge, partition_value in edge_partitions.items():
+        edge = canonical_edge(*edge)
+        partition = tuple(sorted(map(int, partition_value)))
+        if edge in boundary_edges and edge not in covered and partition:
+            cad_remainder[partition].add(edge)
+    for partition in sorted(cad_remainder):
+        edges = cad_remainder[partition]
+        source_info = {
+            "source": "gmsh_cad+geometry",
+            **builder.metadata_for_edges(edges),
+        }
+        for chain in ordered_edge_chains(edges):
+            builder.append_chain(
+                chain, "", source_info,
+                allow_geometric_split=False)
+        covered.update(edges)
+
+
+def _append_residual_auto_segments(builder, auto_segs, covered, segments):
+    """无语义 Physical Curve 的边界恢复自动分段 — 只有部分覆盖的自动段
+    需要重建为残差链."""
+    for auto in auto_segs:
+        auto_edges = {
+            canonical_edge(a, b)
+            for a, b in zip(auto['nodes'], auto['nodes'][1:])
+        }
+        residual = auto_edges - covered
+        if not residual:
+            continue
+        if residual == auto_edges:
+            copied = dict(auto)
+            copied['info'] = dict(auto.get('info', {}))
+            copied['info']['source'] = 'automatic'
+            segments.append(copied)
+            continue
+        for chain in ordered_edge_chains(residual):
+            builder.append_chain(
+                chain, "", {"source": "automatic"})
+
+
 def segments_from_physical_curves(
         mesh, edge_labels, geo_path=None, *, edge_partitions=None,
         edge_metadata=None, diagnostics=None):
@@ -309,17 +405,9 @@ def segments_from_physical_curves(
     先按连通性重建成完整链，再整体分类；样条或渐变曲率曲线不会因为
     自动检测中的局部曲率极值而被切碎。
     """
-    if edge_labels is None:
-        edge_labels = {}
-    elif not isinstance(edge_labels, dict):
-        raise ValueError(
-            f"edge_labels 必须是 dict (Physical Curve 名称 → 边组), "
-            f"收到 {type(edge_labels).__name__}")
-    edge_partitions = edge_partitions or {}
-    edge_metadata = edge_metadata or {}
-    diagnostics = (
-        diagnostics if diagnostics is not None
-        else BoundaryDiagnostics())
+    edge_labels, edge_partitions, edge_metadata, diagnostics = (
+        _normalize_edge_inputs(
+            edge_labels, edge_partitions, edge_metadata, diagnostics))
     if (
             not edge_labels
             and not edge_partitions
@@ -341,19 +429,7 @@ def segments_from_physical_curves(
 
     scale = mesh_scale(mesh.nodes)
     auto_segs = detect(mesh)
-    edge_context = {}
-    for auto in auto_segs:
-        auto_info = auto.get("info", {})
-        is_outer = bool(auto_info.get("is_outer", False))
-        for a, b in zip(auto['nodes'], auto['nodes'][1:]):
-            edge = canonical_edge(a, b)
-            edge_context[edge] = {
-                'is_outer': is_outer,
-                'loop_depth': int(auto_info.get(
-                    "loop_depth", 0 if is_outer else 1)),
-                'loop_id': int(auto_info.get("loop_id", -1)),
-                'direction': (int(a), int(b)),
-            }
+    edge_context = _build_edge_context(auto_segs)
 
     segments = []
     builder = BoundarySegmentBuilder(
@@ -365,60 +441,9 @@ def segments_from_physical_curves(
     )
 
     covered = set()
-    for name, partition in sorted(
-            named_edges, key=lambda item: (item[0].casefold(), item[1])):
-        edges = named_edges[(name, partition)]
-        source_info = {
-            "physical_names": combo_names[name],
-            **builder.metadata_for_edges(edges),
-        }
-        for chain in ordered_edge_chains(edges):
-            builder.append_chain(
-                chain, name,
-                source_info,
-                # A real Gmsh entity is already the authoritative CAD split.
-                allow_geometric_split=not bool(partition))
-        covered.update(edges)
-
-    # Preserve every unlabelled CAD entity as an exact hard segment too.
-    cad_remainder = defaultdict(set)
-    for edge, partition_value in edge_partitions.items():
-        edge = canonical_edge(*edge)
-        partition = tuple(sorted(map(int, partition_value)))
-        if edge in boundary_edges and edge not in covered and partition:
-            cad_remainder[partition].add(edge)
-    for partition in sorted(cad_remainder):
-        edges = cad_remainder[partition]
-        source_info = {
-            "source": "gmsh_cad+geometry",
-            **builder.metadata_for_edges(edges),
-        }
-        for chain in ordered_edge_chains(edges):
-            builder.append_chain(
-                chain, "", source_info,
-                allow_geometric_split=False)
-        covered.update(edges)
-
-    # Preserve normal automatic segmentation for boundary edges that have no
-    # semantic Physical Curve. Only partially covered automatic segments need
-    # to be rebuilt into residual chains.
-    for auto in auto_segs:
-        auto_edges = {
-            canonical_edge(a, b)
-            for a, b in zip(auto['nodes'], auto['nodes'][1:])
-        }
-        residual = auto_edges - covered
-        if not residual:
-            continue
-        if residual == auto_edges:
-            copied = dict(auto)
-            copied['info'] = dict(auto.get('info', {}))
-            copied['info']['source'] = 'automatic'
-            segments.append(copied)
-            continue
-        for chain in ordered_edge_chains(residual):
-            builder.append_chain(
-                chain, "", {"source": "automatic"})
+    _append_named_edges(builder, named_edges, combo_names, covered)
+    _append_cad_remainder(builder, edge_partitions, boundary_edges, covered)
+    _append_residual_auto_segments(builder, auto_segs, covered, segments)
 
     segments.sort(key=segment_sort_key)
     for segment in segments:

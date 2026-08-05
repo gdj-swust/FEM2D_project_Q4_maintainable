@@ -12,36 +12,20 @@ from fem2d import Mesh, solve
 from fem2d.stress import principal_stresses
 
 
-def run_plane_verification():
-    """返回 (pass_count, fail_count)
+def _report_check(name, computed, theory, tol=0.05):
+    """单条验证打印 + PASS/FAIL 判定.
 
-    Test 1: 单向拉伸 — plane stress vs plane strain
-            纯直角坐标，验证 D 矩阵和 von Mises。
-    Test 2: 厚壁圆筒内压 — Lame 解析解 (plane strain)
-            应力张量旋转: σ_rr = σ_xx·cos²θ + σ_yy·sin²θ + 2τ_xy·sinθcosθ
+    分母地板用 tiny 而非固定 1e-30 — 理论值恰为零时 1e-30 会使
+    微小误差被误判为 0 通过 (微尺度约定: 禁止绝对阈值)。
     """
-    PASS, FAIL = 0, 0
+    rel = abs(computed - theory) / (abs(theory) + np.finfo(float).tiny)
+    status = "PASS" if rel < tol else "FAIL"
+    print(f"  {status}  {name}: err={rel*100:.1f}%  ({computed:.4e} vs {theory:.4e})")
+    return status
 
-    def check(name, computed, theory, tol=0.05):
-        nonlocal PASS, FAIL
-        # 分母地板用 tiny 而非固定 1e-30 — 理论值恰为零时 1e-30 会使
-        # 微小误差被误判为 0 通过 (微尺度约定: 禁止绝对阈值)。
-        rel = abs(computed - theory) / (abs(theory) + np.finfo(float).tiny)
-        status = "PASS" if rel < tol else "FAIL"
-        print(f"  {status}  {name}: err={rel*100:.1f}%  ({computed:.4e} vs {theory:.4e})")
-        if status == "PASS":
-            PASS += 1
-        else:
-            FAIL += 1
 
-    # ═══════════════════════════════════════════════════════
-    # Test 1: 单向拉伸 (纯直角坐标)
-    # ═══════════════════════════════════════════════════════
-    print("\n  Test 1: 单向拉伸 — plane stress vs plane strain")
-    L, H, t = 1.0, 0.5, 0.01
-    E, nu, sigma = 2.1e11, 0.3, 1e6
-    nx, ny = 4, 2
-
+def _rectangular_mesh(L, H, nx, ny):
+    """单向拉伸网格 — 结构化 CST (两三角/格)."""
     nodes = []
     for j in range(ny + 1):
         for i in range(nx + 1):
@@ -53,7 +37,20 @@ def run_plane_verification():
             n0 = j * (nx + 1) + i
             elems.append([n0, n0 + 1, n0 + nx + 2])
             elems.append([n0, n0 + nx + 2, n0 + nx + 1])
-    elems = np.array(elems, dtype=int)
+    return nodes, np.array(elems, dtype=int)
+
+
+def _uniaxial_verification():
+    """Test 1: 单向拉伸 — plane stress vs plane strain.
+
+    纯直角坐标, 验证 D 矩阵和 von Mises。
+    """
+    PASS, FAIL = 0, 0
+    print("\n  Test 1: 单向拉伸 — plane stress vs plane strain")
+    L, H, t = 1.0, 0.5, 0.01
+    E, nu, sigma = 2.1e11, 0.3, 1e6
+    nx, ny = 4, 2
+    nodes, elems = _rectangular_mesh(L, H, nx, ny)
 
     for pt in ("stress", "strain"):
         m = Mesh(nodes=nodes, elements=elems, E=E, nu=nu, thickness=t,
@@ -82,16 +79,19 @@ def run_plane_verification():
             u_th = sigma * L / E * (1 - nu**2)
             vm_th = np.sqrt(0.5 * (1 + nu**2 + (1 - nu)**2))
 
-        check(f"plane_{pt} u_max", u_fe, u_th)
-        check(f"plane_{pt} σ_vM ", vm_fe, vm_th)
+        if _report_check(f"plane_{pt} u_max", u_fe, u_th) == "PASS":
+            PASS += 1
+        else:
+            FAIL += 1
+        if _report_check(f"plane_{pt} σ_vM ", vm_fe, vm_th) == "PASS":
+            PASS += 1
+        else:
+            FAIL += 1
+    return PASS, FAIL
 
-    # ═══════════════════════════════════════════════════════
-    # Test 2: 厚壁圆筒内压 — Lame (plane strain) + 张量旋转
-    # ═══════════════════════════════════════════════════════
-    print("\n  Test 2: 厚壁圆筒内压 — Lame 解 + 应力旋转 (plane strain)")
-    a, b_out, p = 1.0, 2.0, 1e6
-    nr, nth = 16, 72
 
+def _annular_mesh(a, b_out, nr, nth):
+    """厚壁圆筒网格 — 极坐标扇区, 每扇 2 个 CST."""
     nodes = []
     for i in range(nth):
         ang = 2 * np.pi * i / nth
@@ -100,7 +100,6 @@ def run_plane_verification():
             r = a + (b_out - a) * j / nr
             nodes.append([r * ca, r * sa])
     nodes = np.array(nodes)
-
     elems = []
     for i in range(nth):
         i_next = (i + 1) % nth
@@ -110,16 +109,18 @@ def run_plane_verification():
             n3 = i_next * (nr + 1) + j
             elems.append([n0, n0 + 1, n2])
             elems.append([n0, n2, n3])
-    elems = np.array(elems, dtype=int)
+    return nodes, np.array(elems, dtype=int)
 
-    m = Mesh(nodes=nodes, elements=elems, E=E, nu=nu, thickness=1.0,
-             plane_type="strain", elem_type="CST")
-    # 最小约束 — 全部沿切向, 不约束任何节点的径向位移:
-    # 内压自由膨胀下 Lame 解 u_r(a) ≠ 0, 旧版把内边界节点 0 两方向
-    # 都固定 → 该点径向位移被强制为零, 与解析解冲突, 污染内环检查区
-    # (σ_θ/σ_r 误差虚高)。切向三元组: (a,0) 与 (b,0) 的 uy (θ=0 处
-    # 切向 = +y) 杀 Ty+Rz (a≠b 两式联立), (0,a) 的 ux (θ=π/2 处
-    # 切向 = -x) 杀 Tx — 刚体模态全消, 径向解完整保留。
+
+def _lame_constraints(m, nodes, a, nr, nth, p):
+    """最小约束 — 全部沿切向, 不约束任何节点的径向位移:
+
+    内压自由膨胀下 Lame 解 u_r(a) ≠ 0, 旧版把内边界节点 0 两方向
+    都固定 → 该点径向位移被强制为零, 与解析解冲突, 污染内环检查区
+    (σ_θ/σ_r 误差虚高)。切向三元组: (a,0) 与 (b,0) 的 uy (θ=0 处
+    切向 = +y) 杀 Ty+Rz (a≠b 两式联立), (0,a) 的 ux (θ=π/2 处
+    切向 = -x) 杀 Tx — 刚体模态全消, 径向解完整保留。
+    """
     m.fix_node(0, "y")                       # (a, 0): 切向
     m.fix_node(nr, "y")                      # (b, 0): 切向, 联立上式杀 Ty/Rz
     m.fix_node((nth // 4) * (nr + 1), "x")   # (0, a): θ=π/2 切向, 杀 Tx
@@ -130,15 +131,18 @@ def run_plane_verification():
         if abs(ra - a) < 0.06 and abs(rb - a) < 0.06:
             m.add_pressure(int(ea), int(eb), p)
 
-    r = solve(m, verbose=False)
 
+def _lame_inner_errors(m, r, a, b_out, p):
+    """内环单元 Lame 解析解误差 — σ_θ 主应力 + σ_r 张量旋转.
+
+    应力张量旋转: [σ_rr, σ_θθ, τ_rθ]^T = T(θ) · [σ_xx, σ_yy, τ_xy]^T
+    σ_rr = σ_xx·cos²θ + σ_yy·sin²θ + 2τ_xy·cosθ·sinθ
+    """
     # Lame: σ_θ(r)=p·a²/(b²-a²)·(1+b²/r²), σ_r(r)=p·a²/(b²-a²)·(1-b²/r²)
     factor = p * a**2 / (b_out**2 - a**2)
     rc = np.linalg.norm(m.centroids, axis=1)
     inner = rc < a + 0.06
 
-    # 应力张量旋转: [σ_rr, σ_θθ, τ_rθ]^T = T(θ) · [σ_xx, σ_yy, τ_xy]^T
-    # σ_rr = σ_xx·cos²θ + σ_yy·sin²θ + 2τ_xy·cosθ·sinθ
     err_t, err_r = [], []
     for eid in np.flatnonzero(inner):
         s1, _, _, _ = principal_stresses(r["stress"][eid:eid+1])
@@ -159,13 +163,47 @@ def run_plane_verification():
 
     err_t = np.mean(err_t) if err_t else 1.0
     err_r = np.mean(err_r) if err_r else 1.0
+    return err_t, err_r
+
+
+def _lame_verification():
+    """Test 2: 厚壁圆筒内压 — Lame 解析解 (plane strain) + 张量旋转."""
+    PASS, FAIL = 0, 0
+    print("\n  Test 2: 厚壁圆筒内压 — Lame 解 + 应力旋转 (plane strain)")
+    a, b_out, p = 1.0, 2.0, 1e6
+    nr, nth = 16, 72
+    nodes, elems = _annular_mesh(a, b_out, nr, nth)
+
+    m = Mesh(nodes=nodes, elements=elems, E=2.1e11, nu=0.3, thickness=1.0,
+             plane_type="strain", elem_type="CST")
+    _lame_constraints(m, nodes, a, nr, nth, p)
+    r = solve(m, verbose=False)
+
+    err_t, err_r = _lame_inner_errors(m, r, a, b_out, p)
     print(f"  {'PASS' if err_t<0.10 else 'FAIL'}  σ_θ (主应力): err={err_t*100:.1f}%")
     print(f"  {'PASS' if err_r<0.10 else 'FAIL'}  σ_r (张量旋转): err={err_r*100:.1f}%")
     if err_t < 0.10: PASS += 1
     else: FAIL += 1
     if err_r < 0.10: PASS += 1
     else: FAIL += 1
+    return PASS, FAIL
 
+
+def run_plane_verification():
+    """返回 (pass_count, fail_count)
+
+    Test 1: 单向拉伸 — plane stress vs plane strain
+            纯直角坐标，验证 D 矩阵和 von Mises。
+    Test 2: 厚壁圆筒内压 — Lame 解析解 (plane strain)
+            应力张量旋转: σ_rr = σ_xx·cos²θ + σ_yy·sin²θ + 2τ_xy·sinθcosθ
+    """
+    PASS, FAIL = 0, 0
+    p, f = _uniaxial_verification()
+    PASS += p
+    FAIL += f
+    p, f = _lame_verification()
+    PASS += p
+    FAIL += f
     return PASS, FAIL
 
 
