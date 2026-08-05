@@ -22,16 +22,54 @@ def _fmt_comp(value):
     return "f(x,y)" if callable(value) else f"{value:.3e}"
 
 
+def _segment_label_indices(selection, segs):
+    """@段名 → 段标签精确命中 (D1 引用层通道; 段标签来自 naming 管线).
+
+    仅处理 '@' 前缀 — 非 @ 名称已由 BoundarySelector 标签通道覆盖
+    (selectors.py)。与标签通道同语义: casefold 精确相等 — 复合标签
+    ("组A | 外边 直边 …") 不会被子串误命中, @组名 (物理组) 通道
+    不受影响。无命中返回 [] — 由调用方回落到 @组名/编号通道。
+    """
+    if not isinstance(selection, str):
+        return []
+    token = selection.strip()
+    if not token.startswith("@") or len(token) < 2:
+        return []
+    needle = token[1:].strip().casefold()
+    if not needle or any(sep in needle for sep in (",", ";", "@")):
+        return []  # 空名/混用交给原通道报错 (文案锁定 naming._expand_group_name)
+    return [
+        index for index, segment in enumerate(segs)
+        if str(segment.get("label", "")).strip().casefold() == needle
+    ]
+
+
+def _segment_label_names(segs):
+    """可用段名 (报错提示用) — 去重保序, 空标签过滤."""
+    return list(dict.fromkeys(
+        str(s.get("label", "")).strip()
+        for s in segs if str(s.get("label", "")).strip()))
+
+
 def _resolve_boundary_selection(selection, segs, *, fatal,
                                 region_registry=None):
     """Resolve one CLI/interactive selector with ambiguity diagnostics.
 
     region_registry (Gmsh 物理组) 供 @组名 批量选择展开 (插件 2).
+    @段名 (D1): 段标签精确命中, 与段编号等效 — 无注册表 (纯 .txt/.msh
+    输入) 也能用名选边; 标签优先于物理组 (两者同源时指向同段).
     """
+    labelled = _segment_label_indices(selection, segs)
+    if labelled:
+        return labelled
     try:
         return _resolve_edge_indices(
             selection, segs, region_registry=region_registry)
     except ValueError as error:
+        if isinstance(selection, str) and selection.strip().startswith("@"):
+            names = _segment_label_names(segs)
+            if names:
+                error = ValueError(f"{error} 可用段名: {', '.join(names)}")
         if fatal:
             raise CliError(f"  [FATAL] {error}", exit_code=1)
         print(f"  [WARN] {error}")

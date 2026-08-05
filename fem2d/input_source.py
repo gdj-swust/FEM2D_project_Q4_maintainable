@@ -288,6 +288,33 @@ def physical_point_from_geo(geo_path, name, mesh):
 
 # .spec 键 → AnalysisConfig 字段映射 (单一映射表 — 新增字段只需加一行).
 # "未指定"语义: 数值/字符串字段 config 为 None 表示未指定; 布尔字段为 False.
+# .inp 内容疑似 Gmsh .geo 脚本的识别标记 (D2 入口引导 — 已有同类教训:
+# .geo 被误当 .inp 解析, 泛化文案把用户引向检查网格文件本身).
+_GEO_SCRIPT_MARKERS = (
+    "SetFactory(", "Point(", "Line(", "Plane Surface",
+    "lc =", "Physical", "Mesh.Format",
+)
+
+
+def _geo_script_entry_hint(fp):
+    """.inp 内容形如 .geo 脚本 → 针对性入口引导; 否则返回空串.
+
+    该文件是 Gmsh 几何脚本而非网格数据 — 正确做法: 把 .geo 直接交给
+    run.py (自动调 Gmsh 网格化), 或先用 gmsh 出 .msh 再传入.
+    """
+    try:
+        with open(fp, 'r', encoding='utf-8', errors='ignore') as fh:
+            head = fh.read(2048)
+    except OSError:
+        return ""
+    if any(marker in head for marker in _GEO_SCRIPT_MARKERS):
+        return (
+            "\n        该文件内容是 Gmsh .geo 脚本 — 请直接运行 "
+            "python run.py <同名.geo> (自动调 Gmsh 网格化), "
+            "或先用 gmsh <文件> -2 生成 .msh 再传入。")
+    return ""
+
+
 _SPEC_FIELD_MAP = {
     "lc": "lc", "E": "E", "nu": "nu", "t": "thickness",
     "plane": "plane", "body": "body", "fix": "fix",
@@ -583,7 +610,9 @@ def resolve_input_file(fp, config, ask=None):
     if ext == '.inp':
         raise CliError(
             '[ERROR] Abaqus .inp 输入已移除 — 请提供 .geo (Gmsh 几何)、'
-            '.msh (Gmsh 网格) 或 .spec。',
+            '.msh (Gmsh 网格) 或 .spec。'
+            '入口选择指南: 见 run.py --help 或 docs/input_entries.md。'
+            + _geo_script_entry_hint(fp),
             exit_code=1)
 
     # .geo → 询问网格密度（CLI全参数时跳过), 跑 Gmsh 生成 .msh
@@ -629,7 +658,8 @@ def resolve_input_file(fp, config, ask=None):
                 exit_code=1)
     else:
         raise CliError(
-            f'[ERROR] 不支持的输入: {fp} — 仅支持 .spec/.geo/.txt/.msh',
+            f'[ERROR] 不支持的输入: {fp} — 仅支持 .spec/.geo/.txt/.msh。'
+            '入口选择指南: 见 run.py --help 或 docs/input_entries.md。',
             exit_code=1)
 
     # 检查 resolve 后的 fp (已生成/转换), 非输入扩展名 — 大小写不敏感
