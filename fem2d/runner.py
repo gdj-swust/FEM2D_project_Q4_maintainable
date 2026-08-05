@@ -493,24 +493,8 @@ def _analyze_and_report(config, model):
     return result, z2, q, scale
 
 
-def main(argv=None) -> int:
-    """一次完整分析: 输入 → 网格 → 边界 → BC → 求解 → 报告 → 云图.
-
-    执行层只消费 AnalysisConfig (类型化配置对象) — 不感知 argparse
-    参数表; CLI/.spec/.geo 配置统一由 from_args + 合并逻辑汇入 config。
-    流程按 5 个阶段函数组织 (resolve → model → conditions → analyze →
-    plot), 每个阶段返回显式产物, 便于单独测试与替换.
-    """
-    # CLI 入口职责: 项目根置于 sys.path, 使 scripts 工具层可导入。
-    # run.py 脚本方式运行 sys.path[0] 已是项目根; 此处兜底
-    # python -m fem2d.runner / console 场景。input_source 模块顶层注入
-    # sys.path 是 import 副作用 (污染库用户进程), 注入改在此处。
-    _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    if _project_root not in sys.path:
-        sys.path.insert(0, _project_root)
-    # 编码安全网 (与 run_demo.py 共用 reconfigure_streams): 非中文
-    # Windows (cp1252 等) 下中文输出不 UnicodeEncodeError 崩溃
-    reconfigure_streams()
+def _parse_cli_config(argv):
+    """CLI 参数解析 — 配置错误/互斥组合映射退出码 (用户错误 1)."""
     try:
         config = AnalysisConfig.from_args(parse_args(argv))
         if config.keep_open and config.no_plot:
@@ -519,53 +503,55 @@ def main(argv=None) -> int:
             raise CliError(
                 "  [FATAL] --keep-open 与 --no-plot 互斥 — "
                 "保留交互窗口与抑制绘图不能同时要求", exit_code=1)
+        return config, None
     except CliError as error:
         print(error)
-        return error.exit_code
+        return None, error.exit_code
     except ValueError as error:
         # 配置校验失败 (非法参数组合, 如 --band-min 缺 --band-step) — 用户
         # 错误退出码 1; 归入内部错误 2 与退出码矩阵不一致 (此阶段 config
         # 尚未构建, 无 --debug 概念)
         print(f"[ERROR] {error}")
-        return 1
+        return None, 1
 
-    # ── 独立自检: Patch Test + plane stress/strain 材料验证 ──
-    if config.self_test and not config.mesh:
-        # 静默吞掉非法 BC 参数会让 --force garbage!! 与 --self-test 组合
-        # 退出 0, 载荷从未生效也无提示
-        for _key, _val in (("--fix", config.fix), ("--fix-ux", config.fix_ux),
-                           ("--fix-uy", config.fix_uy),
-                           ("--traction", config.traction),
-                           ("--force", config.force),
-                           ("--body", config.body)):
-            if _val:
-                print(f"  [WARN] {_key} 在独立自检模式下不生效 — "
-                      "已忽略 (自检只跑单元数学验证)")
-        if config.band_min is not None:
-            # 与 --no-plot 同模式: band 参数已通过 config 校验但独立自检
-            # 不绘图 — 静默忽略会误导用户
-            print("  [WARN] --band-min/max/step 在独立自检模式下不生效 — "
+
+def _warn_self_test_ignored(config):
+    """独立自检模式下不生效参数的警告 (防静默 — 曾 --force 组合退出 0)."""
+    for _key, _val in (("--fix", config.fix), ("--fix-ux", config.fix_ux),
+                       ("--fix-uy", config.fix_uy),
+                       ("--traction", config.traction),
+                       ("--force", config.force),
+                       ("--body", config.body)):
+        if _val:
+            print(f"  [WARN] {_key} 在独立自检模式下不生效 — "
                   "已忽略 (自检只跑单元数学验证)")
-        if config.list_boundaries:
-            # 声称"自检不执行, 仅列出边界"但随后仍执行自检是文案撒谎
-            # 行为: 自检照常, list-boundaries 无输入文件无从列出
-            print("  [WARN] --self-test 与 --list-boundaries 组合: "
-                  "--list-boundaries 需要输入文件, 独立自检模式下不生效 — "
-                  "自检照常执行")
-        return _standalone_self_test()
+    if config.band_min is not None:
+        # 与 --no-plot 同模式: band 参数已通过 config 校验但独立自检
+        # 不绘图 — 静默忽略会误导用户
+        print("  [WARN] --band-min/max/step 在独立自检模式下不生效 — "
+              "已忽略 (自检只跑单元数学验证)")
+    if config.list_boundaries:
+        # 声称"自检不执行, 仅列出边界"但随后仍执行自检是文案撒谎
+        # 行为: 自检照常, list-boundaries 无输入文件无从列出
+        print("  [WARN] --self-test 与 --list-boundaries 组合: "
+              "--list-boundaries 需要输入文件, 独立自检模式下不生效 — "
+              "自检照常执行")
 
+
+def _resolve_input_guarded(config):
+    """阶段 1 输入解析 + 异常边界 (CliError 保留退出码, 内部错误 → 2)."""
     try:
-        resolved = _resolve_input(config)
+        return _resolve_input(config), None
     except CliError as error:
         # CLI 输入/交互错误 (原 sys.exit 语义) — 消息已带 [ERROR]/[FATAL]
         # 前缀, 不再包一层; 保留各自退出码
         print(error)
-        return error.exit_code
+        return None, error.exit_code
     except KeyboardInterrupt:
         # 求解/解析中途 Ctrl-C (ask 内的 Ctrl-C 已是 CliError) — 向导
         # banner 承诺"随时 Ctrl-C 退出", 泄漏整段 traceback 违背承诺
         print("\n  [INFO] 已中断 (Ctrl-C)")
-        return 130
+        return None, 130
     except Exception as error:
         # 输入解析阶段的任意异常 (含 gmsh 依赖缺失时的 ImportError/OSError
         # 与 Gmsh API 抛出的裸 Exception) — 友好报错而非整段 traceback;
@@ -573,10 +559,11 @@ def main(argv=None) -> int:
         if getattr(config, "debug", False):
             raise
         print(f"[ERROR] {error}")
-        return 2
-    if resolved is None:
-        return 1
+        return None, 2
 
+
+def _run_model_stage(config, resolved) -> int:
+    """阶段 2-5 (model → conditions → analyze → plot) + 异常边界."""
     try:
         model = _build_model(config, resolved)
 
@@ -597,6 +584,7 @@ def main(argv=None) -> int:
             # 静默忽略时参数看似生效实未生效, 教学用户困惑
             print("  [INFO] --band-min/max/step 仅在绘图时生效 — "
                   "--no-plot 抑制绘图, 参数已忽略")
+        return 0
     except CliError as error:
         print(error)
         return error.exit_code
@@ -617,4 +605,39 @@ def main(argv=None) -> int:
             raise
         print(f"[ERROR] {error}")
         return 2
-    return 0
+
+
+def main(argv=None) -> int:
+    """一次完整分析: 输入 → 网格 → 边界 → BC → 求解 → 报告 → 云图.
+
+    执行层只消费 AnalysisConfig (类型化配置对象) — 不感知 argparse
+    参数表; CLI/.spec/.geo 配置统一由 from_args + 合并逻辑汇入 config。
+    流程按 5 个阶段函数组织 (resolve → model → conditions → analyze →
+    plot), 每个阶段返回显式产物, 便于单独测试与替换.
+    """
+    # CLI 入口职责: 项目根置于 sys.path, 使 scripts 工具层可导入。
+    # run.py 脚本方式运行 sys.path[0] 已是项目根; 此处兜底
+    # python -m fem2d.runner / console 场景。input_source 模块顶层注入
+    # sys.path 是 import 副作用 (污染库用户进程), 注入改在此处。
+    _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _project_root not in sys.path:
+        sys.path.insert(0, _project_root)
+    # 编码安全网 (与 run_demo.py 共用 reconfigure_streams): 非中文
+    # Windows (cp1252 等) 下中文输出不 UnicodeEncodeError 崩溃
+    reconfigure_streams()
+
+    config, code = _parse_cli_config(argv)
+    if code is not None:
+        return code
+
+    # ── 独立自检: Patch Test + plane stress/strain 材料验证 ──
+    if config.self_test and not config.mesh:
+        _warn_self_test_ignored(config)
+        return _standalone_self_test()
+
+    resolved, code = _resolve_input_guarded(config)
+    if code is not None:
+        return code
+    if resolved is None:
+        return 1
+    return _run_model_stage(config, resolved)

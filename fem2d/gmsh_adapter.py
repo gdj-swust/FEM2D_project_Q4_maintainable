@@ -251,151 +251,147 @@ def _surface_elements_for_entity(
     return result
 
 
-def _extract_regions(
-        gmsh_module, node_tag_to_index, element_tag_to_index, coords=None,
-        elements=None, elem_type=None):
-    model = gmsh_module.model
-    mesh_api = model.mesh
-    registry = RegionRegistry(cad_boundary_complete=True)
+def _physical_name(model, dimension, physical_tag):
+    name = str(model.getPhysicalName(dimension, physical_tag)).strip()
+    if not name:
+        name = f"physical_{dimension}_{physical_tag}"
+    return name
 
-    surface_candidates = set()
-    curve_surface_occurrences = {}
 
-    for dimension, physical_tag in model.getPhysicalGroups():
-        dimension = int(dimension)
-        physical_tag = int(physical_tag)
-        if dimension not in (0, 1, 2):
-            continue
-        name = str(model.getPhysicalName(dimension, physical_tag)).strip()
-        if not name:
-            name = f"physical_{dimension}_{physical_tag}"
-        entity_tags = tuple(sorted(
-            int(tag) for tag in
-            model.getEntitiesForPhysicalGroup(dimension, physical_tag)
-        ))
-        physical_nodes = set(_physical_node_ids(
-            mesh_api, dimension, physical_tag, node_tag_to_index))
+def _fallback_point_node_ids(model, coords, elements, elem_type,
+                             entity_tags, name):
+    """构造节点被剔出位移网格时的回退: 最近位移节点 (域内) / 拒绝 (域外).
 
-        if dimension == 0:
-            node_ids = tuple(sorted(physical_nodes))
-            if not node_ids and coords is not None and entity_tags:
-                # 域内 Point 的构造节点被 _extract_mesh 剔除 (不在任何 2D
-                # 单元内, 如孔心) — node_ids 恒空且无提示, 与边界点
-                # 行为不一致; 回退最近位移节点并警告。
-                # 域外 Physical Point 同样回退到最近节点时, 集中力施加到
-                # 完全错误的位置 — 域外必须拒绝 (node_ids 留空, 下游报错)
-                try:
-                    coords_arr = np.asarray(coords, dtype=float)
-                    fallback = []
-                    for entity_tag in entity_tags:
-                        point_xy = np.asarray(
-                            model.getValue(0, entity_tag, []),
-                            dtype=float)[:2]
-                        span = max(
-                            float(np.ptp(coords_arr[:, 0])),
-                            float(np.ptp(coords_arr[:, 1])),
-                            np.finfo(float).tiny)
-                        slack = span * 1e-6
-                        inside = (
-                            coords_arr[:, 0].min() - slack
-                            <= point_xy[0]
-                            <= coords_arr[:, 0].max() + slack
-                            and coords_arr[:, 1].min() - slack
-                            <= point_xy[1]
-                            <= coords_arr[:, 1].max() + slack)
-                        if not inside:
-                            print(
-                                f"  [WARN] Physical Point '{name}' 位于"
-                                f"网格包围盒外 ({point_xy[0]:.6g}, "
-                                f"{point_xy[1]:.6g}) — 拒绝映射, 施加该点"
-                                f"集中力将报错")
-                            continue
-                        # 单元级判域 (与 input_source 一致): 孔心/凹域
-                        # 缺口点在 AABB 内但不属于任何单元 — 回退到
-                        # 最近节点会把集中力施加到材料域外位置 (静默错)
-                        if elements is not None:
-                            tmp = Mesh(
-                                coords_arr, elements, elem_type=elem_type)
-                            if point_in_element(
-                                    tmp, point_xy[0], point_xy[1]) < 0:
-                                print(
-                                    f"  [WARN] Physical Point '{name}' 不在"
-                                    f"材料域内 ({point_xy[0]:.6g}, "
-                                    f"{point_xy[1]:.6g}) — 拒绝映射, 施加该"
-                                    f"点集中力将报错 (如需载荷请选边界曲线)")
-                                continue
-                        dist2 = np.sum(
-                            (coords_arr - point_xy) ** 2, axis=1)
-                        fallback.append(int(np.argmin(dist2)))
-                    if fallback:
-                        node_ids = tuple(sorted(set(fallback)))
-                        print(
-                            f"  [WARN] Physical Point '{name}' 的构造节点不在"
-                            f"位移网格中, 已回退到最近节点 {list(node_ids)}")
-                except Exception:  # nosec B110 — 回退失败保持空, 由下游处理 (故意吞异常)
-                    pass
-            registry.points.append(PointRegion(
-                name=name,
-                physical_tag=physical_tag,
-                entity_tags=entity_tags,
-                node_ids=node_ids,
-            ))
-            continue
-
-        entity_types = tuple(
-            _entity_type(model, dimension, tag)
-            for tag in entity_tags
-        )
-        if dimension == 1:
-            edge_entities = []
-            for entity_tag, entity_type in zip(
-                    entity_tags, entity_types):
-                for edge in _curve_edges_for_entity(
-                        mesh_api, entity_tag, node_tag_to_index):
-                    edge_entities.append((
-                        int(edge[0]), int(edge[1]),
-                        int(entity_tag), str(entity_type),
-                    ))
-            edges = {
-                canonical_edge(a, b)
-                for a, b, _, _ in edge_entities
-            }
-            physical_nodes.update(
-                node for edge in edges for node in edge)
-            registry.curves.append(CurveRegion(
-                name=name,
-                physical_tag=physical_tag,
-                entity_tags=entity_tags,
-                entity_types=entity_types,
-                node_ids=tuple(sorted(physical_nodes)),
-                edge_pairs=tuple(sorted(edges)),
-                edge_entities=tuple(sorted(set(edge_entities))),
-            ))
-            continue
-
-        element_ids = {
-            element
-            for entity_tag in entity_tags
-            for element in _surface_elements_for_entity(
-                mesh_api, entity_tag, element_tag_to_index)
-        }
-        oriented_boundaries = []
+    域内 Point 的构造节点被 _extract_mesh 剔除 (不在任何 2D 单元内,
+    如孔心) — node_ids 恒空且无提示, 与边界点行为不一致; 回退最近
+    位移节点并警告。域外 Physical Point 同样回退到最近节点时, 集中力
+    施加到完全错误的位置 — 域外必须拒绝 (返回空, 下游报错)。
+    回退失败 (异常) 也保持空, 由下游处理 (故意吞异常)。
+    """
+    try:
+        coords_arr = np.asarray(coords, dtype=float)
+        fallback = []
         for entity_tag in entity_tags:
-            surface_candidates.add(int(entity_tag))
-            for boundary_dimension, boundary_tag in model.getBoundary(
-                    [(2, int(entity_tag))],
-                    combined=False, oriented=True, recursive=False):
-                if int(boundary_dimension) == 1:
-                    oriented_boundaries.append(int(boundary_tag))
-        registry.surfaces.append(SurfaceRegion(
-            name=name,
-            physical_tag=physical_tag,
-            entity_tags=entity_tags,
-            entity_types=entity_types,
-            element_ids=tuple(sorted(element_ids)),
-            oriented_boundary_entities=tuple(oriented_boundaries),
-        ))
+            point_xy = np.asarray(
+                model.getValue(0, entity_tag, []),
+                dtype=float)[:2]
+            span = max(
+                float(np.ptp(coords_arr[:, 0])),
+                float(np.ptp(coords_arr[:, 1])),
+                np.finfo(float).tiny)
+            slack = span * 1e-6
+            inside = (
+                coords_arr[:, 0].min() - slack
+                <= point_xy[0]
+                <= coords_arr[:, 0].max() + slack
+                and coords_arr[:, 1].min() - slack
+                <= point_xy[1]
+                <= coords_arr[:, 1].max() + slack)
+            if not inside:
+                print(
+                    f"  [WARN] Physical Point '{name}' 位于"
+                    f"网格包围盒外 ({point_xy[0]:.6g}, "
+                    f"{point_xy[1]:.6g}) — 拒绝映射, 施加该点"
+                    f"集中力将报错")
+                continue
+            # 单元级判域 (与 input_source 一致): 孔心/凹域
+            # 缺口点在 AABB 内但不属于任何单元 — 回退到
+            # 最近节点会把集中力施加到材料域外位置 (静默错)
+            if elements is not None:
+                tmp = Mesh(
+                    coords_arr, elements, elem_type=elem_type)
+                if point_in_element(
+                        tmp, point_xy[0], point_xy[1]) < 0:
+                    print(
+                        f"  [WARN] Physical Point '{name}' 不在"
+                        f"材料域内 ({point_xy[0]:.6g}, "
+                        f"{point_xy[1]:.6g}) — 拒绝映射, 施加该"
+                        f"点集中力将报错 (如需载荷请选边界曲线)")
+                    continue
+            dist2 = np.sum(
+                (coords_arr - point_xy) ** 2, axis=1)
+            fallback.append(int(np.argmin(dist2)))
+        if fallback:
+            node_ids = tuple(sorted(set(fallback)))
+            print(
+                f"  [WARN] Physical Point '{name}' 的构造节点不在"
+                f"位移网格中, 已回退到最近节点 {list(node_ids)}")
+            return node_ids
+        return ()
+    except Exception:  # nosec B110 — 回退失败保持空, 由下游处理 (故意吞异常)
+        return ()
 
+
+def _extract_point_region(model, physical_tag, entity_tags, name,
+                          physical_nodes, coords, elements, elem_type):
+    node_ids = tuple(sorted(physical_nodes))
+    if not node_ids and coords is not None and entity_tags:
+        node_ids = _fallback_point_node_ids(
+            model, coords, elements, elem_type, entity_tags, name)
+    return PointRegion(
+        name=name,
+        physical_tag=physical_tag,
+        entity_tags=entity_tags,
+        node_ids=node_ids,
+    )
+
+
+def _extract_curve_region(mesh_api, entity_tags, entity_types, name,
+                          physical_tag, physical_nodes, node_tag_to_index):
+    edge_entities = []
+    for entity_tag, entity_type in zip(
+            entity_tags, entity_types):
+        for edge in _curve_edges_for_entity(
+                mesh_api, entity_tag, node_tag_to_index):
+            edge_entities.append((
+                int(edge[0]), int(edge[1]),
+                int(entity_tag), str(entity_type),
+            ))
+    edges = {
+        canonical_edge(a, b)
+        for a, b, _, _ in edge_entities
+    }
+    physical_nodes.update(
+        node for edge in edges for node in edge)
+    return CurveRegion(
+        name=name,
+        physical_tag=physical_tag,
+        entity_tags=entity_tags,
+        entity_types=entity_types,
+        node_ids=tuple(sorted(physical_nodes)),
+        edge_pairs=tuple(sorted(edges)),
+        edge_entities=tuple(sorted(set(edge_entities))),
+    )
+
+
+def _extract_surface_region(mesh_api, model, entity_tags, entity_types, name,
+                            physical_tag, element_tag_to_index,
+                            surface_candidates):
+    element_ids = {
+        element
+        for entity_tag in entity_tags
+        for element in _surface_elements_for_entity(
+            mesh_api, entity_tag, element_tag_to_index)
+    }
+    oriented_boundaries = []
+    for entity_tag in entity_tags:
+        surface_candidates.add(int(entity_tag))
+        for boundary_dimension, boundary_tag in model.getBoundary(
+                [(2, int(entity_tag))],
+                combined=False, oriented=True, recursive=False):
+            if int(boundary_dimension) == 1:
+                oriented_boundaries.append(int(boundary_tag))
+    return SurfaceRegion(
+        name=name,
+        physical_tag=physical_tag,
+        entity_tags=entity_tags,
+        entity_types=entity_types,
+        element_ids=tuple(sorted(element_ids)),
+        oriented_boundary_entities=tuple(oriented_boundaries),
+    )
+
+
+def _enumerate_active_surfaces(model, surface_candidates):
     # Physical Surfaces are optional in Gmsh.  Enumerate all active 2-D CAD
     # entities as a fallback so unlabelled curves still retain exact entity
     # boundaries and CAD types.
@@ -405,6 +401,11 @@ def _extract_regions(
             int(tag) for dimension, tag in get_entities(2)
             if int(dimension) == 2)
 
+
+def _surface_boundary_occurrences(mesh_api, model, element_tag_to_index,
+                                  surface_candidates):
+    """每条活动曲面 → 其有向边界曲线出现记录 (后续 cad_curves 归并)."""
+    curve_surface_occurrences = {}
     for surface_tag in sorted(surface_candidates):
         # ``getEntities(2)`` is a CAD inventory, not an active-mesh
         # inventory.  Hidden/excluded construction surfaces may exist in the
@@ -422,7 +423,13 @@ def _extract_regions(
             curve_surface_occurrences.setdefault(
                 abs(int(boundary_tag)), set()).add(
                     (int(surface_tag), int(boundary_tag)))
+    return curve_surface_occurrences
 
+
+def _cad_curve_regions(mesh_api, model, node_tag_to_index,
+                       curve_surface_occurrences):
+    """活动曲面边界曲线 → CadCurveRegion (含空记录 — 校验上报拓扑错误)."""
+    regions = []
     for entity_tag in sorted(curve_surface_occurrences):
         edges = tuple(sorted(set(_curve_edges_for_entity(
             mesh_api, entity_tag, node_tag_to_index))))
@@ -430,7 +437,7 @@ def _extract_regions(
         # active 2-D surface, so silently dropping it would make the adapter
         # claim complete CAD coverage when Gmsh supplied no usable line mesh.
         # Boundary validation will report this as a semantic/topology error.
-        registry.cad_curves.append(CadCurveRegion(
+        regions.append(CadCurveRegion(
             entity_tag=int(entity_tag),
             entity_type=_entity_type(model, 1, entity_tag),
             node_ids=tuple(sorted({
@@ -440,12 +447,62 @@ def _extract_regions(
             surface_occurrences=tuple(sorted(
                 curve_surface_occurrences[entity_tag])),
         ))
+    return regions
+
+
+def _extract_regions(
+        gmsh_module, node_tag_to_index, element_tag_to_index, coords=None,
+        elements=None, elem_type=None):
+    model = gmsh_module.model
+    mesh_api = model.mesh
+    registry = RegionRegistry(cad_boundary_complete=True)
+
+    surface_candidates = set()
+
+    for dimension, physical_tag in model.getPhysicalGroups():
+        dimension = int(dimension)
+        physical_tag = int(physical_tag)
+        if dimension not in (0, 1, 2):
+            continue
+        name = _physical_name(model, dimension, physical_tag)
+        entity_tags = tuple(sorted(
+            int(tag) for tag in
+            model.getEntitiesForPhysicalGroup(dimension, physical_tag)
+        ))
+        physical_nodes = set(_physical_node_ids(
+            mesh_api, dimension, physical_tag, node_tag_to_index))
+
+        if dimension == 0:
+            registry.points.append(_extract_point_region(
+                model, physical_tag, entity_tags, name, physical_nodes,
+                coords, elements, elem_type))
+            continue
+
+        entity_types = tuple(
+            _entity_type(model, dimension, tag)
+            for tag in entity_tags
+        )
+        if dimension == 1:
+            registry.curves.append(_extract_curve_region(
+                mesh_api, entity_tags, entity_types, name, physical_tag,
+                physical_nodes, node_tag_to_index))
+            continue
+
+        registry.surfaces.append(_extract_surface_region(
+            mesh_api, model, entity_tags, entity_types, name, physical_tag,
+            element_tag_to_index, surface_candidates))
+
+    _enumerate_active_surfaces(model, surface_candidates)
+    curve_surface_occurrences = _surface_boundary_occurrences(
+        mesh_api, model, element_tag_to_index, surface_candidates)
+    registry.cad_curves.extend(_cad_curve_regions(
+        mesh_api, model, node_tag_to_index, curve_surface_occurrences))
 
     # 物理组/CAD 成功提取才宣称边界完整 — 无条件 True 会让 MSH 2.x / 裸
     # 网格输入下完整性校验误判为覆盖完整, 掩盖静默降级。
     # 只用 registry.curves 会把"只有 Physical Surface、无 Physical Curve
     # 组"的常见用法静默降级: cad_curves 已由 getEntities(2)+getBoundary
-    # 完整枚举, 完整性校验却被关掉 
+    # 完整枚举, 完整性校验却被关掉
     registry.cad_boundary_complete = bool(
         registry.curves or registry.cad_curves)
     return registry

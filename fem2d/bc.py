@@ -23,6 +23,153 @@ from .checks import require_dof_index_array, require_finite_scalar
 # 1. 消去法 — Bathe §4.2.2 Eq 4.42-4.45 (推荐)
 # ═══════════════════════════════════════════════════════════════
 
+def _normalize_solver_key(linear_solver):
+    """solver 名称归一 + 校验 — 在任何分支前检查.
+
+    纯 Dirichlet 分支在名称检查前返回会让 linear_solver="bogus"
+    静默成功, 因此校验必须先于空自由集分支。
+    """
+    solver_key = str(linear_solver).strip().lower()
+    if solver_key == "cg-block":
+        solver_key = "cg"
+    if solver_key not in {"direct", "cg", "ilu"}:
+        raise ValueError(
+            f"Unknown linear_solver '{linear_solver}'; "
+            "expected direct, cg, cg-block or ilu.")
+    return solver_key
+
+
+def _solve_direct(K_aa, rhs):
+    """SuperLU: 稳健的默认路径, 适合中小规模模型."""
+    lu = splu(K_aa.tocsc())
+    return lu.solve(rhs), {"name": "direct", "iterations": 1}
+
+
+def _cg_preconditioner(K_aa, solver_key):
+    """PCG 预条件器: Jacobi (SPD, 默认) 或显式 ILU.
+
+    K_aa 对线弹性充分约束问题为 SPD; Jacobi 是低内存默认预条件器,
+    显式 ``ilu`` 使用 SuperLU 的不完全 LU 因子。
+    """
+    diagonal = K_aa.diagonal()
+    if (
+            not np.all(np.isfinite(diagonal))
+            or np.any(diagonal <= 0.0)):
+        raise RuntimeError(
+            "CG requires a positive finite stiffness diagonal. "
+            "Check element Jacobians and boundary constraints.")
+    if solver_key == "ilu":
+        # ⚠️ 数值方法风险: CG 理论上要求预条件器
+        # 对称正定, 而 SuperLU 的 ILU 不保证 SPD — 病态网格/畸形单元下
+        # 可能异常停滞 (rho 崩溃, 已有下游检查)。工程上 ILU-PCG 是常见
+        # 近似, 本项目限定: ILU 仅作显式选择, 默认 auto 走 Jacobi (SPD);
+        # 若 CG 收敛失败 (info != 0) 下游会给出明确错误建议 direct。
+        try:
+            # drop_tol=1e-4 的 ILU 因子对中等网格可能非正定 (预条件
+            # CG 的 rho 崩溃为 0, 与 maxiter 无关地永不收敛) —
+            # 实测 306 DOF 悬臂即复现, 1e-6 收敛。保持更精确的因子。
+            ilu = spilu(
+                K_aa.tocsc(),
+                drop_tol=1.0e-6,
+                fill_factor=10.0,
+                permc_spec="MMD_AT_PLUS_A",
+                diag_pivot_thresh=0.0,
+            )
+        except RuntimeError as error:
+            raise RuntimeError(
+                "ILU preconditioner factorization failed. "
+                "Try linear_solver='direct' or 'cg', improve mesh "
+                "quality, or check boundary constraints."
+            ) from error
+        preconditioner = LinearOperator(
+            K_aa.shape, matvec=ilu.solve, dtype=K_aa.dtype)
+        preconditioner_name = "ilu"
+    else:
+        preconditioner = diags(
+            1.0 / diagonal, offsets=0, shape=K_aa.shape, format="csr")
+        preconditioner_name = "jacobi"
+    return preconditioner, preconditioner_name
+
+
+def _solve_cg(K_aa, rhs, preconditioner, preconditioner_name,
+              cg_rtol, cg_maxiter):
+    """PCG 求解 + 收敛失败报错 (maxiter 自适应于 DOF 数)."""
+    if cg_maxiter is None:
+        cg_maxiter = min(
+            20000,
+            max(1000, int(20.0 * np.sqrt(K_aa.shape[0]))),
+        )
+    iterations = [0]
+
+    def count_iteration(_):
+        iterations[0] += 1
+
+    U_a, info = cg(
+        K_aa,
+        rhs,
+        M=preconditioner,
+        rtol=float(cg_rtol),
+        atol=0.0,
+        maxiter=int(cg_maxiter),
+        callback=count_iteration,
+    )
+    if info != 0:
+        detail = (
+            f"did not converge within {info} iterations"
+            if info > 0 else f"failed with status {info}")
+        raise RuntimeError(
+            f"{preconditioner_name.upper()}-preconditioned CG {detail}. "
+            "Try linear_solver='direct', improve mesh quality, or check "
+            "boundary constraints.")
+    return U_a, {
+        "name": "cg",
+        "iterations": int(iterations[0]),
+        "rtol": float(cg_rtol),
+        "preconditioner": preconditioner_name,
+    }
+
+
+def _pure_dirichlet_solution(K, F, n_dof, free_dofs, fixed_dofs,
+                             prescribed_vals, return_info):
+    """纯 Dirichlet 问题: K_aa 是 0×0, splu 不支持空矩阵.
+
+    solve() 在上游拦截该情形, 但 apply_elimination 是公开 API —
+    直接调用时空自由度集必须可正常工作 (Bathe Eq 4.45)。
+    """
+    u = np.zeros(n_dof)
+    u[fixed_dofs] = prescribed_vals
+    reactions = (K.dot(u) - F)[fixed_dofs]
+    if return_info:
+        return u, reactions, {"name": "direct", "iterations": 0}
+    return u, reactions
+
+
+def _reduced_system(K, F, free_dofs, fixed_dofs, prescribed_vals):
+    """(1) 提取子矩阵 K_aa + (2) 修正右端项 R_a' = R_a − K_ab·U_b
+    (Bathe Eq 4.43)."""
+    K_aa = K[free_dofs][:, free_dofs].tocsr()
+    rhs = F[free_dofs].copy()
+    if len(fixed_dofs) and np.any(prescribed_vals != 0.0):
+        K_ab = K[free_dofs][:, fixed_dofs].tocsr()
+        rhs -= K_ab.dot(prescribed_vals)
+    return K_aa, rhs
+
+
+def _assemble_solution(K, F, n_dof, free_dofs, fixed_dofs, U_a,
+                       prescribed_vals, return_info, solver_info):
+    """(4) 组装全位移向量 + (5) 支反力 R_b = (K·U − F)_b (Bathe Eq 4.45).
+
+    直接使用完整残差避免额外构造 K_ba/K_bb 两个稀疏子矩阵。
+    """
+    u = np.zeros(n_dof)
+    u[free_dofs] = U_a
+    u[fixed_dofs] = prescribed_vals
+    reactions = (K.dot(u) - F)[fixed_dofs]
+    if return_info:
+        return u, reactions, solver_info
+    return u, reactions
+
+
 def apply_elimination(
         K, F, free_dofs, fixed_dofs, prescribed_vals,
         linear_solver="direct", cg_rtol=1e-10, cg_maxiter=None,
@@ -57,132 +204,32 @@ def apply_elimination(
     free_dofs, fixed_dofs, prescribed_vals = _validate_elimination_inputs(
         K, F, free_dofs, fixed_dofs, prescribed_vals,
         system_validated=_system_validated)
+    solver_key = _normalize_solver_key(linear_solver)
 
-    # solver 名称在任何分支前校验 — 纯 Dirichlet 分支在名称检查前
-    # 返回会让 linear_solver="bogus" 静默成功
-    solver_key = str(linear_solver).strip().lower()
-    if solver_key == "cg-block":
-        solver_key = "cg"
-    if solver_key not in {"direct", "cg", "ilu"}:
-        raise ValueError(
-            f"Unknown linear_solver '{linear_solver}'; "
-            "expected direct, cg, cg-block or ilu.")
-
-    # 纯 Dirichlet 问题: K_aa 是 0×0, splu 不支持空矩阵。
-    # solve() 在上游拦截该情形, 但 apply_elimination 是公开 API —
-    # 直接调用时空自由度集必须可正常工作 (Bathe Eq 4.45)。
     if len(free_dofs) == 0:
-        u = np.zeros(n_dof)
-        u[fixed_dofs] = prescribed_vals
-        reactions = (K.dot(u) - F)[fixed_dofs]
-        if return_info:
-            return u, reactions, {"name": "direct", "iterations": 0}
-        return u, reactions
+        return _pure_dirichlet_solution(
+            K, F, n_dof, free_dofs, fixed_dofs,
+            prescribed_vals, return_info)
 
-    # (1) 提取子矩阵: K_aa, K_ab
-    K_aa = K[free_dofs][:, free_dofs].tocsr()
-    # (2) 修正右端项: R_a' = R_a - K_ab · U_b  (Bathe Eq 4.43)
-    rhs = F[free_dofs].copy()
-    if len(fixed_dofs) and np.any(prescribed_vals != 0.0):
-        K_ab = K[free_dofs][:, fixed_dofs].tocsr()
-        rhs -= K_ab.dot(prescribed_vals)
+    K_aa, rhs = _reduced_system(
+        K, F, free_dofs, fixed_dofs, prescribed_vals)
 
-    # (3) 求解: K_aa · U_a = R_a'
     if solver_key == "direct":
-        # SuperLU: 稳健的默认路径, 适合中小规模模型。
-        lu = splu(K_aa.tocsc())
-        U_a = lu.solve(rhs)
-        solver_info = {"name": "direct", "iterations": 1}
+        U_a, solver_info = _solve_direct(K_aa, rhs)
     elif solver_key in {"cg", "ilu"}:
-        # PCG: K_aa 对线弹性充分约束问题为 SPD。Jacobi 是低内存默认
-        # 预条件器；显式 ``ilu`` 使用 SuperLU 的不完全 LU 因子。
-        diagonal = K_aa.diagonal()
-        if (
-                not np.all(np.isfinite(diagonal))
-                or np.any(diagonal <= 0.0)):
-            raise RuntimeError(
-                "CG requires a positive finite stiffness diagonal. "
-                "Check element Jacobians and boundary constraints.")
-        if solver_key == "ilu":
-            # ⚠️ 数值方法风险: CG 理论上要求预条件器
-            # 对称正定, 而 SuperLU 的 ILU 不保证 SPD — 病态网格/畸形单元下
-            # 可能异常停滞 (rho 崩溃, 已有下游检查)。工程上 ILU-PCG 是常见
-            # 近似, 本项目限定: ILU 仅作显式选择, 默认 auto 走 Jacobi (SPD);
-            # 若 CG 收敛失败 (info != 0) 下游会给出明确错误建议 direct。
-            try:
-                # drop_tol=1e-4 的 ILU 因子对中等网格可能非正定 (预条件
-                # CG 的 rho 崩溃为 0, 与 maxiter 无关地永不收敛) —
-                # 实测 306 DOF 悬臂即复现, 1e-6 收敛。保持更精确的因子。
-                ilu = spilu(
-                    K_aa.tocsc(),
-                    drop_tol=1.0e-6,
-                    fill_factor=10.0,
-                    permc_spec="MMD_AT_PLUS_A",
-                    diag_pivot_thresh=0.0,
-                )
-            except RuntimeError as error:
-                raise RuntimeError(
-                    "ILU preconditioner factorization failed. "
-                    "Try linear_solver='direct' or 'cg', improve mesh "
-                    "quality, or check boundary constraints."
-                ) from error
-            preconditioner = LinearOperator(
-                K_aa.shape, matvec=ilu.solve, dtype=K_aa.dtype)
-            preconditioner_name = "ilu"
-        else:
-            preconditioner = diags(
-                1.0 / diagonal, offsets=0, shape=K_aa.shape, format="csr")
-            preconditioner_name = "jacobi"
-        if cg_maxiter is None:
-            cg_maxiter = min(
-                20000,
-                max(1000, int(20.0 * np.sqrt(K_aa.shape[0]))),
-            )
-        iterations = [0]
-
-        def count_iteration(_):
-            iterations[0] += 1
-
-        U_a, info = cg(
-            K_aa,
-            rhs,
-            M=preconditioner,
-            rtol=float(cg_rtol),
-            atol=0.0,
-            maxiter=int(cg_maxiter),
-            callback=count_iteration,
-        )
-        if info != 0:
-            detail = (
-                f"did not converge within {info} iterations"
-                if info > 0 else f"failed with status {info}")
-            raise RuntimeError(
-                f"{preconditioner_name.upper()}-preconditioned CG {detail}. "
-                "Try linear_solver='direct', improve mesh quality, or check "
-                "boundary constraints.")
-        solver_info = {
-            "name": "cg",
-            "iterations": int(iterations[0]),
-            "rtol": float(cg_rtol),
-            "preconditioner": preconditioner_name,
-        }
-    else:
+        preconditioner, preconditioner_name = _cg_preconditioner(
+            K_aa, solver_key)
+        U_a, solver_info = _solve_cg(
+            K_aa, rhs, preconditioner, preconditioner_name,
+            cg_rtol, cg_maxiter)
+    else:  # _normalize_solver_key 已拦截非法名称 — 仅防御
         raise ValueError(
             f"Unknown linear_solver '{linear_solver}'; "
             "expected direct, cg or ilu.")
 
-    # (4) 组装全位移向量
-    u = np.zeros(n_dof)
-    u[free_dofs] = U_a
-    u[fixed_dofs] = prescribed_vals
-
-    # (5) 支反力: R_b = (K·U - F)_b (Bathe Eq 4.45)
-    # 直接使用完整残差避免额外构造 K_ba/K_bb 两个稀疏子矩阵。
-    reactions = (K.dot(u) - F)[fixed_dofs]
-
-    if return_info:
-        return u, reactions, solver_info
-    return u, reactions
+    return _assemble_solution(
+        K, F, n_dof, free_dofs, fixed_dofs, U_a,
+        prescribed_vals, return_info, solver_info)
 
 
 # ═══════════════════════════════════════════════════════════════
