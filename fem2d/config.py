@@ -63,6 +63,7 @@ class AnalysisConfig:
 
     # ── 输出 ──
     no_plot: bool = False                # 抑制交互云图窗口
+    keep_open: bool = False              # 批处理命令计算完后仍进入交互窗口
     save: str = ""                       # 保存云图到文件
     output_dir: str = ""                 # 生成物输出目录 (.msh/临时文件);
                                          # 空 = 输入文件同目录 (默认行为)

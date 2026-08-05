@@ -761,3 +761,14 @@ def test_reconfigure_streams_shared_helper(monkeypatch):
         reconfigure_streams()
     # stdout + stderr 各一次 (仅 _Reconfigurable 命中; 其余两轮无调用)
     assert calls == [{"errors": "replace"}, {"errors": "replace"}]
+
+
+# ═══════════════════════════════════════════════════════════════
+# --keep-open: 批处理命令保留交互窗口
+# ═══════════════════════════════════════════════════════════════
+
+def test_keep_open_flag_plumbing():
+    """--keep-open → AnalysisConfig.keep_open=True; 缺省 False."""
+    from fem2d.cli import parse_args
+    assert AnalysisConfig.from_args(parse_args(["--keep-open"])).keep_open
+    assert not AnalysisConfig.from_args(parse_args([])).keep_open

@@ -71,6 +71,11 @@ def parse_args(argv=None):
     p.add_argument('--force', default=None,
                    help='集中力 target,fx,fy；target 可为 Gmsh 节点号或 Physical Point 名称')
     p.add_argument('--no-plot', action='store_true', default=None, help='不显示交互式云图')
+    p.add_argument('--keep-open', action='store_true', default=None,
+                   help=(
+                       '批处理命令 (CLI 传 BC) 计算完成后仍进入交互云图窗口 '
+                       '(窗口停留, 键盘切换云图, q 退出; 可配 --save 先保存'
+                       '再交互; 与 --no-plot 互斥; 无 BC 参数时无效果)'))
     p.add_argument('--list-boundaries', action='store_true', default=None,
                    help='仅列出边界分段后退出 (不求解)')
     p.add_argument(
