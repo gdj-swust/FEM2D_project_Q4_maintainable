@@ -16,6 +16,11 @@ def read_geo_groups(geo_path, *, gmsh_module=None):
 
     Returns: {"name1":[ids], "name2":[ids], ...}  或 None
     """
+    if not isinstance(geo_path, (str, os.PathLike)):
+        # open(int) 把 int 当已存在 fd 打开 — 非 str 路径会读取/关闭
+        # 调用进程的 fd 1 (stdout), 静默破坏调用方输出
+        raise TypeError(
+            f"geo 路径必须为 str/os.PathLike, 得到 {type(geo_path).__name__}")
     if not os.path.isfile(geo_path):
         return None
     api_groups = read_geo_curve_groups(
@@ -59,6 +64,11 @@ def parse_spec_config(filepath):
     格式错误 (漏写 = / 空值) 必须响亮报错 — 曾静默丢键, 约束/载荷
     无声消失, 与 .txt 入口的缺值报错行为分叉。
     """
+    if not isinstance(filepath, (str, os.PathLike)):
+        # open(int) 会把 int 当 fd 打开并关闭 stdout — 非 str 路径
+        # (如误传节点编号) 静默破坏调用进程
+        raise TypeError(
+            f"spec 路径必须为 str/os.PathLike, 得到 {type(filepath).__name__}")
     spec = {}
     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
         for lineno, raw_line in enumerate(f, 1):
@@ -93,6 +103,10 @@ def parse_geo_fem_config(geo_path: str):
     不足静默丢弃、空 @FEM:pressure= 连正则都不匹配, 求解成功但工况
     已变: 静默丢载荷是最危险的错误类型。
     """
+    if not isinstance(geo_path, (str, os.PathLike)):
+        # open(int) 会把 int 当 fd 打开并关闭 stdout (与 read_geo_groups 同)
+        raise TypeError(
+            f"geo 路径必须为 str/os.PathLike, 得到 {type(geo_path).__name__}")
     if not geo_path or not os.path.isfile(geo_path):
         return {"fix": [], "traction": [], "pressure": [], "body": None}
     config = {"fix": [], "traction": [], "pressure": [], "body": None}

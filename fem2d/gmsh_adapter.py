@@ -91,6 +91,12 @@ def _safe_geo_source(geo_path):
     传入 geo_path 使 Include 引用树递归扫描闭环 (SystemCall 拦截 +
     循环/钻石检测) — 与子进程路径共用同一扫描器。
     """
+    if not isinstance(geo_path, (str, os.PathLike)):
+        # open(int) 把 int 当已存在 fd 打开 — 非 str 路径 (如误传节点
+        # 编号) 会读取/关闭进程的 fd 1 (stdout), 静默破坏调用方输出
+        raise TypeError(
+            f"geo 路径必须为 str/os.PathLike, 得到 "
+            f"{type(geo_path).__name__}")
     from scripts.gmsh_runner import sanitize_geo_source
     with open(geo_path, "r", encoding="utf-8", errors="ignore") as stream:
         original = stream.read()
@@ -656,6 +662,10 @@ def _extract_mesh(gmsh_module, require_quads=False, plane_type="stress"):
 
 def _file_declares_physical_names(msh_path):
     """.msh 文件是否声明了 $PhysicalNames 段 (用于检测物理组静默丢失)."""
+    if not isinstance(msh_path, (str, os.PathLike)):
+        # open(int) 会把 int 当 fd 打开并关闭 stdout (与 _safe_geo_source 同)
+        raise TypeError(
+            f"msh 路径必须为 str/os.PathLike, 得到 {type(msh_path).__name__}")
     try:
         with open(msh_path, "r", encoding="ascii", errors="replace") as f:
             for line in f:

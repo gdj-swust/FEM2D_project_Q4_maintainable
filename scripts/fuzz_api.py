@@ -28,9 +28,17 @@ if _ROOT not in sys.path:
 
 import fem2d as F
 from fem2d.bc import apply_elimination, apply_penalty
+from fem2d.bc_apply import _resolve_boundary_selection
 from fem2d.config import AnalysisConfig
-from fem2d.error_est import estimate as estimate_error
+from fem2d.error_est import (
+    compute_traction_jumps,
+    estimate as estimate_error,
+    element_refinement_indicator,
+)
 from fem2d.errors import CliError
+from fem2d.input_source import (
+    physical_point_from_geo, resolve_geo, resolve_spec_overrides,
+)
 from fem2d.loads_core import parse_traction, parse_vec2
 from fem2d.material import D_matrix, von_mises
 from fem2d.mesh import Mesh
@@ -48,7 +56,9 @@ from fem2d.stress import (
 
 # 预期异常: 契约允许的输入拒绝方式 (带诊断消息). 其他一律 unexpected —
 # 曾把全部非 BARE 异常当成功忽略, RuntimeError/OverflowError 被静默放过.
-EXPECTED = (ValueError, TypeError, CliError)
+# FileNotFoundError: 路径类入口对不存在文件的拒绝 — 标准异常带文件名
+# 消息, 属领域错误 (C2 扩面新增路径入口后纳入).
+EXPECTED = (ValueError, TypeError, CliError, FileNotFoundError)
 
 
 def _classify(exc):
@@ -182,7 +192,7 @@ def main():
 
     for _ in range(rounds):
         v = _rand_value(rng)
-        i = rng.randrange(30)
+        i = rng.randrange(36)
         if i == 0:
             feed(f"fix_node({v!r})", lambda v=v: _mesh().fix_node(v, "both", 0.0),
                  silent_ok=_valid_nid(v))  # 仅 0/1 是合法 nid
@@ -261,6 +271,28 @@ def main():
             feed(f"replace_elements({v!r})", lambda v=v: _mesh().replace_elements(v))
         elif i == 29:
             feed(f"estimate_condition K({v!r})", lambda v=v: estimate_condition(v))
+        elif i == 30:
+            feed(f"refinement_indicator result({v!r})",
+                 lambda v=v: element_refinement_indicator(_mesh(), v))
+        elif i == 31:
+            feed(f"traction_jumps stress({v!r})",
+                 lambda v=v: compute_traction_jumps(_mesh(), v))
+        elif i == 32:
+            feed(f"resolve_boundary_selection({v!r})",
+                 lambda v=v: _resolve_boundary_selection(v, [], fatal=True),
+                 # 契约: str 任意 / None (空选择) — 其余类型必须报错
+                 silent_ok=isinstance(v, str) or v is None)
+        elif i == 33:
+            feed(f"physical_point_from_geo({v!r})",
+                 lambda v=v: physical_point_from_geo(v, "p1", _mesh()),
+                 silent_ok=isinstance(v, str))  # str 类型合法 (reason 元组契约)
+        elif i == 34:
+            feed(f"resolve_spec_overrides({v!r})",
+                 lambda v=v: resolve_spec_overrides(v, AnalysisConfig()),
+                 silent_ok=isinstance(v, str))  # 路径类型合法, 缺失文件拒绝
+        elif i == 35:
+            feed(f"resolve_geo({v!r})",
+                 lambda v=v: resolve_geo(v, AnalysisConfig(), ask=None))
 
     print(f"seed={seed} rounds={rounds}")
     print(f"calls={calls}")
