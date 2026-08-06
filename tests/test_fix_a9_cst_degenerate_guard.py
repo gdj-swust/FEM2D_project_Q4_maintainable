@@ -106,14 +106,18 @@ def test_batch_stiffness_bit_exact_gold():
 
 
 def test_solve_bit_exact_gold():
+    # 求解路径含稀疏消去 (BLAS) — 跨平台 (Win MKL vs Linux OpenBLAS) 最后
+    # 1-2 位浮点不同, 逐位断言不可移植 (CI 实测 8.07811806480248e-06 vs
+    # 8.078118064802482e-06). 位级锁由 test_solve_refactor_lock 同平台承担;
+    # 此处断言"接近金标准" (相对 1e-13) 锁 A9 修复不改变求解结果.
     m = Mesh(NODES, ELEMS, E=2.1e11, nu=0.3, thickness=0.01)
     for n in (0, 2):
         m.fix_node(n, "both", 0.0)
     m.add_force(3, 1e5, 0.0)
     r = solve(m, verbose=False)
-    assert r["u"].tolist() == GOLD_U
-    assert r["reactions"].tolist() == GOLD_REACTIONS
-    assert r["stress"].tolist() == GOLD_STRESS
+    np.testing.assert_allclose(r["u"], GOLD_U, rtol=1e-13, atol=0.0)
+    np.testing.assert_allclose(r["reactions"], GOLD_REACTIONS, rtol=1e-13, atol=0.0)
+    np.testing.assert_allclose(r["stress"], GOLD_STRESS, rtol=1e-13, atol=0.0)
 
 
 def test_grid_batch_stiffness_lock():
