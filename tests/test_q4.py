@@ -4,6 +4,21 @@ import numpy as np
 from fem2d import Mesh, solve
 
 
+def _grid(nx, ny, x0, x1, y0, y1):
+    xs = np.linspace(x0, x1, nx + 1)
+    ys = np.linspace(y0, y1, ny + 1)
+    X, Y = np.meshgrid(xs, ys, indexing="ij")
+    nodes = np.column_stack([X.ravel(), Y.ravel()])
+
+    def idx(i, j):
+        return i * (ny + 1) + j
+
+    quads = np.array(
+        [[idx(i, j), idx(i + 1, j), idx(i + 1, j + 1), idx(i, j + 1)]
+         for i in range(nx) for j in range(ny)], dtype=np.int64)
+    return nodes, quads
+
+
 def _two_quad_mesh():
     nodes = np.array([
         [0.0, 0.0], [1.0, 0.0], [2.0, 0.0],
@@ -37,6 +52,40 @@ def test_q4_patch_tests_plane_stress_and_strain():
         assert all(
             case["stress_qp_error"] < report["tol"]
             for case in report["tests"])
+
+
+def test_q4_pure_bending_closed_form_tip_deflection():
+    """积分点位置锁定 (R-ε E2): 单行 Q4 纯弯闭式解 (ν=0).
+
+    v_tip/v_exact = 2n²/(2n²+(L/h)²); n=10, L/h=5 → 恰 8/9 (经典
+    Q4 弯曲比值). 闭式对 n∈{1..30}, L/h∈{4,5,10} 在 1e-13 内成立;
+    ν≠0 时共轭曲率改变比值 → 只锁 ν=0. 常数/仿射应变场在任何采样
+    位置应变相同, 旧测试对积分点位置盲视; 纯弯是非仿射场 — 2×2
+    积分点错位 (如 ±0.9) 破坏对二次被积函数的精确积分 → 弯曲刚度
+    错误 → 比值偏离闭式 (实测 0.366 vs 0.889).
+    """
+    length, height, E, moment, nx = 10.0, 2.0, 1000.0, 1.0, 10
+    inertia = height ** 3 / 12.0
+    v_exact = moment * length ** 2 / (2.0 * E * inertia)
+
+    nodes, quads = _grid(nx, 1, 0.0, length, -height / 2, height / 2)
+    mesh = Mesh(nodes=nodes, elements=quads, E=E, nu=0.0, thickness=1.0,
+                plane_type="stress", elem_type="CPS4")
+    left = np.flatnonzero(np.abs(nodes[:, 0]) < 1e-9)
+    for node in left:
+        mesh.fix_node(int(node), "x")
+    mesh.fix_node(int(left[np.argmin(np.abs(nodes[left, 1]))]), "y")
+    right = np.flatnonzero(np.abs(nodes[:, 0] - length) < 1e-9)
+    order = right[np.argsort(nodes[right, 1])]
+    for a, b in zip(order[:-1], order[1:]):
+        mesh.add_traction(int(a), int(b),
+                          lambda x, y: moment * y / inertia, 0.0)
+    result = solve(mesh, verbose=False)
+    tip = order[np.argmin(np.abs(nodes[order, 1]))]
+    ratio = abs(result["u"][2 * tip + 1]) / v_exact
+
+    expected = 2 * nx ** 2 / (2 * nx ** 2 + (length / height) ** 2)
+    assert np.isclose(ratio, expected, rtol=1e-9)
 
 
 def test_q4_affine_field_is_exact_at_all_gauss_points():
