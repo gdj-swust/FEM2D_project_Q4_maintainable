@@ -455,6 +455,23 @@ def _estimate_stress_jumps(mesh, result):
     }
 
 
+def _logaddexp_scatter(eta_log, eids, terms):
+    """logaddexp 散点归约 — 按 eid 排序 + reduceat (替代 ufunc.at).
+
+    at() 无缓冲逐元素散点 (审查报告可优化点 8): 每个 (eid, term) 触发
+    一次 Python 级循环。本实现: 稳定排序 (组内保持原顺序) → 组首索引
+    → reduceat 左结合逐项累加 — 与 at() 的逐项累加序列逐位一致。
+    """
+    order = np.argsort(eids, kind="stable")
+    sorted_eids = eids[order]
+    sorted_terms = terms[order]
+    first = np.flatnonzero(
+        np.concatenate(([True], sorted_eids[1:] != sorted_eids[:-1])))
+    reduced = np.logaddexp.reduceat(sorted_terms, first)
+    eta_log[sorted_eids[first]] = np.logaddexp(
+        eta_log[sorted_eids[first]], reduced)
+
+
 def _internal_edge_jump_logs(mesh, stress, eta_log):
     """内部边牵引跳跃 (数组路径 — 免去每条边一个 dict)."""
     edge_data, edge_lengths, jump_abs, _ = _traction_jump_arrays(
@@ -464,8 +481,11 @@ def _internal_edge_jump_logs(mesh, stress, eta_log):
         # jump=0 (零应力边) → log(0)=-inf, logaddexp 视作无该项
         with np.errstate(divide="ignore"):
             log_term = 2.0 * np.log(edge_lengths) + 2.0 * np.log(jump_abs)
-        np.logaddexp.at(eta_log, edge_data[:, 2], log_term)
-        np.logaddexp.at(eta_log, edge_data[:, 3], log_term)
+        # 两列 (eid1, eid2) 拼接后归约 — 稳定排序保证组内顺序与 at()
+        # 的两次逐项累加 (eid1 列全部先于 eid2 列) 完全一致
+        eids = np.concatenate((edge_data[:, 2], edge_data[:, 3]))
+        terms = np.concatenate((log_term, log_term))
+        _logaddexp_scatter(eta_log, eids, terms)
     eta_log += math.log(0.5)
 
 

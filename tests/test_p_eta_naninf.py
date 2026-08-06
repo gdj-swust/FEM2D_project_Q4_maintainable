@@ -15,9 +15,7 @@ import pytest
 
 from fem2d.element import evaluate_vector_field
 from fem2d.error_est import (
-    _collect_loaded_edges,
-    _element_sigma_tensors,
-    _traction_jump_arrays,
+    _logaddexp_scatter,
     compute_traction_jumps,
     element_refinement_indicator,
     estimate,
@@ -103,3 +101,27 @@ def test_estimate_nan_stress_qp_rejected():
               "stress_qp": np.full((2, 2, 3), np.nan)}
     with pytest.raises(ValueError, match="NaN/Inf"):
         estimate(mesh, result, verbose=False)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 任务2: logaddexp 归约等价性 (排序+reduceat vs ufunc.at)
+# ═══════════════════════════════════════════════════════════════
+
+def test_logaddexp_scatter_matches_ufunc_at():
+    """排序+reduceat 归约与 np.logaddexp.at 逐位一致 (随机含重复 eid/-inf).
+
+    内部调用场景: eta_log 基恒为 -inf (element_refinement_indicator
+    用 np.full(n_elem, -inf) 初始化), logaddexp(-inf, x) ≡ x, 归约
+    结合序重排不引入任何 ulp 差异.
+    """
+    rng = np.random.default_rng(20260806)
+    for _ in range(50):
+        n = 200
+        eids = rng.integers(0, 40, size=rng.integers(1, 600))
+        terms = rng.normal(0.0, 10.0, size=len(eids))
+        terms[rng.random(len(eids)) < 0.3] = -np.inf   # 零跳跃边
+        got = np.full(n, -np.inf)
+        _logaddexp_scatter(got, eids, terms)
+        ref = np.full(n, -np.inf)
+        np.logaddexp.at(ref, eids, terms)
+        assert np.array_equal(got, ref)
