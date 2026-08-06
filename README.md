@@ -90,14 +90,14 @@ FEM2D_project_Q4/
 │   ├── visualize.py       # 云图 (flat/gouraud/isoband/scalar_jump)
 │   ├── verification.py    # 平面应力/应变解析对照 (--self-test)
 │   └── topology_core.py / quality.py / patch_test.py / convergence.py / material.py
-├── scripts/               # 工具层 (13 .py + 1 .sh)
+├── scripts/               # 工具层 (14 .py + 1 .sh)
 │   ├── gmsh_runner.py     # 子进程 gmsh: .geo → .msh (300s 超时 + 原子发布)
 │   ├── geo_spec.py        # 中文文本描述 → .geo 生成
 │   ├── check_dead_code.py / check_imports_deep.py   # 自制静态检查器
 │   └── convergence_study.py / test_complex.py / make_test_spec.sh
-├── tests/                 # 134 个测试文件 + conftest.py, 1628 测试
-│                         #   (本机 2026-08-06 实测 1626 passed + 2 skipped,
-│                         #    覆盖率 98.3%;
+├── tests/                 # 142 个测试文件 + conftest.py, 1793 测试
+│                         #   (本机 2026-08-06 实测 1793 passed + 0 skipped,
+│                         #    覆盖率 98.0%;
 │                         #    无 Gmsh 环境的 collected/skip 以实测为准)
 ├── models/                # 算例库: 21 .geo + 7 .spec + 3 .txt
 └── tools/gmsh-4.15.2-Windows64/gmsh.exe   # Gmsh 可执行文件 (捆绑)
