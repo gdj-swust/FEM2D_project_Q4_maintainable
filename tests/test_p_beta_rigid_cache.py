@@ -283,3 +283,223 @@ def test_vectorized_scan_equivalent_to_legacy(mesh_name, bc_name):
         f"[{mesh_name}/{bc_name}] 缓存命中输出与旧实现不一致")
     assert m2.check_rigid_body_constraints() == expected, (
         f"[{mesh_name}/{bc_name}] 独立网格首调输出与旧实现不一致")
+
+
+# ── 2. 缓存命中 (判别性红侧) ────────────────────────────────────────
+
+
+def test_second_call_hits_cache_single_topology_pass(monkeypatch):
+    """同一网格两次检查 → 拓扑只算一次 + 返回同一 list 对象 (只读复用).
+
+    无缓存时: connected_components 调用 2 次, 且二调返回新建 list
+    (身份断言必红).
+    """
+    m = _triangle_pair_plus_isolated()
+    m.fix_node(0, "both")
+    m.fix_node(1, "both")
+    m.fix_node(2, "both")
+    probe = _install_counter(monkeypatch)
+
+    first = m.check_rigid_body_constraints()
+    assert probe.calls == 1
+    second = m.check_rigid_body_constraints()
+    assert probe.calls == 1, (
+        f"二调重算了拓扑 (connected_components 调用 {probe.calls} 次, "
+        "期望 1 — 缓存未命中)")
+    assert second is first, "二调未复用缓存结果 (返回了新建 list)"
+
+
+def test_cache_hit_path_skips_connectivity_and_components(monkeypatch):
+    """缓存命中路径零预处理 — 不调 build_connectivity 也不扫图.
+
+    首调建缓存后, 二调 (BC/网格未变) 必须直接返回, 连接重建
+    (spy) 与 connected_components (探针) 都不触发.
+    """
+    m = _tri_plus_isolated()
+    m.fix_node(0, "both")
+    m.check_rigid_body_constraints()          # 首调: 建连接 + 建缓存
+    build_calls = [0]
+    original_build = m.build_connectivity
+
+    def spy_build():
+        build_calls[0] += 1
+        return original_build()
+
+    m.build_connectivity = spy_build          # 实例级 spy (仅本测试)
+    probe = _install_counter(monkeypatch)
+    m.check_rigid_body_constraints()
+    assert probe.calls == 0, (
+        f"缓存命中路径重算连通分量: 调用 {probe.calls} 次, 期望 0")
+    assert build_calls[0] == 0, "缓存命中路径重调 build_connectivity"
+
+
+# ── 3. 失效路径 (判别性红侧) ────────────────────────────────────────
+
+
+def test_fix_node_invalidate_and_update(monkeypatch):
+    """fix_node 增删约束 → 缓存失效 (计数+1) 且结果更新."""
+    m = _tri_plus_isolated()
+    probe = _install_counter(monkeypatch)
+
+    issues1 = m.check_rigid_body_constraints()
+    assert probe.calls == 1
+    assert issues1[0]["issue"] == "无任何约束 — 保留 3 个刚体模态"
+
+    m.fix_node(0, "both")
+    issues2 = m.check_rigid_body_constraints()
+    assert probe.calls == 2, "fix_node 后缓存未失效 (计数未递增)"
+    assert issues2[0]["issue"] != issues1[0]["issue"], "fix_node 后结果未更新"
+
+    m.fix_node(1, "both")
+    m.fix_node(2, "both")
+    issues3 = m.check_rigid_body_constraints()
+    assert probe.calls == 3
+    assert issues3 == [
+        {"component": 1, "nodes": [3],
+         "issue": "孤立分量 (1 节点, 无单元连接)"},
+    ], "约束增足后结果未更新"
+
+
+def test_fixed_dofs_setter_invalidate(monkeypatch):
+    """fixed_dofs setter 重赋值 → 缓存显式失效 (白盒) + 结果更新."""
+    m = _tri_plus_isolated()
+    m.fix_node(0, "both")
+    m.check_rigid_body_constraints()
+    assert m._rigid_cache is not None
+
+    m.fixed_dofs = np.array([0, 1, 2, 3, 4, 5], dtype=int)
+    assert m._rigid_cache is None, "setter 未清刚体缓存 (白盒失效要求)"
+    issues = m.check_rigid_body_constraints()
+    assert issues == [
+        {"component": 1, "nodes": [3],
+         "issue": "孤立分量 (1 节点, 无单元连接)"},
+    ]
+
+    # 内容比较兜底: 即使 setter 失效被移除, 新内容 ≠ 旧快照 → 仍重算
+    probe = _install_counter(monkeypatch)
+    m.check_rigid_body_constraints()          # BC 未变 → 缓存命中 (0 次)
+    m.fixed_dofs = np.array([], dtype=int)    # BC 变更 → 失效
+    m.check_rigid_body_constraints()          # 重算 (1 次)
+    assert probe.calls == 1
+
+
+def test_fix_nodes_func_invalidate(monkeypatch):
+    """fix_nodes_func (批量函数约束) → 缓存失效 (计数+1) 且结果更新."""
+    m = _tri_plus_isolated()
+    probe = _install_counter(monkeypatch)
+    m.check_rigid_body_constraints()
+    assert probe.calls == 1
+
+    m.fix_nodes_func([0, 1, 2], 0.0)
+    issues = m.check_rigid_body_constraints()
+    assert probe.calls == 2, "fix_nodes_func 后缓存未失效"
+    assert issues == [
+        {"component": 1, "nodes": [3],
+         "issue": "孤立分量 (1 节点, 无单元连接)"},
+    ]
+
+
+def test_inplace_fixed_dofs_mutation_invalidate(monkeypatch):
+    """原地修改 fixed_dofs 数组内容 (绕过 setter/fix_node) → 结果正确.
+
+    数组只读 by design — 测试显式 setflags(write=True) 模拟绕过 API
+    的原地写。若缓存存数组引用而非快照拷贝, 数组与自己比较永远
+    命中 → 返回陈旧结果 (此测试必红). 内容往返两次, 每次结果都须
+    反映新 BC.
+    """
+    m = _triangle_pair_plus_isolated()
+    for n in range(4):
+        m.fix_node(n, "both")          # comp0 全约束 (dofs 0-7)
+    probe = _install_counter(monkeypatch)
+
+    issues1 = m.check_rigid_body_constraints()
+    assert probe.calls == 1
+    assert issues1 == [
+        {"component": 1, "nodes": [4],
+         "issue": "孤立分量 (1 节点, 无单元连接)"},
+    ]
+
+    # 原地改写同一数组: 清空 comp0 约束 (dofs 0-7 → 8,9,8,9,...;
+    # dofs 8,9 = 孤立节点 4, comp0 一个都占不到 → 无任何约束)
+    arr = m.fixed_dofs
+    assert not arr.flags.writeable
+    arr.setflags(write=True)
+    arr[:] = np.array([8, 9] * 4, dtype=int)
+    issues2 = m.check_rigid_body_constraints()
+    assert probe.calls == 2, "原地修改后缓存未失效 (快照存引用必红)"
+    assert issues2[0]["issue"] == "无任何约束 — 保留 3 个刚体模态", (
+        "原地修改后结果未反映新 BC (陈旧缓存)")
+
+    # 恢复原约束 → 结果回到充分约束状态
+    arr[:] = np.arange(8, dtype=int)
+    issues3 = m.check_rigid_body_constraints()
+    assert probe.calls == 3
+    assert issues3 == issues1
+
+
+def test_mesh_replacement_invalidate(monkeypatch):
+    """replace_nodes/replace_elements/invalidate_cache → 缓存失效.
+
+    结果与旧实现参照一致 (坐标/拓扑变更后 R 矩阵与分量分解都变).
+    """
+    m = _triangle_pair_plus_isolated()
+    m.fix_node(0, "both")
+    m.fix_node(3, "both")
+    probe = _install_counter(monkeypatch)
+    m.check_rigid_body_constraints()
+    assert probe.calls == 1
+
+    # 坐标平移 (不动拓扑) — R 矩阵变, 结果必须重算
+    m.replace_nodes(m.nodes + np.array([10.0, 0.0]))
+    m.check_rigid_body_constraints()
+    assert probe.calls == 2, "replace_nodes 后缓存未失效"
+    assert m.check_rigid_body_constraints() == \
+        _legacy_check_rigid_body_constraints(m)
+
+    # 单元重连: 孤立节点从 4 换到 0 (拓扑变, 分量分解变)
+    m.replace_elements(np.array([[1, 2, 3], [2, 3, 4]]))
+    m.check_rigid_body_constraints()
+    assert probe.calls == 3, "replace_elements 后缓存未失效"
+    assert m.check_rigid_body_constraints() == \
+        _legacy_check_rigid_body_constraints(m)
+
+    # 显式 invalidate_cache → 下一次必重算
+    m.invalidate_cache()
+    m.check_rigid_body_constraints()
+    assert probe.calls == 4, "invalidate_cache 后缓存未失效"
+
+
+# ── 4. 性能判别场景 (100k 级网格, 正确性 + 二调命中) ────────────────
+
+
+def _grid_mesh(n):
+    """n×n 三角网格 — n² 节点, 2n(n-1) 单元 (向量化构造, 无 gmsh)."""
+    xs, ys = np.meshgrid(np.arange(n, dtype=float), np.arange(n, dtype=float))
+    nodes = np.column_stack([xs.ravel(), ys.ravel()])
+    quads = np.arange(n * n).reshape(n, n)
+    tris = []
+    for i in range(n - 1):
+        for j in range(n - 1):
+            a, b, c, d = quads[i, j], quads[i, j + 1], quads[i + 1, j + 1], quads[i + 1, j]
+            tris.append((a, b, d))
+            tris.append((b, c, d))
+    return Mesh(nodes=nodes, elements=np.array(tris), E=1e6, nu=0.3)
+
+
+def test_large_grid_correct_and_second_call_cached(monkeypatch):
+    """100k 级网格 (90k 节点 ≈ 180k DOF): 结果正确 + 二调拓扑零重算.
+
+    只断言计数与正确性 (墙钟时间断言在 CI 机器上会抖动误报 —
+    首调/二调耗时对比为汇报项, 见性能对比表).
+    """
+    m = _grid_mesh(300)                # 90k 节点 / 179,400 单元
+    m.fix_node(0, "both")
+    m.fix_node(0 + 299, "both")        # 左下 + 右下角
+    m.fix_node(299 * 300, "both")      # 左上角 — 非共线 → rank 3
+    probe = _install_counter(monkeypatch)
+
+    assert m.check_rigid_body_constraints() == []   # 单连通分量, 约束充分
+    assert probe.calls == 1
+    assert m.check_rigid_body_constraints() == []
+    assert probe.calls == 1, (
+        f"100k 级网格二调重算拓扑: 调用 {probe.calls} 次, 期望 1")
