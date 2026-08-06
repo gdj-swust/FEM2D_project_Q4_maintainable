@@ -9,7 +9,9 @@
   python scripts/make_release_zip.py --split --list   # 只列 4 包清单, 不写 zip
   python scripts/make_release_zip.py --root <目录>    # 仓库根覆盖 (守恒比对用)
 
-排除规则与 .gitignore/交接文档一致, 每条规则注明"为什么":
+排除规则与 .gitignore/交接文档一致 (点开头临时前缀是运行时产物,
+.gitignore 以 models/*.msh 覆盖 models/ 内, 本表按任意路径层级兜底),
+每条规则注明"为什么":
   .git / build / dist / *.egg-info   生成物与版本库不进发布包
                                      (过期 egg-info 曾带旧 PKG-INFO 版本号进包)
   __pycache__ / .pytest_cache / .mypy_cache / .ruff_cache / .venv*
@@ -17,6 +19,9 @@
   .coverage / *.zip / tmp*           运行产物与临时文件
   wt_*                               分包 worktree (并行任务副本, 非当前代码)
   PROMPT_*                           派发任务书 (临时文档, 不入包)
+  .fem2d-msh-* / .fem2d-write-probe-*
+                                     fem2d 运行时临时产物 (崩溃/强制退出遗留,
+                                     曾混入发布包 4.1MB — S-α 审查实证)
   tools/ (标准模式)                  gmsh.exe 数据目录 — 分发时单独给, 保留 GPL
                                      v2+ 声明; full 模式才包含
 
@@ -70,6 +75,8 @@ _ALWAYS_EXCLUDE = [
     "*.zip",
     "tmp*",
     "PROMPT_*",
+    ".fem2d-msh-*",
+    ".fem2d-write-probe-*",
     "*.egg-info",
     "build",
     "dist",
