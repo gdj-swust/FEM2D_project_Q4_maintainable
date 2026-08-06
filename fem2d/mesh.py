@@ -306,7 +306,10 @@ class Mesh:
         property setter 把任何重绑赋值路由到 :meth:`replace_nodes` /
         :meth:`replace_elements` — 它们内部完成校验、只读锁定并清除
         缓存。直接绕过 API 改数组会导致面积/形函数系数/邻接关系
-        静默过期, 产生错误结果.
+        静默过期, 产生错误结果。
+
+        同时清除刚体模态检查结果缓存 — 节点坐标/单元连接直接决定
+        连通分量分解与 R 约束矩阵, 网格变更后旧结果必然过期。
         """
         self._connectivity_built = False
         self.node_to_elems = None
@@ -948,6 +951,8 @@ class Mesh:
         from scipy.sparse import csr_matrix
         from scipy.sparse.csgraph import connected_components
 
+        fixed = self.fixed_dofs
+
         self.build_connectivity()
         n_nodes = self.n_nodes
 
@@ -961,7 +966,6 @@ class Mesh:
         n_comp, labels = connected_components(adj, directed=False)
 
         # ── 2. 逐分量检查 ──
-        fixed_set = set(self.fixed_dofs)
         issues = []
 
         for comp in range(n_comp):
@@ -975,13 +979,12 @@ class Mesh:
                 })
                 continue
 
-            # 该分量中被约束的 DOF
-            comp_dofs = set()
-            for n in comp_nodes:
-                if (2*n) in fixed_set:
-                    comp_dofs.add(2*n)
-                if (2*n + 1) in fixed_set:
-                    comp_dofs.add(2*n + 1)
+            # 该分量中被约束的 DOF — 向量化: 全分量 DOF 一次 np.isin
+            # (旧实现逐节点 Python 循环 + set 成员查询, 100k 节点级
+            # 网格是热路径)。2n 与 2n+1 互异且 comp_nodes 无重复 →
+            # 结果 set 的元素集与旧循环逐元素一致 (len 相等)。
+            comp_dofs_all = np.concatenate([2 * comp_nodes, 2 * comp_nodes + 1])
+            comp_dofs = set(comp_dofs_all[np.isin(comp_dofs_all, fixed)].tolist())
 
             if len(comp_dofs) == 0:
                 issues.append({
