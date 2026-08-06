@@ -1,19 +1,26 @@
 """契约表-代码一致性探针 (复查轮可复用审计工具).
 
 逐条实测 docs/api_contract.md 各行的"应有错误行为"列:
-  probe(name, fn, expect) — expect 为异常类型或 None (不应抛)。
+  probe(name, fn, expect, expect_exit=None) — expect 为异常类型或 None
+  (不应抛); expect_exit 为期望 CliError.exit_code (None = 不查)。
 输出 PASS/FAIL, 任何 FAIL → 退出码 1。
 
-覆盖对照 (docs/api_contract.md 契约行 ↔ 探针数, 2026-08-04):
+覆盖对照 (docs/api_contract.md 契约行 ↔ 探针数, 2026-08-06 R-δ 轮):
   A0/A1/A2  Mesh 构造器/节点 API/结构 API   41 (全部行)
-  B         求解与 BC                      19 (全部行)
+  B         求解与 BC                      21 (全部行; 2026-08-06 补
+                                            apply_penalty 溢出 OverflowError
+                                            + penalty×cg 组合限制)
   C         载荷                           10 (全部行)
-  D         应力与误差                     15 (全部行)
+  D         应力与误差                     16 (全部行; 2026-08-06 补
+                                            (3,) 单向量正路径断言)
   E         输入链 (无 gmsh 依赖路径)      12 (resolve_geo/resolve_txt/
                                             generate_geo_with_topology 需
-                                            真实 Gmsh, 不在本探针覆盖内)
-  F         材料与单元注册                  9 (全部行)
-  G         边界                           10 (契约 6 行全覆盖)
+                                            真实 Gmsh, 不在本探针覆盖内;
+                                            2026-08-06 补 exit_code 断言)
+  F         材料与单元注册                 10 (全部行; 2026-08-06 补
+                                            (3,) 单向量正路径断言)
+  G         边界                           11 (契约 6 行全覆盖; 2026-08-06
+                                            补 缺段 → ValueError)
   G2        识别器注册表与插件接口         7 (阶段 2/3 新增契约)
   G3        边界识别正式插件 (轮 2)        10 (插件 1 双路径+严格门+
                                             默认注册; 插件 2 @组名
@@ -21,7 +28,7 @@
                                             代数圆弧/短弧保护)
   H         配置与质量                     11 (全部行)
   I         装配                            2 (契约 2 行全覆盖)
-  合计: 146 项探针 (可用 AST 统计 probe() 调用数核对)。
+  合计: 151 项探针 (可用 AST 统计 probe() 调用数核对)。
 每组的"全部行"以契约表行数为准; 行内无具体误用错误声明的
 (如 I 组"非对称内核 → RuntimeError") 以合法输入不抛为探针内容。
 """
@@ -30,6 +37,7 @@ import sys
 import tempfile
 
 import numpy as np
+from scipy import sparse
 
 # 脚本位于 scripts/ 下 — 审计必须针对本项目代码。editable install 指向
 # 其他 worktree 时 sys.path 无 cwd, `python scripts/xxx.py` 会 import 到
@@ -98,7 +106,8 @@ def _expect_label(expect):
     return expect.__name__
 
 
-def probe(name, fn, expect):
+def probe(name, fn, expect, expect_exit=None):
+    """expect_exit: 期望 CliError.exit_code — 弱势领域 1 (退出码) 落实."""
     try:
         result = fn()
         if expect is None:
@@ -108,7 +117,16 @@ def probe(name, fn, expect):
         print(f"  FAIL {name}: NO ERROR (expected {_expect_label(expect)})")
     except Exception as exc:  # noqa: BLE001 — 审计工具
         if expect is not None and isinstance(exc, expect):
-            print(f"  PASS {name}: {type(exc).__name__}")
+            if expect_exit is not None and not (
+                    isinstance(exc, CliError)
+                    and exc.exit_code == expect_exit):
+                got = getattr(exc, "exit_code", "?")
+                FAILS.append(f"{name}: exit_code={got} "
+                             f"(expected {expect_exit})")
+                print(f"  FAIL {name}: exit_code={got} "
+                      f"(expected {expect_exit})")
+            else:
+                print(f"  PASS {name}: {type(exc).__name__}")
         else:
             FAILS.append(f"{name}: {type(exc).__name__} (expected "
                          f"{_expect_label(expect)}): {exc}")
@@ -219,6 +237,17 @@ probe("apply_elim dup free", lambda: apply_elimination(np.eye(4), np.zeros(4), [
 probe("apply_penalty nan penalty", lambda: apply_penalty(np.eye(4), np.zeros(4), [0], penalty=float("nan")), ValueError)
 probe("apply_penalty bool", lambda: apply_penalty(np.eye(4), np.zeros(4), np.array([True] * 4)), ValueError)
 probe("apply_penalty presc len", lambda: apply_penalty(np.eye(4), np.zeros(4), [0, 1], [0.0]), ValueError)
+# 契约 B 行 (2026-08-06 补记): 自动罚因子溢出 → OverflowError (极端
+# corner: max|K_ii| > float_max/1e8 ≈ 1.8e300).
+probe("apply_penalty auto overflow", lambda: apply_penalty(
+    sparse.diags([1e301], format="csr"), np.zeros(1), fixed_dofs=[0]),
+    OverflowError)
+# 契约 B 行 (2026-08-06 补记): penalty 方法仅接受 auto/direct —
+# cg/ilu/cg-block → ValueError "Penalty constraints currently require
+# the direct solver".
+probe("solve penalty x cg", lambda: solve(
+    _solved()[0], method="penalty", linear_solver="cg", verbose=False),
+    ValueError)
 probe("estimate method bogus", lambda: estimate_error(_mesh(), {"stress": np.ones((2, 3))}, method="bogus"), ValueError)
 probe("estimate missing key", lambda: estimate_error(_mesh(), {"u": np.zeros(8)}), ValueError)
 
@@ -245,6 +274,17 @@ probe("nodal_weighted nan", lambda: nodal_weighted(m2, np.array([[np.nan, 1., 1.
 probe("nodal_L2 ndim", lambda: nodal_L2_projection(m2, np.ones(4)), ValueError)
 probe("principal shape", lambda: principal_stresses(np.ones((2, 2))), ValueError)
 probe("principal nan", lambda: principal_stresses(np.array([[np.nan, 1., 0.]])), ValueError)
+
+
+def _probe_principal_stresses_3():
+    """(3,) 单向量正路径: 返回 4 标量元组 (契约 D 行, 6c 扩展 —
+    弱势领域 2 返回形状断言落实)."""
+    s1, s2, tmax, theta = principal_stresses(np.array([1.0, 2.0, 0.5]))
+    assert all(np.isscalar(v) for v in (s1, s2, tmax, theta))
+    assert s1 >= s2
+    assert np.isclose(tmax, (s1 - s2) / 2)
+    assert np.isfinite(theta)
+probe("principal_stresses (3,) positive", _probe_principal_stresses_3, None)
 probe("stress_at_point mode", lambda: stress_at_point(m2, res, 0.5, 0.5, mode="bogus"), ValueError)
 probe("stress_at_point missing key", lambda: stress_at_point(m2, {"u": np.zeros(8)}, 0.5, 0.5), ValueError)
 probe("stress_at_point outside", lambda: stress_at_point(m2, res, 50.0, 50.0), ValueError)
@@ -262,6 +302,14 @@ probe("D_matrix E str", lambda: D_matrix("abc", 0.3), TypeError)
 probe("von_mises shape", lambda: von_mises(np.ones((2, 2))), ValueError)
 probe("von_mises nan", lambda: von_mises(np.array([[np.nan, 1., 0.]])), ValueError)
 probe("von_mises plane", lambda: von_mises(np.ones((2, 3)), plane_type="bogus"), ValueError)
+
+
+def _probe_von_mises_3():
+    """(3,) 单向量正路径: 返回标量 float (契约 F 行, 6c 扩展 —
+    弱势领域 2 返回形状断言落实)."""
+    vm = von_mises(np.array([100.0, 0.0, 0.0]))
+    assert np.isscalar(vm) and vm == 100.0
+probe("von_mises (3,) positive", _probe_von_mises_3, None)
 probe("get_element_kernel unknown", lambda: F.get_element_kernel("BOGUS"), ValueError)
 probe("register_element non-instance", lambda: F.register_element(object()), TypeError)
 
@@ -285,8 +333,10 @@ probe("import_msh missing", lambda: import_msh("C:/no_such_dir_xyz/x.msh"), File
 from fem2d.input_source import physical_point_from_geo
 probe("physical_point no_geo", lambda: physical_point_from_geo(None, "p", _mesh())[3], None)
 # .inp/.xyz 在扩展名分派即拒, 不触 ask 交互 (探针非交互运行安全).
-probe("resolve_input_file .inp", lambda: resolve_input_file("x.inp", AnalysisConfig()), CliError)
-probe("resolve_input_file .xyz", lambda: resolve_input_file("x.xyz", AnalysisConfig()), CliError)
+# 契约 E 行 (2026-08-06 修正): 不支持的扩展名/.inp → CliError(exit 1) —
+# 用户错误归 1 (曾误记 exit 2); expect_exit 锁定退出码.
+probe("resolve_input_file .inp", lambda: resolve_input_file("x.inp", AnalysisConfig()), CliError, expect_exit=1)
+probe("resolve_input_file .xyz", lambda: resolve_input_file("x.xyz", AnalysisConfig()), CliError, expect_exit=1)
 probe("resolve_spec_overrides badfmt", lambda: resolve_spec_overrides(_BAD_SPEC, AnalysisConfig()), ValueError)
 probe("generate_from_geo missing", lambda: generate_from_geo("C:/no_such_dir_xyz/x.geo"), FileNotFoundError)
 probe("parse_spec_config badfmt", lambda: parse_spec_config(_BAD_SPEC), ValueError)
@@ -300,8 +350,11 @@ probe("validate_mesh ok", lambda: validate_mesh(NODES, ELEMS), None)
 print("== G 边界 ==")
 probe("detect_boundaries ok", lambda: F.detect_boundaries(_mesh()), None)
 probe("build_boundary_segments ok", lambda: build_boundary_segments(_mesh()), None)
-# 诊断型 API: 返回诊断对象而非抛异常 (契约 G 行).
+# 契约 G 行 (2026-08-06 修正): 缺段 → ValueError 带统计 (曾记"不抛返回
+# 诊断" — 调用链依赖硬校验). 合法完整段仍不抛.
 probe("validate_boundary_segments ok", lambda: F.validate_boundary_segments(_mesh(), _SEGS), None)
+probe("validate_boundary_segments missing", lambda: F.validate_boundary_segments(
+    _mesh(), list(_SEGS)[:-1]), ValueError)
 probe("describe_geometry ok", lambda: F.describe_geometry(_SEGS), None)
 probe("print_segments ok", lambda: F.print_segments(_SEGS), None)
 # 模糊匹配歧义 (4 条直边均含"直边"标签) → 解析器 ValueError.
