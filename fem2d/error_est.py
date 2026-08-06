@@ -490,25 +490,55 @@ def _internal_edge_jump_logs(mesh, stress, eta_log):
 
 
 def _body_force_residual_logs(mesh, nodes, n_elem, eta_log):
-    """体力残差: h_K²·∫_K|f^B|²dx = h_K²·A_K·|f|²."""
+    """体力残差: h_K²·∫_K|f^B|²dx = h_K²·A_K·|f|².
+
+    向量化 (审查报告可优化点 8): 常数体力整网一次求值 + 批量 h_K/A_K,
+    与逐单元路径代数等价 (逐位一致); callable/混合体力逐单元求值
+    (值随坐标变化, 无法批量)。
+    """
     if mesh.body_force is None:
         return
-    for eid in range(n_elem):
-        xc, yc = mesh.centroids[eid]
-        bx, by = evaluate_vector_field(mesh.body_force, xc, yc)
-        f_norm2 = bx**2 + by**2
-        if f_norm2 == 0.0:
-            continue
-        conn = mesh.elements[eid]
-        h_K = max(
-            np.linalg.norm(nodes[conn[ib]] - nodes[conn[ia]])
-            for ia, ib in mesh.element_kernel.local_edges)
-        A_K = abs(mesh.areas[eid])
-        if h_K == 0.0 or A_K == 0.0:
-            continue
-        eta_log[eid] = np.logaddexp(
-            eta_log[eid],
-            2.0 * math.log(h_K) + math.log(A_K) + math.log(f_norm2))
+    bf = mesh.body_force
+    if callable(bf) or (isinstance(bf, (tuple, list))
+                        and any(callable(c) for c in bf)):
+        # 逐单元求值 (原路径)
+        for eid in range(n_elem):
+            xc, yc = mesh.centroids[eid]
+            bx, by = evaluate_vector_field(mesh.body_force, xc, yc)
+            f_norm2 = bx**2 + by**2
+            if f_norm2 == 0.0:
+                continue
+            conn = mesh.elements[eid]
+            h_K = max(
+                np.linalg.norm(nodes[conn[ib]] - nodes[conn[ia]])
+                for ia, ib in mesh.element_kernel.local_edges)
+            A_K = abs(mesh.areas[eid])
+            if h_K == 0.0 or A_K == 0.0:
+                continue
+            eta_log[eid] = np.logaddexp(
+                eta_log[eid],
+                2.0 * math.log(h_K) + math.log(A_K) + math.log(f_norm2))
+        return
+    # 常数体力: 对任何求值点同值 — 一次求值 (校验语义同逐单元首元素)
+    bx, by = evaluate_vector_field(bf, *mesh.centroids[0])
+    f_norm2 = bx**2 + by**2
+    if f_norm2 == 0.0:
+        return
+    conn = mesh.elements
+    # h_K = 各单元最长局部边 (local_edges 顺序与逐单元 max 同序)
+    h_K = np.zeros(n_elem)
+    for ia, ib in mesh.element_kernel.local_edges:
+        edge_len = np.linalg.norm(
+            nodes[conn[:, ia]] - nodes[conn[:, ib]], axis=1)
+        h_K = np.maximum(h_K, edge_len)
+    A_K = np.abs(mesh.areas)
+    valid = (h_K > 0.0) & (A_K > 0.0)
+    if not np.any(valid):
+        return
+    terms = (2.0 * np.log(h_K[valid]) + np.log(A_K[valid])
+             + math.log(f_norm2))
+    # 每单元恰贡献一次 — 与逐单元循环同一逐项累加 (无重复目标, 不需 .at)
+    eta_log[valid] = np.logaddexp(eta_log[valid], terms)
 
 
 def _element_sigma_tensors(stress, n_elem):
@@ -536,106 +566,244 @@ def _collect_loaded_edges(mesh):
     return loaded_by_edge
 
 
+def _batch_boundary_normals(mesh, lo, hi, eids):
+    """批量外法向 — 与 Mesh.boundary_outward_normal 逐边算法代数等价.
+
+    对每条边 (lo,hi) 取其唯一相邻单元 eid, 在单元局部 CCW 边
+    (local_edges) 中匹配, 外法向 n = (dy/L, -dx/L) (Bathe §5.3.2:
+    CCW 域外法向 = 切向顺时针 90°)。失败边写入对应 fail 掩码, 由
+    调用方决定 抛出或跳过 — 与逐边 try/except 语义一致; 零长边
+    同时返回 L/ulp 供复现 boundary_outward_normal 的报错文案。
+
+    返回 (normals, fail_value, fail_runtime, L_arr, ulp_arr);
+    fail_* 为 True 时对应 normals 行未定义。
+    """
+    n = len(eids)
+    normals = np.zeros((n, 2))
+    fail_value = np.zeros(n, dtype=bool)
+    fail_runtime = np.zeros(n, dtype=bool)
+    L_arr = np.zeros(n)
+    ulp_arr = np.zeros(n)
+    matched = np.zeros(n, dtype=bool)
+    conn = mesh.elements[eids]
+    for ia, ib in mesh.element_kernel.local_edges:
+        ca, cb = conn[:, ia], conn[:, ib]
+        slot = ((ca == lo) & (cb == hi)) | ((ca == hi) & (cb == lo))
+        sel = slot & ~matched
+        idx_sel = np.flatnonzero(sel)
+        if len(idx_sel) == 0:
+            continue
+        xa, ya = mesh.nodes[ca[idx_sel], 0], mesh.nodes[ca[idx_sel], 1]
+        xb, yb = mesh.nodes[cb[idx_sel], 0], mesh.nodes[cb[idx_sel], 1]
+        dx, dy = xb - xa, yb - ya
+        L = np.hypot(dx, dy)
+        # 退化边 ULP 判据同 boundary_outward_normal (逐边坐标, 非全局)
+        edge_ulp = 64.0 * np.finfo(float).eps * np.maximum(
+            np.maximum(np.abs(xa), np.abs(xb)),
+            np.maximum(np.abs(ya), np.abs(yb)))
+        edge_ulp = np.maximum(edge_ulp, np.finfo(float).tiny)
+        bad = L <= edge_ulp
+        if np.any(bad):
+            fail_idx = idx_sel[bad]
+            fail_value[fail_idx] = True
+            L_arr[fail_idx] = L[bad]
+            ulp_arr[fail_idx] = edge_ulp[bad]
+        ok_idx = idx_sel[~bad]
+        normals[ok_idx, 0] = dy[~bad] / L[~bad]
+        normals[ok_idx, 1] = -dx[~bad] / L[~bad]
+        matched[sel] = True
+    fail_runtime = ~matched
+    return normals, fail_value, fail_runtime, L_arr, ulp_arr
+
+
+def _record_is_constant(st):
+    """载荷记录是否为处处常数 (值不随 Gauss 点坐标变化).
+
+    常数记录 → 批量 3 点 Gauss 积分; 含 callable 的记录保持逐边求值.
+    """
+    if st.get("is_pressure"):
+        return not callable(st["traction"][0])
+    t = st["traction"]
+    if callable(t):
+        return False
+    if isinstance(t, (tuple, list)):
+        return not any(callable(c) for c in t)
+    return True
+
+
 def _neumann_edge_residuals(mesh, nodes, sigma_e, loaded_by_edge, eta_log):
-    """加载边: h_e·∫_e|σ^h·n−t̄|²ds = h_e²·|σ^h·n−t̄|² (常数)."""
-    loaded_edges = set()
-    for key, st_list in loaded_by_edge.items():
-        eid = mesh.edge_to_elems[key][0]
-        loaded_edges.add(key)
-        ni, nj = key
+    """加载边: h_e·∫_e|σ^h·n−t̄|²ds = h_e²·|σ^h·n−t̄|² (常数).
 
-        n = np.array(
-            mesh.boundary_outward_normal(ni, nj), dtype=float)
-        t_fe = sigma_e[eid] @ n
+    向量化 (审查报告可优化点 8): 常数载荷边批量取法向/边长 + 3 点
+    Gauss 线积分, 与逐边路径代数等价 (逐位一致); 含 callable 载荷
+    的边保持逐边求值 (值随坐标变化, 无法批量)。累加顺序与逐边路径
+    一致: 按 loaded_by_edge 字典序收集 (eid, term) 后一次 .at。
+    """
+    if not loaded_by_edge:
+        return set()
+    keys = list(loaded_by_edge)
+    loaded_edges = set(keys)
+    n = len(keys)
+    lo = np.array([k[0] for k in keys], dtype=np.int64)
+    hi = np.array([k[1] for k in keys], dtype=np.int64)
+    eids = np.array([mesh.edge_to_elems[k][0] for k in keys],
+                    dtype=np.int64)
 
-        # 3 点 Gauss-Legendre 线积分 (与 loads_core 同规则): 边中点采样
-        # 会低估线性/抛物线面力的残差 (ty=y-0.5 中点值为 0, 真实残差
-        # √(1/12)≠0)。integral = (1/h_e)·∫|σn−t̄|²ds (Gauss: 0.5·Σw·f)。
-        xa, ya = nodes[ni]
-        xb, yb = nodes[nj]
-        edge_vec = nodes[nj] - nodes[ni]
-        h_e = float(np.linalg.norm(edge_vec))
-        # 退化边判据与 loads_core 的坐标 ULP 相对判据统一 —
-        # 绝对 1e-30 与文件内已确立的约定不一致
-        if h_e <= 64.0 * np.finfo(float).eps * max(
-                float(np.max(np.abs(nodes))), np.finfo(float).tiny):
+    normals, fail_value, fail_runtime, L_arr, ulp_arr = \
+        _batch_boundary_normals(mesh, lo, hi, eids)
+    if np.any(fail_value) or np.any(fail_runtime):
+        # 与逐边路径一致: 加载边法向异常向上抛 (add 时已验证为边界边,
+        # 仅退化网格/外部修改可达) — 按边序抛第一个失败, 文案同
+        # Mesh.boundary_outward_normal
+        for i in range(n):
+            if fail_value[i]:
+                raise ValueError(
+                    f"Zero-length edge ({lo[i]},{hi[i]}) "
+                    f"(L={L_arr[i]:.3e} <= ULP {ulp_arr[i]:.3e}).")
+            if fail_runtime[i]:
+                raise RuntimeError(
+                    f"Boundary edge ({lo[i]},{hi[i]}) not found in "
+                    f"adjacent element {eids[i]}. This should not happen "
+                    f"— check mesh consistency.")
+    # σ^h·n — 批量 matmul, 与逐边 (2,2)@(2,) 同一内核 (逐位一致)
+    t_fe = np.matmul(sigma_e[eids], normals[:, :, None])[:, :, 0]
+    edge_vec = nodes[hi] - nodes[lo]
+    h_e = np.linalg.norm(edge_vec, axis=1)
+    # 退化边判据与 loads_core 的坐标 ULP 相对判据统一 (全局阈值, 同逐边)
+    deg = h_e <= 64.0 * np.finfo(float).eps * max(
+        float(np.max(np.abs(nodes))), np.finfo(float).tiny)
+
+    const_mask = np.zeros(n, dtype=bool)
+    for i, k in enumerate(keys):
+        st_list = loaded_by_edge[k]
+        if all(_record_is_constant(st) for st in st_list):
+            const_mask[i] = True
+    const_idx = np.flatnonzero(const_mask)
+
+    term = np.full(n, -np.inf)   # -inf = 无贡献 (跳过/零积分语义一致)
+    if len(const_idx):
+        # ── 常数边: 3 点 Gauss 线积分向量化 (t̄ 处处相同) ──
+        # integral = (1/h_e)·∫|σn−t̄|²ds (Gauss: 0.5·Σw·f); 目标项
+        # = h_e·∫|σn−t̄|²ds = h_e²·integral。逐记录累加顺序同逐边路径。
+        t_exact = np.zeros((len(const_idx), 2))
+        for r_i, i in enumerate(const_idx):
+            for st in loaded_by_edge[keys[i]]:
+                if st.get("is_pressure"):
+                    p = float(st["traction"][0])
+                    t_exact[r_i, 0] -= p * normals[i, 0]
+                    t_exact[r_i, 1] -= p * normals[i, 1]
+                else:
+                    t_exact[r_i, 0] += float(st["traction"][0])
+                    t_exact[r_i, 1] += float(st["traction"][1])
+        r = t_fe[const_idx] - t_exact
+        r2 = r[:, 0] * r[:, 0] + r[:, 1] * r[:, 1]
+        integral = np.zeros(len(const_idx))
+        integral += 0.5 * LINE_GAUSS[0][0] * r2
+        integral += 0.5 * LINE_GAUSS[1][0] * r2
+        integral += 0.5 * LINE_GAUSS[2][0] * r2
+        ok = (~deg[const_idx]) & (integral > 0.0)
+        if np.any(ok):
+            term[const_idx[ok]] = (
+                2.0 * np.log(h_e[const_idx[ok]]) + np.log(integral[ok]))
+    # ── callable 边: 逐边 3 点 Gauss (值随坐标变化, 无法批量) ──
+    for i in np.flatnonzero(~const_mask):
+        st_list = loaded_by_edge[keys[i]]
+        if deg[i]:
             continue
         integral = 0.0
         for w, xi_g in LINE_GAUSS:
-            Ni = 0.5*(1.0 - xi_g)
-            Nj = 0.5*(1.0 + xi_g)
-            xg = Ni*xa + Nj*xb
-            yg = Ni*ya + Nj*yb
+            Ni = 0.5 * (1.0 - xi_g)
+            Nj = 0.5 * (1.0 + xi_g)
+            xg = Ni * nodes[lo[i], 0] + Nj * nodes[hi[i], 0]
+            yg = Ni * nodes[lo[i], 1] + Nj * nodes[hi[i], 1]
             t_exact = np.zeros(2)
             for st in st_list:
                 if st.get("is_pressure"):
                     p_val = st["traction"][0]
                     p = p_val(xg, yg) if callable(p_val) else p_val
-                    t_exact += np.array([-p * n[0], -p * n[1]])
+                    t_exact += np.array([-p * normals[i, 0],
+                                         -p * normals[i, 1]])
                 else:
                     tx, ty = evaluate_vector_field(st["traction"], xg, yg)
                     t_exact += np.array([tx, ty])
-            residual = t_fe - t_exact
+            residual = t_fe[i] - t_exact
             integral += 0.5 * w * np.dot(residual, residual)
-        # 目标项 = h_e·∫|σn−t̄|²ds = h_e²·integral (常数面力 → h_e²·|r|²)
         if integral > 0.0:
-            eta_log[eid] = np.logaddexp(
-                eta_log[eid], 2.0 * math.log(h_e) + math.log(integral))
+            term[i] = 2.0 * math.log(h_e[i]) + math.log(integral)
+    valid = np.isfinite(term)
+    if np.any(valid):
+        np.logaddexp.at(eta_log, eids[valid], term[valid])
     return loaded_edges
 
 
 def _boundary_edge_residuals(mesh, nodes, sigma_e, loaded_edges, eta_log):
     """Dirichlet / 自由边界边残差 — 固支跳过, 部分约束只保留未约束方向.
 
-    Dirichlet边(固支): 反力未知, 不能算 σ^h·n − 0, 必须跳过
-    仅-Ux/Uy边: 保留未约束方向的残差
-    自由边: t̄=0, 全量残差 ‖σ^h·n‖
+    向量化 (审查报告可优化点 8): 批量取法向/边长 + DOF 分类, 与逐边
+    路径代数等价 (逐位一致)。累加顺序与逐边路径一致: 按边界边集合
+    迭代序收集 (eid, term) 后一次 .at。
+      Dirichlet边(固支): 反力未知, 不能算 σ^h·n − 0, 必须跳过
+      仅-Ux/Uy边: 保留未约束方向的残差
+      自由边: t̄=0, 全量残差 ‖σ^h·n‖
     """
-    fixed_dofs_set = set(mesh.fixed_dofs.tolist())
-    all_boundary_edges = set(mesh.boundary_edges)
-    for (a, b) in all_boundary_edges:
-        key = (min(a, b), max(a, b))
-        if key in loaded_edges:
+    all_boundary_edges = list(set(mesh.boundary_edges))  # set 迭代序同逐边
+    if not all_boundary_edges:
+        return
+    n = len(all_boundary_edges)
+    lo = np.array([e[0] for e in all_boundary_edges], dtype=np.int64)
+    hi = np.array([e[1] for e in all_boundary_edges], dtype=np.int64)
+    # 与逐边路径同判据: 已加载边/不在边表/空邻接 → 跳过 (边界边必在
+    # 边表且邻接非空, 判据保留以防御网格被外部修改)
+    eids = np.full(n, -1, dtype=np.int64)
+    for i, k in enumerate(all_boundary_edges):
+        if k in loaded_edges:
             continue
-        if key not in mesh.edge_to_elems:
+        el = mesh.edge_to_elems.get(k)
+        if not el:
             continue
-        eids = mesh.edge_to_elems[key]
-        if len(eids) == 0:
-            continue
-        eid = eids[0]
+        eids[i] = el[0]
+    sel = eids >= 0
+    if not np.any(sel):
+        return
+    lo, hi, eids = lo[sel], hi[sel], eids[sel]
 
-        # ── Dirichlet分类: 检查边两端DOF ──
-        dof_a = (2*a in fixed_dofs_set, 2*a+1 in fixed_dofs_set)  # (ux, uy)
-        dof_b = (2*b in fixed_dofs_set, 2*b+1 in fixed_dofs_set)
-        # 两边节点都是全约束(ux+uy) → 固支边 → 跳过
-        if dof_a[0] and dof_a[1] and dof_b[0] and dof_b[1]:
-            continue
+    normals, fail_value, fail_runtime, _L, _ulp = \
+        _batch_boundary_normals(mesh, lo, hi, eids)
+    # 法向失败 (零长/匹配失败) → 跳过 — 与逐边 except continue 一致
+    ok_normal = ~(fail_value | fail_runtime)
+    if not np.any(ok_normal):
+        return
+    lo, hi, eids = lo[ok_normal], hi[ok_normal], eids[ok_normal]
+    normals = normals[ok_normal]
 
-        try:
-            n = np.asarray(mesh.boundary_outward_normal(a, b), dtype=float)
-        except (ValueError, RuntimeError):
-            continue
+    # ── Dirichlet 分类: 检查边两端 DOF (逐边 set 成员查询向量化) ──
+    fixed = mesh.fixed_dofs
+    skip_x = np.isin(2 * lo, fixed) & np.isin(2 * hi, fixed)
+    skip_y = np.isin(2 * lo + 1, fixed) & np.isin(2 * hi + 1, fixed)
+    # 两边节点都是全约束 (ux+uy) → 固支边 → 跳过
+    free = ~(skip_x & skip_y)
+    if not np.any(free):
+        return
+    lo, hi, eids = lo[free], hi[free], eids[free]
+    normals = normals[free]
+    skip_x, skip_y = skip_x[free], skip_y[free]
 
-        t_fe = sigma_e[eid] @ n  # [tx, ty]
-        edge_vec = nodes[b] - nodes[a]
-        h_e = float(np.linalg.norm(edge_vec))
-        # 退化边判据与 loads_core 的坐标 ULP 相对判据统一 —
-        # 绝对 1e-30 与文件内已确立的约定不一致
-        if h_e <= 64.0 * np.finfo(float).eps * max(
-                float(np.max(np.abs(nodes))), np.finfo(float).tiny):
-            continue
+    # σ^h·n — 批量 matmul, 与逐边 (2,2)@(2,) 同一内核 (逐位一致)
+    t_fe = np.matmul(sigma_e[eids], normals[:, :, None])[:, :, 0]
+    edge_vec = nodes[hi] - nodes[lo]
+    h_e = np.linalg.norm(edge_vec, axis=1)
+    # 退化边判据与 loads_core 的坐标 ULP 相对判据统一 (全局阈值, 同逐边)
+    deg = h_e <= 64.0 * np.finfo(float).eps * max(
+        float(np.max(np.abs(nodes))), np.finfo(float).tiny)
 
-        # 部分约束: 只保留未约束方向
-        # 两边都仅ux约束 → tx方向跳过, ty方向保留
-        # 两边都仅uy约束 → ty方向跳过, tx方向保留
-        skip_x = dof_a[0] and dof_b[0]
-        skip_y = dof_a[1] and dof_b[1]
-        res_x = 0.0 if skip_x else t_fe[0]
-        res_y = 0.0 if skip_y else t_fe[1]
-        res2 = res_x**2 + res_y**2
-        if res2 > 0.0:
-            eta_log[eid] = np.logaddexp(
-                eta_log[eid], 2.0 * math.log(h_e) + math.log(res2))
+    # 部分约束: 只保留未约束方向 (两边都仅ux约束 → tx跳过, ty保留)
+    res_x = np.where(skip_x, 0.0, t_fe[:, 0])
+    res_y = np.where(skip_y, 0.0, t_fe[:, 1])
+    res2 = res_x**2 + res_y**2
+    ok = (~deg) & (res2 > 0.0)
+    if np.any(ok):
+        term = 2.0 * np.log(h_e[ok]) + np.log(res2[ok])
+        np.logaddexp.at(eta_log, eids[ok], term)
 
 
 def element_refinement_indicator(mesh, result):
