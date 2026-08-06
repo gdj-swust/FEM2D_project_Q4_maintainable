@@ -34,6 +34,13 @@ _SYSTEMCALL_TOKEN_RE = re.compile(r"\bSystemCall\b", re.IGNORECASE)
 # Include 指令识别 (只认代码位 — 注释/字符串内的 Include 不是指令;
 # 字符串无转义, 引号即字符串边界)
 _INCLUDE_DIRECTIVE_RE = re.compile(r'\bInclude\s*"([^"]*)"', re.IGNORECASE)
+# Merge "*.geo" 与 Include 同为"解析并执行被引用 .geo 脚本"的执行面 —
+# 审查实证: main.geo 写 ``Merge "evil.geo";`` 时 gmsh 真实调用 evil.geo
+# 内的 SystemCall, 拦截被完整绕过。扫描必须沿 Merge 树同样展开。
+# 只追 .geo 目标: Merge 对 .step/.brep 等按扩展名走 CAD 导入, 不执行
+# 脚本 — 扫描它们反而会把 CAD 文本里 (如 STEP 产品名) 的 SystemCall
+# 字样误拒为 RCE (扩展名分发与 Gmsh 一致; 一个 Merge 语句一个文件)。
+_MERGE_DIRECTIVE_RE = re.compile(r'\bMerge\s*"([^"]*)"', re.IGNORECASE)
 
 
 def _mask_geo_comments(source):
@@ -112,33 +119,42 @@ def _check_systemcall_text(source, label):
 
 
 def _iter_geo_includes(source, geo_path):
-    """识别代码位 ``Include "path"`` 指令 → 解析后的绝对路径。
+    """识别代码位 ``Include "path"`` / ``Merge "path.geo"`` 指令 → 绝对路径。
 
-    在注释剥离文本上识别 (注释里的 Include 不是指令)。字符串内容保留且
-    Gmsh 字符串无转义、不可能内含双引号 — 字符串内的 ``Include "`` 只会
-    产生空路径 (跳过); 真正带路径的 Include 必在代码位。相对路径基于
-    ``geo_path`` 所在目录解析; 空路径 Include 跳过 (交给 Gmsh 解析时报错)。
+    在注释剥离文本上识别 (注释里的引用不是指令)。字符串内容保留且 Gmsh
+    字符串无转义、不可能内含双引号 — 字符串内的 ``Include "`` 只会产生
+    空路径 (跳过); 真正带路径的引用必在代码位。相对路径基于 ``geo_path``
+    所在目录解析; 空路径引用跳过 (交给 Gmsh 解析时报错)。Merge 只对
+    .geo 目标执行脚本 (见 _MERGE_DIRECTIVE_RE 的"为什么")。
     """
     base_dir = os.path.dirname(geo_path)
-    for match in _INCLUDE_DIRECTIVE_RE.finditer(_mask_geo_comments(source)):
+    masked = _mask_geo_comments(source)
+    for match in _INCLUDE_DIRECTIVE_RE.finditer(masked):
         target = match.group(1).strip()
-        if not target:
+        if target:
+            yield _resolve_geo_ref(base_dir, target)
+    for match in _MERGE_DIRECTIVE_RE.finditer(masked):
+        target = match.group(1).strip()
+        if not target or os.path.splitext(target)[1].lower() != ".geo":
             continue
-        if os.path.isabs(target):
-            yield target
-        else:
-            yield os.path.normpath(os.path.join(base_dir, target))
+        yield _resolve_geo_ref(base_dir, target)
+
+
+def _resolve_geo_ref(base_dir, target):
+    if os.path.isabs(target):
+        return target
+    return os.path.normpath(os.path.join(base_dir, target))
 
 
 def _scan_include_tree(geo_path, *, done=None, active=None, chain=()):
-    """递归扫描 Include 引用树 — 每个文件执行同样的"剥离注释 + SystemCall
-    检测", 命中即拒绝。
+    """递归扫描引用树 (Include + Merge "*.geo") — 每个文件执行同样的
+    "剥离注释 + SystemCall 检测", 命中即拒绝。
 
-    - 相对 Include 基于被引文件所在目录解析;
+    - 相对引用基于被引文件所在目录解析;
     - ``active`` = 当前递归链: 命中 = 循环引用 → 拒绝并报引用链
-      (如 "Include 循环引用: a.geo → b.geo → a.geo");
+      (如 "Include/Merge 循环引用: a.geo → b.geo → a.geo");
     - ``done`` = 已扫描完成: 钻石形共享引用 (a→b, a→c, b→d, c→d) 只扫一次;
-    - Include 目标文件不存在 → 跳过不报错 (保持现有行为: Gmsh 解析时
+    - 引用目标文件不存在 → 跳过不报错 (保持现有行为: Gmsh 解析时
       报错; test_output_dir_policy 依赖"缺失 Include 不拦截")。
     """
     geo_path = os.path.abspath(geo_path)
@@ -147,7 +163,7 @@ def _scan_include_tree(geo_path, *, done=None, active=None, chain=()):
         done, active = set(), set()
     if key in active:
         loop = " → ".join(chain + (os.path.basename(geo_path),))
-        raise GeoScriptRejected(f"Include 循环引用: {loop}")
+        raise GeoScriptRejected(f"Include/Merge 循环引用: {loop}")
     if key in done:
         return
     active.add(key)
@@ -157,13 +173,13 @@ def _scan_include_tree(geo_path, *, done=None, active=None, chain=()):
             source = stream.read()
     except FileNotFoundError:
         active.discard(key)
-        return  # Include 目标不存在 → 跳过不报错 (现有行为保持: Gmsh 解析时报错)
+        return  # 引用目标不存在 → 跳过不报错 (现有行为保持: Gmsh 解析时报错)
     except OSError:
         active.discard(key)
         raise GeoScriptRejected(
-            f"Include 文件无法读取: {geo_path}") from None
+            f"引用文件无法读取: {geo_path}") from None
     _check_systemcall_text(
-        source, f".geo (Include 链: {' → '.join(chain)})")
+        source, f".geo (引用链: {' → '.join(chain)})")
     for child in _iter_geo_includes(source, geo_path):
         _scan_include_tree(child, done=done, active=active, chain=chain)
     active.discard(key)
@@ -260,9 +276,9 @@ def sanitize_geo_source(source, *, geo_path=None):
     - ``SystemCall`` 可执行任意系统命令 — 黑名单拒绝整个脚本 (RCE 面;
       .geo 是"可信、可执行式输入", 只应运行自己编写的文件)。
 
-    ``geo_path`` (源文件路径, 可选): 提供时连同 Include 引用树一起递归
-    扫描 (SystemCall 检测 + 循环引用检测); 仅文本调用时只查 ``source``
-    本身 (Include 相对路径无法解析)。
+    ``geo_path`` (源文件路径, 可选): 提供时连同 Include/Merge 引用树一起
+    递归扫描 (SystemCall 检测 + 循环引用检测); 仅文本调用时只查
+    ``source`` 本身 (相对路径无法解析)。
     """
     # 顺序: 先 SystemCall 安全检查 (拒绝即抛, 不再往下), 再做替换 —
     # 替换注入的是注释文本且不含 SystemCall 字样, 顺序对检测结果无影响。
@@ -275,17 +291,23 @@ def sanitize_geo_source(source, *, geo_path=None):
         "// Mesh command removed by FEM2D; FEM2D meshes once",
         sanitized,
     )
+    # Mesh.Format / Mesh.MshFileVersion 剥离无行首锚点 — 旧 ``^\s*`` 可被
+    # 同行前导语句 ('x = 1; Mesh.Format = 39;') 完全绕过, 与 Save/Mesh 2
+    # 的 ``\b`` 匹配不一致, 同类指令应同款处理。值部分排除引号/换行:
+    # [^;]* 会把字符串 'Print("Mesh.Format =");' 的闭合引号吞进值里造成
+    # 引号失衡 (Gmsh 字符串无转义, 值表达式不会含引号)。大小写不敏感 —
+    # Gmsh 关键字不区分大小写 (与 SystemCall 拦截同策略)。
     sanitized = re.sub(
-        r"^\s*Mesh\s*\.\s*Format\s*=\s*[^;]*;",
+        r"\bMesh\s*\.\s*Format\s*=\s*[^;\"\n]*;",
         "// Mesh.Format removed by FEM2D; output is native .msh",
         sanitized,
-        flags=re.MULTILINE,
+        flags=re.IGNORECASE,
     )
     sanitized = re.sub(
-        r"^\s*Mesh\s*\.\s*MshFileVersion\s*=\s*[^;]*;",
+        r"\bMesh\s*\.\s*MshFileVersion\s*=\s*[^;\"\n]*;",
         "// Mesh.MshFileVersion removed by FEM2D; output version is 4.x",
         sanitized,
-        flags=re.MULTILINE,
+        flags=re.IGNORECASE,
     )
     return sanitized
 
@@ -340,34 +362,44 @@ def is_program_generated_msh(path):
 
 
 _INCLUDE_RE = re.compile(r'^\s*Include\s+"', re.MULTILINE)
+# Merge 的相对引用同 Include 会因副本移位断裂 — 同判据纳入
+# (不区分扩展名: .step 等非脚本目标的相对 Merge 同样依赖所在目录)
+_MERGE_REF_RE = re.compile(r'\bMerge\s*"', re.IGNORECASE)
 
 
 def _has_relative_include(geo_path):
-    """源 .geo 是否含相对 Include — 相对引用以 .geo 所在目录解析, 临时
-    副本移到其他目录会断裂; 绝对 Include (盘符或 / 开头) 不受影响."""
+    """源 .geo 是否含相对 Include/Merge 引用 — 相对引用以 .geo 所在目录
+    解析, 临时副本移到其他目录会断裂; 绝对引用 (盘符或 / 开头) 不受影响.
+    副本目录若落有同名文件, 未扫描的相对引用可能指向它 — 因此相对引用
+    强制留在源目录 (引用解析到已扫描的原始文件)."""
     try:
         with open(geo_path, "r", encoding="utf-8", errors="ignore") as f:
             source = f.read()
     except OSError:
         return False
-    # 正则已消费开引号 — rest 从路径首字符开始
-    for match in _INCLUDE_RE.finditer(source):
-        rest = source[match.end():]
-        if not rest:
-            return True  # 无路径的残缺 Include — 视为相对 (副本会断裂)
-        char = rest[0]
-        if char in ("/", "\\"):
-            continue  # 绝对路径 (POSIX / UNC)
-        if char.isalpha() and len(rest) > 1 and rest[1] == ":":
-            continue  # Windows 盘符绝对路径
-        return True  # 相对路径
+    for regex in (_INCLUDE_RE, _MERGE_REF_RE):
+        for match in regex.finditer(source):
+            if _is_relative_ref(source[match.end():]):
+                return True
     return False
+
+
+def _is_relative_ref(rest):
+    """正则已消费开引号 — rest 从路径首字符开始."""
+    if not rest:
+        return True  # 无路径的残缺引用 — 视为相对 (副本会断裂)
+    char = rest[0]
+    if char in ("/", "\\"):
+        return False  # 绝对路径 (POSIX / UNC)
+    if char.isalpha() and len(rest) > 1 and rest[1] == ":":
+        return False  # Windows 盘符绝对路径
+    return True  # 相对路径
 
 
 def temp_copy_dir(geo_path, requested_dir):
     """临时几何副本目录: --output-dir 指定时用该目录; 源 .geo 含相对
-    Include 时必须留在源目录 (相对引用以所在目录解析, 曾因副本移位导致
-    Include 断裂). 返回实际使用的目录."""
+    Include/Merge 引用时必须留在源目录 (相对引用以所在目录解析, 曾因
+    副本移位导致 Include 断裂). 返回实际使用的目录."""
     base = os.path.dirname(os.path.abspath(geo_path))
     if requested_dir is None:
         return base
@@ -376,8 +408,8 @@ def temp_copy_dir(geo_path, requested_dir):
         return base
     if _has_relative_include(geo_path):
         print(
-            "  [WARN] .geo 含相对 Include — 临时几何副本必须留在源目录, "
-            "--output-dir 仅作用于 .msh 输出 (请用绝对 Include 路径)")
+            "  [WARN] .geo 含相对 Include/Merge 引用 — 临时几何副本必须留在源目录, "
+            "--output-dir 仅作用于 .msh 输出 (请用绝对路径引用)")
         return base
     return requested
 
