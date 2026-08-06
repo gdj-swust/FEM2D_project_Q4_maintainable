@@ -28,6 +28,18 @@ LINE_GAUSS = [
     (5/9,  0.774596669241483),   # xi = +√(3/5)
 ]
 
+# 批量 3 点 Gauss 常量 (P-δ 向量化) — 由 LINE_GAUSS 派生, 与逐点路径
+# 的标量运算逐位一致: Ni = 0.5·(1−xi), Nj = 0.5·(1+xi)
+_LGAUSS_W = np.array([w for w, _ in LINE_GAUSS])
+_LGAUSS_NI = 0.5 * (1.0 - np.array([xi for _, xi in LINE_GAUSS]))
+_LGAUSS_NJ = 0.5 * (1.0 + np.array([xi for _, xi in LINE_GAUSS]))
+
+# 退化边判据常量 — 同 mesh.boundary_outward_normal 的 64·eps·max(|坐标|)
+# (有界于 tiny)。模块级常量避免逐边 np.finfo(float) 构造 (cProfile:
+# 10000 次 __new__ ≈ 0.007s), 数值逐位相同。
+_F_EPS = np.finfo(float).eps
+_F_TINY = np.finfo(float).tiny
+
 def assemble(mesh, n_dof):
     """组装全局等效节点力向量 F (Bathe §4.2.1)
 
@@ -87,17 +99,46 @@ def assemble(mesh, n_dof):
                         f"shape {fe.shape}; expected {dofs.shape}.")
                 np.add.at(F, dofs, fe)
 
+    # ── 面力/法向压力 — P-δ 向量化 ──
+    # 记录序循环只做: 逐边校验 (节点/退化边/法向错误) + callable 逐点
+    # 求值, 每条记录的 3 点 (tx, ty) 写入数组; 循环后一次性批量累积 —
+    # np.add.at 按 (记录序, Gauss 点序, DOF 序) 展开, 与逐点路径的
+    # 浮点求和顺序完全一致 (逐位等价)。边分类 (非法节点 id / 非网格边 /
+    # 内部边) 与压力外法向 (Bathe §5.3.2, 与逐边 boundary_outward_normal
+    # 代数等价) 批量计算, 校验错误按记录序延迟到该记录处理时抛出
+    # (类型/消息不变; 面力路径同语义 — 逐边 _validate_boundary_edge 即
+    # 此校验)。
+    all_pairs = [st["nodes"] for st in mesh.surface_tractions]
+    class_errors, class_eids = _classify_edges_batch(mesh, all_pairs)
+    press_pos = [r for r, st in enumerate(mesh.surface_tractions)
+                 if st.get("is_pressure")]
+    press_errors = [class_errors[r] for r in press_pos]
+    press_normals = _pressure_normals_batch(
+        mesh, [all_pairs[r] for r in press_pos],
+        press_errors, class_eids[press_pos])
+    n_rec = len(mesh.surface_tractions)
+    if n_rec:
+        rec_lo = np.empty(n_rec, dtype=np.int64)
+        rec_hi = np.empty(n_rec, dtype=np.int64)
+        rec_L = np.empty(n_rec)
+        rec_tx = np.empty((n_rec, 3))
+        rec_ty = np.empty((n_rec, 3))
+    else:
+        rec_lo = rec_hi = rec_L = None
+        rec_tx = rec_ty = None
+    pr = 0  # 压力记录游标 (与 press_pairs 同序)
+
     # (3) 面力 / 法向压力
-    for st in mesh.surface_tractions:
+    for r, st in enumerate(mesh.surface_tractions):
         ni,nj = st["nodes"]; trac = st["traction"]
         xi_c,yi_c=mesh.nodes[ni]; xj_c,yj_c=mesh.nodes[nj]
         dx, dy = xj_c - xi_c, yj_c - yi_c
         L = float(np.hypot(dx, dy))
         # 零长判据基于该边端点的局部坐标尺度 — max(全局节点, 1.0)
         # 下限会让微米/纳米模型 (边长 1e-16) 全被判退化
-        edge_ulp = 64.0 * np.finfo(float).eps * max(
+        edge_ulp = 64.0 * _F_EPS * max(
             float(max(abs(xi_c), abs(xj_c), abs(yi_c), abs(yj_c))),
-            np.finfo(float).tiny)
+            _F_TINY)
         if L <= edge_ulp:
             raise ValueError(
                 f"边 ({ni},{nj}) 长度 {L:.3e} 低于端点坐标 ULP "
@@ -105,15 +146,20 @@ def assemble(mesh, n_dof):
         is_pressure = st.get("is_pressure", False)
 
         if is_pressure:
-            # 法向压力: t = -p·n — 外法向由当前网格几何实时计算
-            # (Mesh.boundary_outward_normal, 与节点顺序无关; 不缓存,
-            # 几何变更后自动跟随)。trac = (p,) 为压力幅值。
+            # 法向压力: t = -p·n — 外法向由批量路径实时计算 (与节点
+            # 顺序无关)。trac = (p,) 为压力幅值。
             p_raw = trac[0]
-            nx, ny = mesh.boundary_outward_normal(ni, nj)
-            for w, xi_g in LINE_GAUSS:
-                Ni = 0.5*(1-xi_g); Nj = 0.5*(1+xi_g)
-                xg = Ni*xi_c + Nj*xj_c; yg = Ni*yi_c + Nj*yj_c
-                if callable(p_raw):
+            err = press_errors[pr]
+            if err is not None:
+                raise err
+            nx, ny = press_normals[pr]
+            pr += 1
+            if callable(p_raw):
+                # callable 契约逐点求值 (每 Gauss 点一次); 失败按序抛
+                # 第一个 Gauss 点的错误
+                for k in range(3):
+                    xg = _LGAUSS_NI[k] * xi_c + _LGAUSS_NJ[k] * xj_c
+                    yg = _LGAUSS_NI[k] * yi_c + _LGAUSS_NJ[k] * yj_c
                     try:
                         p_val = p_raw(xg, yg)
                     except Exception as error:
@@ -122,47 +168,285 @@ def assemble(mesh, n_dof):
                         raise ValueError(
                             f"边 ({ni},{nj}) 压力表达式在 Gauss 点 "
                             f"({xg:.4g},{yg:.4g}) 求值失败: {error}") from error
-                else:
-                    p_val = p_raw
-                if callable(p_val) or not _load_component_ok(p_val):
-                    # callable 返回 str/序列/None/NaN 会裸 TypeError/ValueError
-                    # (np.isfinite 真值判定) 无载荷上下文 — 统一走 loads_schema
-                    # 标量校验, 与面力路径契约一致
+                    if callable(p_val) or not _load_component_ok(p_val):
+                        # callable 返回 str/序列/None/NaN 会裸 TypeError/ValueError
+                        # (np.isfinite 真值判定) 无载荷上下文 — 统一走 loads_schema
+                        # 标量校验, 与面力路径契约一致
+                        raise ValueError(
+                            f"边 ({ni},{nj}) 压力在 Gauss 点 "
+                            f"({xg:.4g},{yg:.4g}) "
+                            f"处非法值 {p_val!r} — 压力必须是单个有穷数值 "
+                            f"(NaN/Inf/字符串/序列均拒绝)")
+                    rec_tx[r, k] = -float(p_val) * nx
+                    rec_ty[r, k] = -float(p_val) * ny
+            else:
+                p_val = float(p_raw)
+                if not _load_component_ok(p_val):
+                    # 常数非法值在第一个 Gauss 点被拒 (与逐点路径一致)
+                    xg0 = _LGAUSS_NI[0] * xi_c + _LGAUSS_NJ[0] * xj_c
+                    yg0 = _LGAUSS_NI[0] * yi_c + _LGAUSS_NJ[0] * yj_c
                     raise ValueError(
-                        f"边 ({ni},{nj}) 压力在 Gauss 点 ({xg:.4g},{yg:.4g}) "
+                        f"边 ({ni},{nj}) 压力在 Gauss 点 "
+                        f"({xg0:.4g},{yg0:.4g}) "
                         f"处非法值 {p_val!r} — 压力必须是单个有穷数值 "
                         f"(NaN/Inf/字符串/序列均拒绝)")
-                p_val = float(p_val)
-                tx = -p_val * nx
-                ty = -p_val * ny
-                fe = mesh.thickness * w * L / 2.0
-                F[2*ni] += fe * Ni * tx; F[2*ni+1] += fe * Ni * ty
-                F[2*nj] += fe * Nj * tx; F[2*nj+1] += fe * Nj * ty
+                rec_tx[r, :] = -p_val * nx
+                rec_ty[r, :] = -p_val * ny
         else:
             # 全局坐标面力 (tx, ty), 3 点 Gauss 积分
-            # 边界边校验 — 缺失时 replace_elements 使该边变内部边后,
-            # 压力路径抛错而面力路径静默施加到内部边
-            mesh._validate_boundary_edge(ni, nj)
-            for w, xi_g in LINE_GAUSS:
-                Ni=0.5*(1-xi_g); Nj=0.5*(1+xi_g)
-                xg=Ni*xi_c+Nj*xj_c; yg=Ni*yi_c+Nj*yj_c
+            # 边界边校验 (批量分类结果延迟抛出) — replace_elements 使
+            # 该边变内部边后同样抛错, 与压力路径一致 (消息/类型同
+            # 逐边 _validate_boundary_edge)
+            err = class_errors[r]
+            if err is not None:
+                raise err
+            if callable(trac) or (
+                    isinstance(trac, (tuple, list))
+                    and any(callable(c) for c in trac)):
+                # callable 分量逐点求值 (每 Gauss 点一次)
+                for k in range(3):
+                    xg = _LGAUSS_NI[k] * xi_c + _LGAUSS_NJ[k] * xj_c
+                    yg = _LGAUSS_NI[k] * yi_c + _LGAUSS_NJ[k] * yj_c
+                    try:
+                        tx_k, ty_k = evaluate_vector_field(trac, xg, yg)
+                    except Exception as error:
+                        # 1/x 除零 / sqrt(x-10) 域错误无载荷上下文裸抛
+                        #
+                        raise ValueError(
+                            f"边 ({ni},{nj}) 面力表达式在 Gauss 点 "
+                            f"({xg:.4g},{yg:.4g}) 求值失败: {error}") from error
+                    rec_tx[r, k] = tx_k
+                    rec_ty[r, k] = ty_k
+            else:
+                # 常数面力: 求值不依赖 Gauss 点坐标, 一次求值广播 3 点
+                # (值与逐点求值逐位一致; 非法值在第一个 Gauss 点被拒)
+                xg0 = _LGAUSS_NI[0] * xi_c + _LGAUSS_NJ[0] * xj_c
+                yg0 = _LGAUSS_NI[0] * yi_c + _LGAUSS_NJ[0] * yj_c
                 try:
-                    tx,ty = evaluate_vector_field(trac, xg, yg)
+                    tx0, ty0 = evaluate_vector_field(trac, xg0, yg0)
                 except Exception as error:
-                    # 1/x 除零 / sqrt(x-10) 域错误无载荷上下文裸抛
-                    #
                     raise ValueError(
                         f"边 ({ni},{nj}) 面力表达式在 Gauss 点 "
-                        f"({xg:.4g},{yg:.4g}) 求值失败: {error}") from error
-                if not (np.isfinite(tx) and np.isfinite(ty)):
-                    raise ValueError(
-                        f"Traction callable returned NaN/Inf at "
-                        f"Gauss point ({xg:.4g},{yg:.4g}) on edge ({ni},{nj})")
-                fe = mesh.thickness*w*L/2.0
-                F[2*ni]+=fe*Ni*tx; F[2*ni+1]+=fe*Ni*ty
-                F[2*nj]+=fe*Nj*tx; F[2*nj+1]+=fe*Nj*ty
+                        f"({xg0:.4g},{yg0:.4g}) 求值失败: {error}") from error
+                rec_tx[r, :] = tx0
+                rec_ty[r, :] = ty0
+            # evaluate_vector_field 自检 NaN/Inf 先抛 — 复检为死防御
+            # (与逐点路径一致, 消息格式保留)
+            bad = ~(np.isfinite(rec_tx[r]) & np.isfinite(rec_ty[r]))
+            if np.any(bad):
+                k = int(np.flatnonzero(bad)[0])
+                xgk = _LGAUSS_NI[k] * xi_c + _LGAUSS_NJ[k] * xj_c
+                ygk = _LGAUSS_NI[k] * yi_c + _LGAUSS_NJ[k] * yj_c
+                raise ValueError(
+                    f"Traction callable returned NaN/Inf at "
+                    f"Gauss point ({xgk:.4g},{ygk:.4g}) on edge ({ni},{nj})")
+        rec_lo[r] = ni
+        rec_hi[r] = nj
+        rec_L[r] = L
+
+    # 全量批量累积 — 求和顺序与逐点路径逐位一致
+    if n_rec:
+        _accumulate_surface_batch(F, mesh.thickness,
+                                  rec_lo, rec_hi, rec_L, rec_tx, rec_ty)
 
     return F
+
+
+def _accumulate_surface_batch(F, thickness, lo, hi, L, tx, ty):
+    """全量面力/压力记录批量累积 (P-δ 向量化).
+
+    求和顺序 = 逐点路径: 每记录按 (Gauss 点序, DOF 序 2ni, 2ni+1,
+    2nj, 2nj+1) 展开, 记录间按 surface_tractions 序 — np.add.at 按
+    索引数组顺序处理重复索引 (读-加-写无缓冲), 逐位一致 (由
+    tests/test_p_delta_loads_batch.py 的逐位断言锁定)。
+    """
+    dofs = np.stack([2 * lo, 2 * lo + 1, 2 * hi, 2 * hi + 1], axis=1)
+    fe = thickness * _LGAUSS_W[None, :] * L[:, None] / 2.0
+    contrib = np.stack([
+        fe * _LGAUSS_NI[None, :] * tx,
+        fe * _LGAUSS_NI[None, :] * ty,
+        fe * _LGAUSS_NJ[None, :] * tx,
+        fe * _LGAUSS_NJ[None, :] * ty,
+    ], axis=2)
+    np.add.at(F, np.repeat(dofs, 3, axis=0).ravel(), contrib.ravel())
+
+
+def _classify_edges_batch(mesh, pairs):
+    """批量边分类 — 逐边 _validate_boundary_edge 语义, 单次向量化边表查询.
+
+    压力与面力路径共用同一校验: 非网格边/内部边的错误类型与消息逐字
+    同逐边 _validate_boundary_edge (内部边恒报告 2 个相邻单元 —
+    build_edge_table 在构建时即拒绝非流形边); 非法节点 id 的 TypeError
+    同 boundary_outward_normal 的 _validate_node_id。校验错误按记录序
+    收集为异常对象, 由调用方在该记录处理时抛出 — 跨记录错误优先级
+    与逐边路径一致 (先节点/边校验, 后 Gauss 点求值)。
+
+    边表查询: edge_to_elems 是 topology_core 惰性视图, 逐键 .get() 为
+    两次 searchsorted (cProfile: 5000 次 __getitem__ ≈ 0.044s, 面力组装
+    热点)。这里把 (lo, hi) 编码为与 build_edge_table 相同的 int64 键
+    (lo·n_nodes+hi, 节点 id < n_nodes 无碰撞), 对已按该键排序的边表做
+    一次批量 searchsorted; 键编码在 n_nodes > 3e9 时溢出 → 退回逐键
+    查询 (同 build_edge_table 的界, 该量级实际不可达)。
+
+    参数
+    ----
+    mesh : Mesh
+    pairs : list[(ni, nj)] — 记录节点对 (surface_tractions 记录序)
+
+    返回
+    ----
+    (errors, eids) : errors[r] 为应抛出的异常对象或 None; eids 为
+    (n,) int64 数组 — 边界边的唯一相邻单元 id, 其余为 -1。
+    """
+    n = len(pairs)
+    errors = [None] * n
+    eids = np.full(n, -1, dtype=np.int64)
+    if n == 0:
+        return errors, eids
+    mesh.build_connectivity()
+    lo = np.empty(n, dtype=np.int64)
+    hi = np.empty(n, dtype=np.int64)
+    ok = np.zeros(n, dtype=bool)
+    for r, pair in enumerate(pairs):
+        try:
+            ni, nj = pair
+            lo[r] = mesh._validate_node_id(ni)
+            hi[r] = mesh._validate_node_id(nj)
+        except Exception as err:
+            errors[r] = err
+            continue
+        ok[r] = True
+    idx = np.flatnonzero(ok)
+    if idx.size == 0:
+        return errors, eids
+    table = mesh.edge_to_elems.table
+    n_edges = int(table.lo.size)
+    if n_edges == 0 or mesh.n_nodes > 3_000_000_000:
+        # 空网格无边; 或键编码溢出风险 — 均退回逐键查询 (逐边路径原语)
+        for r in idx:
+            a, b = int(lo[r]), int(hi[r])
+            key = (a, b) if a <= b else (b, a)
+            edge_list = mesh.edge_to_elems.get(key, [])
+            if len(edge_list) == 0:
+                ni, nj = pairs[r]
+                errors[r] = ValueError(
+                    f"Edge ({ni},{nj}) is not a mesh edge — "
+                    f"nodes must be connected by an element side.")
+            elif len(edge_list) > 1:
+                ni, nj = pairs[r]
+                errors[r] = ValueError(
+                    f"Edge ({ni},{nj}) is an interior edge shared by "
+                    f"{len(edge_list)} elements. Surface tractions only "
+                    f"supported on boundary edges.")
+            else:
+                eids[r] = edge_list[0]
+        return errors, eids
+    # 批量查询: 记录键与边表同编码, 一次 searchsorted
+    lo_b, hi_b = lo[idx], hi[idx]
+    qkey = (np.minimum(lo_b, hi_b) * np.int64(mesh.n_nodes)
+            + np.maximum(lo_b, hi_b))
+    tkey = table.lo * np.int64(mesh.n_nodes) + table.hi
+    row = np.searchsorted(tkey, qkey, side="left")
+    row_c = np.minimum(row, n_edges - 1)
+    found = (row < n_edges) & (tkey[row_c] == qkey)
+    interior = found & (table.counts[row_c] == 2)
+    boundary = found & ~interior
+    miss = np.flatnonzero(~found)
+    for j in miss:
+        r = int(idx[j])
+        ni, nj = pairs[r]
+        errors[r] = ValueError(
+            f"Edge ({ni},{nj}) is not a mesh edge — "
+            f"nodes must be connected by an element side.")
+    inter = np.flatnonzero(interior)
+    for j in inter:
+        r = int(idx[j])
+        ni, nj = pairs[r]
+        errors[r] = ValueError(
+            f"Edge ({ni},{nj}) is an interior edge shared by 2 elements. "
+            f"Surface tractions only supported on boundary edges.")
+    eids[idx[boundary]] = table.owners[row_c[boundary], 0]
+    return errors, eids
+
+
+def _pressure_normals_batch(mesh, pairs, errors, eids):
+    """压力边批量外法向 — 与逐边 Mesh.boundary_outward_normal 代数等价.
+
+    边分类 (节点 id / 非网格边 / 内部边) 由 _classify_edges_batch 完成;
+    本函数对分类通过的边界边批量匹配单元局部 CCW 边 (local_edges),
+    外法向 n = (dy/L, -dx/L) (Bathe §5.3.2: CCW 域外法向 = 切向顺时针
+    90°)。退化边/匹配失败错误并入 errors (消息逐字同逐边路径), 由
+    调用方在该记录处理时抛出。
+
+    参数
+    ----
+    mesh : Mesh
+    pairs : list[(ni, nj)] — 压力记录的节点对 (surface_tractions 记录序)
+    errors : list[None | Exception] — _classify_edges_batch 的对应切片;
+        退化/匹配失败错误就地写入
+    eids : (len(pairs),) int64 — 边界边唯一相邻单元 id, 其余为 -1
+
+    返回
+    ----
+    normals : list[None | (nx, ny)] — 按 pairs 序; 失败记录为 None
+    """
+    n = len(pairs)
+    normals = [None] * n
+    if n == 0:
+        return normals
+    b = np.flatnonzero(eids >= 0)
+    if b.size == 0:
+        return normals
+    lo = np.array([int(pairs[r][0]) for r in b])
+    hi = np.array([int(pairs[r][1]) for r in b])
+    conn = mesh.elements[eids[b]]
+    nrm = np.zeros((b.size, 2))
+    matched = np.zeros(b.size, dtype=bool)
+    deg = np.zeros(b.size, dtype=bool)
+    Ls = np.zeros(b.size)
+    ulps = np.zeros(b.size)
+    for ia, ib in mesh.element_kernel.local_edges:
+        ca, cb = conn[:, ia], conn[:, ib]
+        slot = ((ca == lo) & (cb == hi)) | ((ca == hi) & (cb == lo))
+        sel = slot & ~matched
+        j = np.flatnonzero(sel)
+        if len(j) == 0:
+            continue
+        xa = mesh.nodes[ca[j], 0]
+        xb = mesh.nodes[cb[j], 0]
+        ya = mesh.nodes[ca[j], 1]
+        yb = mesh.nodes[cb[j], 1]
+        dx, dy = xb - xa, yb - ya
+        Lb = np.hypot(dx, dy)
+        # 退化边 ULP 判据同 boundary_outward_normal (逐边坐标, 非全局)
+        eulp = 64.0 * _F_EPS * np.maximum(
+            np.maximum(np.abs(xa), np.abs(xb)),
+            np.maximum(np.abs(ya), np.abs(yb)))
+        eulp = np.maximum(eulp, _F_TINY)
+        bad = Lb <= eulp
+        if np.any(bad):
+            jb = j[bad]
+            deg[jb] = True
+            Ls[jb] = Lb[bad]
+            ulps[jb] = eulp[bad]
+        g = j[~bad]
+        nrm[g, 0] = dy[~bad] / Lb[~bad]
+        nrm[g, 1] = -dx[~bad] / Lb[~bad]
+        matched[sel] = True
+    for jj, rr in enumerate(b):
+        r = int(rr)
+        if deg[jj]:
+            errors[r] = ValueError(
+                f"Zero-length edge ({lo[jj]},{hi[jj]}) "
+                f"(L={Ls[jj]:.3e} <= ULP {ulps[jj]:.3e}).")
+        elif not matched[jj]:
+            errors[r] = RuntimeError(
+                f"Boundary edge ({lo[jj]},{hi[jj]}) not found in "
+                f"adjacent element {eids[r]}. This should not happen "
+                f"— check mesh consistency.")
+        else:
+            normals[r] = (float(nrm[jj, 0]), float(nrm[jj, 1]))
+    return normals
 
 
 # ═══════════════════════════════════════════════════════════════
