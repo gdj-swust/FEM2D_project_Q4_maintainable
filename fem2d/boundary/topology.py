@@ -586,7 +586,14 @@ def _join_chains(a, b):
 
 
 def _merge_adjacent_lines(segments, nodes, scale):
-    """合并同轴且共享端点的直边."""
+    """合并共享端点且方向向量共线的直边段.
+
+    axis/pos 只是粗档挡板 (axis 三档 + 起点坐标 2% 容差), 真正判据是
+    归一化方向向量共线: 旧实现只凭 axis 相等 + 起点 x 坐标接近判定, 而
+    tilted 线的 pos 就是起点 x 坐标 — 两条夹角 30° 的非共线斜线只要
+    共享端点且起点 x 落在模型尺度 2% 内, 即被合并成中点到弦偏离
+    ~13% 的弯曲"直边"段. 方向点积 |cos θ| ≥ 1-1e-6 才允许合并.
+    """
     if len(segments) <= 1:
         return segments
 
@@ -601,6 +608,7 @@ def _merge_adjacent_lines(segments, nodes, scale):
             continue
 
         info_i = s["info"]
+        direction_i = _line_direction(s)
         for j in range(i + 1, len(segments)):
             if j in used:
                 continue
@@ -612,6 +620,9 @@ def _merge_adjacent_lines(segments, nodes, scale):
             pos_diff = abs(info_i.get("pos", 0.0) - info_j.get("pos", 0.0))
             if pos_diff >= scale * 0.02:
                 continue
+            if not _collinear_directions(
+                    direction_i, _line_direction(segments[j])):
+                continue
             joined = _join_chains(s["nodes"], segments[j]["nodes"])
             if joined is not None:
                 s["nodes"] = joined
@@ -621,6 +632,24 @@ def _merge_adjacent_lines(segments, nodes, scale):
         merged.append(s)
 
     return merged
+
+
+def _line_direction(segment):
+    """段首尾点差的方向单位向量 (共线段的弦向 == 真实方向)."""
+    coords = segment["coords"]
+    delta = np.asarray(coords[-1], dtype=float) - np.asarray(coords[0], dtype=float)
+    length = float(np.linalg.norm(delta))
+    if length <= np.finfo(float).tiny:
+        return np.zeros(2)
+    return delta / length
+
+
+def _collinear_directions(a, b):
+    """归一化方向向量共线: |cos θ| ≥ 1-1e-6.
+
+    反平行 (点积 -1) 也算共线 — 共享端点下的回头段由 pos 挡板排除.
+    """
+    return float(abs(float(np.dot(a, b)))) >= 1.0 - 1e-6
 
 
 # ═══════════════════════════════════════════════════════════════
