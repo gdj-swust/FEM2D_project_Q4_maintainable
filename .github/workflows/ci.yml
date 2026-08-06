@@ -208,3 +208,36 @@ jobs:
           assert np.all(np.isfinite(result["u"])), "位移非有限"
           print("wheel smoke OK: max|u| =", float(np.max(np.abs(result["u"]))))
           PYEOF
+
+  test-perf:
+    # 性能回归门 (P-ζ, 2026-08-06): perf_benchmark --ci 与脚本内基线常量
+    # (CI_BASELINE) 比较, 任一阶段超阈值 → job 红。阈值公式
+    # max(基线×4.0, 基线+200ms) 宽松防 flaky — 门只拦量级级回归,
+    # 系数论证见 scripts/perf_benchmark.py 常量注释与 docs/performance.md §6.1。
+    # 无需 gmsh: perf_benchmark 自建规则网格; 全路径无 gmsh import
+    # (fem2d 顶层无急切 gmsh/matplotlib — gmsh 经 gmsh_adapter 的
+    # _load_gmsh_module 惰性加载, 本 job 不会触发), 故安装段只装
+    # numpy/scipy (与 pyproject 声明的地板版一致); 若未来 fem2d 顶层
+    # import 链引入新急切依赖, 本 job 会 ImportError 红 — 需同步本段。
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install (numpy/scipy only — no gmsh needed)
+        run: |
+          python -m pip install --upgrade pip
+          PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=10 \
+            python -m pip install --retries 10 --timeout 120 \
+            "numpy>=2.0" "scipy>=1.13.0"
+      - name: Performance gate (1k/10k vs in-script baseline constants)
+        run: python scripts/perf_benchmark.py --ci
+      - name: Upload perf JSON artifact
+        # 失败也上传 (超阈值诊断用), 不阻断 job 的失败态。
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-results
+          path: perf_results.json
