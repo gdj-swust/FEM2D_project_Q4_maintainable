@@ -86,8 +86,8 @@ def _interactive_edge_index(segs, region_registry=None):
     """交互收集边编号 (回车结束), 逐个产出匹配的边索引.
 
     fix 与 traction 交互共用 (曾各自实现相同的提问循环).
-    支持逗号分隔多选 ("12,13") 与 @组名 — 段列表提示行
-    "输入编号 12,13 精细选择；输入 @组名 整组选择" 必须名副其实.
+    支持逗号分隔多选 ("12,13")、@组名 与 @段名 — 段列表提示行
+    "输入编号 12,13 精细选择；输入 @组名 整组选择 或 @段名" 必须名副其实.
     """
     while True:
         inp = ask("  边编号 (回车结束): ")
@@ -134,7 +134,8 @@ def _print_segment_menu(segs):
         else:
             kind = '曲线'
         print(f"  [{i+1}] {kind} | {label}")
-    print("  输入编号 12,13 精细选择；输入 @组名 整组选择")
+    print("  输入编号 12,13 精细选择；输入 @组名 整组选择"
+          " 或 @段名 (如 @椭圆孔)")
 
 
 def _apply_fix_bcs(config, mesh, segs, batch_mode, region_registry=None):

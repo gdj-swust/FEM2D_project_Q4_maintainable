@@ -210,6 +210,11 @@ def _available_edges(shape, n_holes, used):
 
     与 geo_spec._edge_ids 的命名严格对齐: 单孔只生成 "内孔" (无编号),
     多孔生成 "内孔1..N" + "内孔" 聚合 — 向导问的边必须生成器可映射。
+
+    聚合/子边互斥 (与 parse_spec 拒绝重复边配置同族): 选过 "内孔"
+    (聚合) 后子边全部不可选, 选过任一 "内孔i" 后聚合不可选 — 否则
+    两轮配置落到同一批曲线, .geo 生成重叠 Physical Curve, 同边
+    固定+载荷 并存 ("约束吞载荷" 同族历史教训)。
     """
     edges = list(_SHAPE_EDGES[shape])
     if n_holes == 1:
@@ -217,6 +222,11 @@ def _available_edges(shape, n_holes, used):
     elif n_holes > 1:
         edges.append("内孔")            # 聚合: 全部孔一起施加
         edges.extend(f"内孔{i + 1}" for i in range(n_holes))
+    sub_edges = [f"内孔{i + 1}" for i in range(n_holes)]
+    if "内孔" in used:
+        edges = [e for e in edges if e not in sub_edges]
+    elif any(e in used for e in sub_edges):
+        edges = [e for e in edges if e != "内孔"]
     return [e for e in edges if e not in used]
 
 
@@ -261,7 +271,9 @@ def _ask_body(config):
     if "body" in explicit and config.body is not None:
         print("  (使用 CLI --body — 体力阶段跳过)")
         return None
-    return _ask_vec2("  体力 bx,by [N/m³, 回车跳过]: ")
+    # N/m^3 而非 N/m³ — U+00B3 不在 GBK/cp936, 未重配 stdout 的
+    # 直接 API/嵌入调用路径下 input() 抛 UnicodeEncodeError 硬崩溃
+    return _ask_vec2("  体力 bx,by [N/m^3, 回车跳过]: ")
 
 
 def _print_summary(shape, params, holes, mesh_size, material, boundaries,

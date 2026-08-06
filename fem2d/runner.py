@@ -57,7 +57,6 @@ def _ensure_patch_test(elem_type="CPS3", plane="stress"):
     失败 → 抛 CliError **且不缓存** — 同进程下一次调用必须重新
     运行并再次失败, 不能静默放行 (失败只属于本次运行, 不是可复用的结果).
     """
-    global _patch_checked
     key = (elem_type, plane)
     if key in _patch_checked:
         return
@@ -284,7 +283,8 @@ def _print_boundaries(config, mesh, segs):
     print("\n  用法示例:")
     print(f"    python run.py {os.path.basename(demo_fp)} --fix left --body 0,-78000")
     print(f"    python run.py {os.path.basename(demo_fp)} --fix left --traction right:1e6,0")
-    print("\n  输入 @组名 整组选择 (如 --traction '@椭圆孔:0,-2e6') — 编号仍可精细选择")
+    print("\n  输入 @组名 整组选择 (如 --traction '@椭圆孔:0,-2e6')"
+          " 或 @段名 (如 '@椭圆孔') — 编号仍可精细选择")
 
 
 # ═══════════════════════════════════════════════════════════════

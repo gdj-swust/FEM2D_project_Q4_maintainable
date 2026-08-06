@@ -3,8 +3,10 @@
 > 版本: 9.18.1+ (2026-08-03, 契约清账阶段 1 交付物; 阶段 2/3 完成后已更新:
 > K1-K11 全部修复并带判别性测试; **复查轮 (2026-08-03) 三方一致性审计后
 > 状态列全部回填, 与代码实测一致** — 探针 scripts/audit_contract_probe.py
-> 100 项全过, 见第 M 节; 2026-08-05 C 覆盖轮: 6c 契约扩展 (接受 (3,)
-> 单向量返回标量) 的伴随更新, 见 von_mises / principal_stresses 行)。
+> 151 项全过, 见第 M 节; 2026-08-05 C 覆盖轮: 6c 契约扩展 (接受 (3,)
+> 单向量返回标量) 的伴随更新, 见 von_mises / principal_stresses 行;
+> 2026-08-06 R-δ 轮: E 行 exit 1 / G 行 ValueError / B 行 OverflowError+
+> penalty 限制 契约修正, (3,) 正路径探针断言, 见对应行)。
 > 范围: fem2d/ 全部顶层导出 (`fem2d/__init__.py` `__all__` + 惰性导出) +
 > Mesh 全部公共方法 + 输入端入口 (input_source / gmsh_adapter / bc_apply)。
 > 单元内核公式 (element/)、solver 数值逻辑、error_est 公式为行为冻结区,
@@ -88,10 +90,10 @@
 
 | API | 签名 | 参数合法形状 | 误用清单 → 应有错误 | 现状 |
 |-----|------|-------------|---------------------|------|
-| solve | (mesh, method="elimination", verbose=True, check_condition=False, linear_solver="auto") | mesh: Mesh (或等价协议对象); method ∈ {elimination, penalty}; linear_solver ∈ {auto,direct,cg,cg-block,ilu} | method 非法 → ValueError; linear_solver 非法 → ValueError(所有分支前校验); mesh 非 Mesh (dict/None) → TypeError "solve: mesh 必须是 fem2d.Mesh 实例"; 网格非法 → validate_state ValueError; 欠约束 → RuntimeError(刚体模态, 带分量明细); 奇异 → RuntimeError(MatrixRankWarning 转); 残差大 → RuntimeError; NaN 解 → RuntimeError | ✅ (K5) |
+| solve | (mesh, method="elimination", verbose=True, check_condition=False, linear_solver="auto") | mesh: Mesh (或等价协议对象); method ∈ {elimination, penalty}; linear_solver ∈ {auto,direct,cg,cg-block,ilu} | method 非法 → ValueError; linear_solver 非法 → ValueError(所有分支前校验); **penalty×cg/ilu/cg-block → ValueError (penalty 方法仅接受 auto/direct, "Penalty constraints currently require the direct solver")**; mesh 非 Mesh (dict/None) → TypeError "solve: mesh 必须是 fem2d.Mesh 实例"; 网格非法 → validate_state ValueError; 欠约束 → RuntimeError(刚体模态, 带分量明细); 奇异 → RuntimeError(MatrixRankWarning 转); 残差大 → RuntimeError; NaN 解 → RuntimeError | ✅ (K5; 2026-08-06 补记 penalty 组合限制) |
 | estimate_condition | (K, method="auto") | K: 方阵 (csr/dense); method ∈ {auto,dense,sparse} | K 非数组 (tuple/list/标量) 或非方阵 → ValueError "K 必须为方阵"; method 非法 → ValueError 带可选值 (曾静默降级 sparse 并成功返回); 奇异 → dict{condition_number: inf/None, status} | ✅ (复查轮 b1c630d: K 形状前置 + method 白名单) |
 | apply_elimination | (K, F, free_dofs, fixed_dofs, prescribed_vals, linear_solver="direct", cg_rtol=1e-10, cg_maxiter=None, return_info=False) | K 方阵有限; F (n,); free/fixed 整数 DOF 数组; prescribed 长度 = fixed; 纯 Dirichlet (free 空) 合法 | K 非方阵/NaN → ValueError; F 形状/NaN → ValueError; free/fixed 布尔掩码 → ValueError; 重叠 → ValueError; 遗漏 DOF → ValueError; 自身重复 → ValueError; fixed/prescribed 长度不等 → ValueError; prescribed NaN → ValueError; 重复约束不同值 → ValueError; linear_solver 非法 → ValueError; cg 不收敛 → RuntimeError(建议 direct) | ✅ |
-| apply_penalty | (K, F, fixed_dofs, prescribed_vals=None, penalty=None) | 同上; penalty None = 自动 max\|K_ii\|×1e8 | 同上; penalty NaN/Inf/< max\|K_ii\|×1e4 → ValueError(相对判据) | ✅ |
+| apply_penalty | (K, F, fixed_dofs, prescribed_vals=None, penalty=None) | 同上; penalty None = 自动 max\|K_ii\|×1e8 | 同上; penalty NaN/Inf/< max\|K_ii\|×1e4 → ValueError(相对判据); **自动罚因子溢出 (max\|K_ii\| > float_max/1e8 ≈ 1.8e300) → OverflowError (极端 corner, 2026-08-06 补记)** | ✅ |
 | estimate_error | (mesh, result, method="SPR", verbose=True) | result: solve() 输出 dict; method ∈ {SPR,L2,weighted} | method 非法 → ValueError(带可选值); result 非 dict 或缺 "stress" 键 → ValueError 带键名; result["stress"] 形状与 n_elem 不符 → ValueError (恢复入口校验) | ✅ (K4) |
 
 ---
@@ -115,7 +117,7 @@
 | nodal_simple / nodal_weighted | (mesh, elem_stress) | elem_stress: (n_elem, n_comp) | 形状错 → ValueError; 孤立节点 → ValueError(与 L2 一致); 权重/elem_stress 含 NaN → ValueError "contains NaN/Inf" | ✅ (K8) |
 | nodal_L2_projection | (mesh, elem_stress) | (n_elem, n_comp) 或 (n_elem, nqp, n_comp) | ndim ∉ {2,3} → ValueError; 首维 ≠ n_elem → ValueError; 采样数 ≠ nqp → ValueError; 孤立节点 → ValueError(一致质量阵奇异前置); NaN → ValueError | ✅ (K8) |
 | principal_stresses | (stress) | (n, 3) 有限数组 [σx, σy, τxy] | 形状 (n,2)/(n,)/(标量) → ValueError 带期望形状; NaN/Inf → ValueError "contains NaN/Inf" | ✅ (K3) |
-| principal_stresses (3,) 单向量 | (3,) 一维 [σx, σy, τxy] | 合法: 返回 4 标量元组 (σ1, σ2, τ_max, θ); 非法同批量路径 (NaN/形状错 → ValueError) | ✅ (契约扩展 2026-08-05 — 6c 遗留, 探针/fuzz i==9 + test_api_contract_types.py 锁定) |
+| principal_stresses (3,) 单向量 | (3,) 一维 [σx, σy, τxy] | 合法: 返回 4 标量元组 (σ1, σ2, τ_max, θ); 非法同批量路径 (NaN/形状错 → ValueError) | ✅ (契约扩展 2026-08-05 — 6c 遗留; 探针 (3,) 正路径断言 + fuzz i==9 锁不抛异常 + test_api_contract_types.py 锁返回形状) |
 | stress_at_point | (mesh, result, x, y, mode="element") | mode ∈ {element,sides,average,recovered} | mode 非法 → ValueError(带可选值); 点不在网格 → ValueError; result 非 dict 或缺 "stress" → ValueError 带键名; x/y NaN → point_in_element 返回 -1 → ValueError(带坐标) | ✅ (K4) |
 | point_in_element | (mesh, x, y) | x,y 有限标量 | 返回 -1 (不在网格) — 调用方契约; NaN/Inf/复数 → ValueError(带坐标上下文, 9.21.0 坐标守卫) | ✅ |
 | spr_recovery | (mesh, elem_stress) | (n_elem, n_comp) 或 (n_elem, nqp, n_comp) | 首维 ≠ n_elem → ValueError (入口校验); NaN → ValueError "contains NaN/Inf"; 孤立节点 → 无样点节点回退平均 (设计行为) | ✅ (K8) |
@@ -128,7 +130,7 @@
 
 | API | 签名 | 参数合法形状 | 误用清单 → 应有错误 | 现状 |
 |-----|------|-------------|---------------------|------|
-| resolve_input_file | (fp, config, ask=None) | fp: 存在文件 (.spec/.geo/.txt/.msh); config: AnalysisConfig | 扩展名不支持 → CliError(exit 2); .inp → CliError(exit 2, 已移除提示); .msh 导入失败 → CliError(exit 1); 最终非 .msh → CliError(exit 1); .spec 指定网格不存在 → CliError(exit 1) | ✅ |
+| resolve_input_file | (fp, config, ask=None) | fp: 存在文件 (.spec/.geo/.txt/.msh); config: AnalysisConfig | 扩展名不支持 → CliError(exit 1); .inp → CliError(exit 1, 已移除提示); .msh 导入失败 → CliError(exit 1); 最终非 .msh → CliError(exit 1); .spec 指定网格不存在 → CliError(exit 1) | ✅ (2026-08-06 修正: 曾记 exit 2 — "不支持的扩展名" 属用户错误归 1, 探针 expect_exit 锁定) |
 | resolve_geo / resolve_txt | (fp, config, ask=None) | fp: .geo/.txt 存在 | gmsh 生成失败 → CliError(exit 1); quad 验证失败 → 重试后抛 GmshTopologyError; .txt 解析失败 → CliError(几何生成失败); 手写 .geo 保护 (临时副本) | ✅ |
 | resolve_spec_overrides | (fp, config) | fp: .spec 存在 | 格式错误 (缺 = / 空值) → ValueError(带行号); 键值无法转 float → ValueError(带键名); plane 非法 → CliError; no_plot 非法 → ValueError; 网格不存在 → CliError; 未知键 → WARN; 负 E/非法 nu → config.validate ValueError | ✅ |
 | physical_point_from_geo | (geo_path, name, mesh) | geo_path: .geo 或 None; name: str | 无源 .geo → reason="no_geo_source"; gmsh 不可用 → "gmsh_unavailable"; 未找到/歧义/域外/超距 → 区分 reason; 成功 → (nid, label, dist, None) | ✅ |
@@ -148,7 +150,7 @@
 |-----|------|-------------|---------------------|------|
 | D_matrix | (E, nu, plane_type="stress") | E>0 有限; nu∈(-1,0.5); plane ∈ {stress,strain} | E≤0/NaN → ValueError; nu 越界 → ValueError; plane 非法 → ValueError; 非数值 → TypeError 带参数名 | ✅ (K1) |
 | von_mises | (stress, plane_type="stress", nu=0.3) | (..., 3) 有限数组 | plane 非法 → ValueError; 标量/1-D/末维≠3 → ValueError(形状); NaN → ValueError | ✅ (K12, fuzz 发现后修复) |
-| von_mises (3,) 单向量 | (3,) 一维 [σx, σy, τxy] | 合法: 返回标量 float; 非法同批量路径 (NaN/形状错/plane 非法 → ValueError) | ✅ (契约扩展 2026-08-05 — 6c 遗留, 探针/fuzz i==10 + test_api_contract_types.py 锁定) |
+| von_mises (3,) 单向量 | (3,) 一维 [σx, σy, τxy] | 合法: 返回标量 float; 非法同批量路径 (NaN/形状错/plane 非法 → ValueError) | ✅ (契约扩展 2026-08-05 — 6c 遗留; 探针 (3,) 正路径断言 + fuzz i==10 锁不抛异常 + test_api_contract_types.py 锁返回形状) |
 | get_element_kernel | (elem_type: str) | 注册过的类型/别名 | 未注册 → ValueError(带注册表列表); None → ValueError | ✅ |
 | register_element | (kernel: ElementKernel) | ElementKernel 实例 | 非实例 → TypeError; 空名 → ValueError; 重复键不同内核 → ValueError(明示) | ✅ |
 | registered_element_types | () | — | — | ✅ |
@@ -162,7 +164,7 @@
 |-----|------|-------------|---------------------|------|
 | detect_boundaries | (mesh, ...) | Mesh | 微尺度/大坐标已相对化; 椭圆轴比 tiny 兜底; 闭合环验证 | ✅ |
 | build_boundary_segments | (mesh, ...) | Mesh | 无网格 → ValueError | ✅ |
-| validate_boundary_segments | (mesh, segments) | Mesh + segments dict list | 缺段/闭合缺失 → 诊断报告 (不抛, 返回诊断) | ✅ (诊断型 API) |
+| validate_boundary_segments | (mesh, segments) | Mesh + segments dict list | 缺段/闭合缺失 → ValueError 带统计 (missing/extra/duplicated 计数, 调用链硬校验) | ✅ (2026-08-06 契约修正: 曾记"不抛返回诊断" — 实测抛 ValueError, 调用链依赖该抛错) |
 | describe_geometry / print_segments / parse_edge_name | (segments) / (segments) / (name: str, segs) | 段字典列表 | 非法 name → ValueError (解析器) | ✅ |
 | segments_from_physical_curves / segments_from_region_registry | (mesh, ...) | Mesh + 源 | 未映射 → 空/诊断 | ✅ |
 | semantic_coverage | (mesh, segments, diagnostics=None) | — | 覆盖不完整 → 诊断对象 | ✅ |
@@ -240,7 +242,7 @@
 - **真缺口修复: 3 处** (element_refinement_indicator KeyError / assemble_loads n_dof 裸 IndexError / estimate_condition K 非数组裸 AttributeError)
 - **测试盲区: 5 处** (check_jacobian 0 测试 / estimate_condition 仅 monkeypatch 间接 / nodes_on_edge 误用无断言 / replace_nodes/replace_elements 误用无断言 / .geo/.txt/.msh 三入口 resolve_input_file 无 e2e) → 补 27 测试
 - **fuzz: 1000 轮 (500×2)**, 抓到 1 个真缺口 (estimate_condition K 非数组) → 已修; 复跑 0 裸异常
-- 探针 scripts/audit_contract_probe.py: 100 项断言全过 (可复用)
+- 探针 scripts/audit_contract_probe.py: 151 项断言全过 (可复用; 2026-08-06 R-δ 补 exit_code + (3,) 正路径断言)
 
 ### M2. ✅ 公共 API ↔ 判别性测试映射 (验收: 每个 ✅ 有测试锁定)
 

@@ -129,7 +129,7 @@ def _solve_cg(K_aa, rhs, preconditioner, preconditioner_name,
     }
 
 
-def _pure_dirichlet_solution(K, F, n_dof, free_dofs, fixed_dofs,
+def _pure_dirichlet_solution(K, F, n_dof, fixed_dofs,
                              prescribed_vals, return_info):
     """纯 Dirichlet 问题: K_aa 是 0×0, splu 不支持空矩阵.
 
@@ -208,7 +208,7 @@ def apply_elimination(
 
     if len(free_dofs) == 0:
         return _pure_dirichlet_solution(
-            K, F, n_dof, free_dofs, fixed_dofs,
+            K, F, n_dof, fixed_dofs,
             prescribed_vals, return_info)
 
     K_aa, rhs = _reduced_system(

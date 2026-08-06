@@ -6,11 +6,13 @@ from matplotlib.cm import ScalarMappable
 from matplotlib.collections import LineCollection, PolyCollection
 from matplotlib.colors import BoundaryNorm, LinearSegmentedColormap, ListedColormap, Normalize
 
+from .cli import ask
 from .element import evaluate_vector_field
 from .error_est import (  # 唯一公式, 供 visualize 和 error_est 共用
     compute_traction_jumps,
     element_refinement_indicator,
 )
+from .errors import CliError
 from .material import von_mises
 from .spr import spr_recovery
 from .stress import nodal_L2_projection, nodal_simple, nodal_weighted, principal_stresses
@@ -779,13 +781,17 @@ def interactive_plot(mesh, result, scale=100, isoband_levels=None, isoband_tag=N
         print("   q. 退出")
 
         try:
-            tag = input("  > ").strip().lower()
-        except KeyboardInterrupt:
-            # Ctrl-C 裸 traceback (退出码非零), 与 EOF 分支不对称 —
-            # 求解已成功, 优雅退出
+            tag = ask("  > ").strip().lower()
+        except CliError:
+            # Ctrl-C → ask 转 CliError(exit 0) — 求解已成功, 优雅退出
+            # (裸 input() 的 KeyboardInterrupt/EOFError 均在此收敛)
             print("\n  [INFO] 已退出交互绘图 (Ctrl-C)")
             plt.close('all')
             return
+        if not tag:
+            # EOF (stdin 关闭 → ask 返回 "") 视为退出键 — 裸 input() 曾
+            # 抛 EOFError 泄漏 traceback
+            break
         if tag in ('q', 'quit', 'exit'):
             plt.close('all'); break
         if tag == 'm':

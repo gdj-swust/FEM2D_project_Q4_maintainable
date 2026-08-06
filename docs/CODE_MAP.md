@@ -1,16 +1,18 @@
 # FEM2D 全局代码地图（2026-08-05 摸底）
 
-> 用途：给下一任总指挥/执行者快速进入状态。本文件是**静态结构地图**（main @ 788fce1），
-> 数值行为由金标准/漂移门锁定，结构变动需同步更新本节。配套：`COMMANDER_HANDOFF_20260805c.md`。
+> 用途：给下一任总指挥/执行者快速进入状态。本文件是**静态结构地图**
+> （模块/函数一律以 **符号引用** 标注，如 `input_source.resolve_input_file()` —
+> 免疫拆分式行号漂移；数字快照 9.27.0 @ main），数值行为由金标准/漂移门
+> 锁定，结构变动需同步更新本节。配套：`COMMANDER_HANDOFF_20260805c.md`。
 
 ## 1. 顶层结构
 
 ```
 run.py                 纯转发 → runner.main（编码安全网在 main 内）
 run_demo.py            demo_complex 示例（椭圆孔内压+顶部压力+自重），直接复用正式 API
-fem2d/                 主包（35 顶层模块 + element/ + boundary/ 两个子包）
+fem2d/                 主包（30 顶层模块 + element/ + boundary/ 两个子包）
 scripts/               工具层（打包/探针/fuzz/漂移门/geo_spec 等 12+ 脚本）
-tests/                 ~90 文件，~1060 test 函数
+tests/                 116 文件，~1400 test 函数（grep def test_: 1401）
 docs/                  api_contract / boundary_plugins / ci / coverage / performance
 models/                示例模型；tools/ 捆绑 Gmsh 4.15.2
 ```
@@ -18,16 +20,16 @@ models/                示例模型；tools/ 捆绑 Gmsh 4.15.2
 ## 2. 主线数据流（一次分析 = 5 阶段）
 
 ```
-阶段1 _resolve_input        runner.py:416  — .spec/.geo/.txt/.msh 统一分派
-   └─ input_source.resolve_input_file:563   .spec 键值 / .geo @FEM:注释 / .txt 中文几何 / .msh 直读
-阶段2 _build_model           runner.py:438  — 网格导入校验 + @FEM 合并 + 边界模型
-   ├─ gmsh_adapter.generate_from_geo:670   执行 .geo → 网格 + 语义区域（API 路径）
-   ├─ gmsh_adapter.import_msh:613          打开已有 .msh（子进程路径共用 _extract_mesh:479）
-   ├─ preprocess.validate_mesh:402         重复节点/单元、零边、退化、孤立、非流形 全家桶
-   └─ boundary.build_boundary_segments     naming.py:484 — 优先级：RegionRegistry → edge_labels → 纯拓扑 detect
-阶段3 _apply_conditions      runner.py:460  — bc_apply.apply_bcs:419（fix/traction/force/body 四类）
-阶段4 _analyze_and_report    runner.py:480  — solver.solve + error_est.estimate + 中文报告
-阶段5 _plot                 runner.py:334  — visualize（云图/isoband/交互）
+阶段1 _resolve_input        runner._resolve_input() — .spec/.geo/.txt/.msh 统一分派
+   └─ input_source.resolve_input_file()   .spec 键值 / .geo @FEM:注释 / .txt 中文几何 / .msh 直读
+阶段2 _build_model           runner._build_model() — 网格导入校验 + @FEM 合并 + 边界模型
+   ├─ gmsh_adapter.generate_from_geo()    执行 .geo → 网格 + 语义区域（API 路径）
+   ├─ gmsh_adapter.import_msh()           打开已有 .msh（子进程路径共用 _extract_mesh()）
+   ├─ preprocess.validate_mesh()          重复节点/单元、零边、退化、孤立、非流形 全家桶
+   └─ boundary.build_boundary_segments    naming.build_boundary_segments() — 优先级：RegionRegistry → edge_labels → 纯拓扑 detect
+阶段3 _apply_conditions      runner._apply_conditions() — bc_apply.apply_bcs()（fix/traction/force/body 四类）
+阶段4 _analyze_and_report    runner._analyze_and_report() — solver.solve() + error_est.estimate() + 中文报告
+阶段5 _plot                 runner._plot() — visualize（云图/isoband/交互）
 ```
 
 ## 3. 模块职责表
@@ -48,7 +50,7 @@ Mesh 构造时浅拷贝 kernel（Q4R hourglass_coefficient 是可变类属性，
 |---|---|
 | topology.py | 邻接图 → 闭环分解(_decompose_loops) → 嵌套定向(_validate_and_nest_loops) → 曲率分割 → 自交检测 |
 | geometry.py | 曲率(双边滤波)/锐角断点/直线椭圆拟合(fit_closed_ellipse) |
-| naming.py | `build_boundary_segments`:484 总入口；段命名/边名解析(parse_edge_name) |
+| naming.py | `build_boundary_segments()` 总入口；段命名/边名解析(parse_edge_name()) |
 | detectors/ | 插件识别体系：Detector 基类 + Registry（首个非 None 胜出，GeneralCurveDetector 兜底恒返回） |
 | plugins/ | 轮2 示例插件：arc_curvature / circle_label / ellipse_group_label |
 | segment_builder/segment_utils | 段构建 + 纯函数助手（segment_sort_key 等） |
@@ -63,10 +65,10 @@ Mesh 构造时浅拷贝 kernel（Q4R hourglass_coefficient 是可变类属性，
 |---|---|
 | mesh.py | Mesh 容器：数据不可变（只读 setter + replace_* + 缓存失效）；外法向由相邻单元 CCW 确定 |
 | assembly.py | 4 条路径：assemble_sparse / assemble_sparse_vectorized / assemble_lil_reference(教学参考) / assemble_expand |
-| solver.py | `solve`:597 完整流程（见 §4）；奇异守卫/平衡校验/沙漏监控 |
-| bc.py | apply_elimination:26（Bathe §4.2.2 消去，direct/cg/ilu）+ apply_penalty:192 |
-| bc_apply.py | apply_bcs:419 四类载荷施加（fix/traction/force/body） |
-| loads_core.py | assemble:31（F=Rc+ΣRs+ΣRb）；parse_traction/parse_vec2/make_edge_profile_func（p/l 分布）；_compile_expr（AST 白名单） |
+| solver.py | `solve()` 完整流程（见 §4）；奇异守卫/平衡校验/沙漏监控 |
+| bc.py | apply_elimination()（Bathe §4.2.2 消去，direct/cg/ilu）+ apply_penalty() |
+| bc_apply.py | apply_bcs() 四类载荷施加（fix/traction/force/body） |
+| loads_core.py | assemble()（F=Rc+ΣRs+ΣRb）；parse_traction/parse_vec2/make_edge_profile_func（p/l 分布）；_compile_expr（AST 白名单） |
 | loads.py | 兼容层 facade，纯 re-export loads_core |
 
 ### 后处理
@@ -74,15 +76,15 @@ Mesh 构造时浅拷贝 kernel（Q4R hourglass_coefficient 是可变类属性，
 |---|---|
 | stress.py | compute_stresses / principal_stresses / nodal_average / nodal_L2_projection / stress_at_point |
 | spr.py | SPR 恢复：节点补丁稀疏结构(_node_patch_csr) + 局部最小二乘(_fit_node_block) |
-| error_est.py | estimate:143（SPR/L2/weighted）；compute_traction_jumps:359（牵引跳跃）；element_refinement_indicator:410（Z2 指示器） |
+| error_est.py | estimate()（SPR/L2/weighted）；compute_traction_jumps()（牵引跳跃）；element_refinement_indicator()（Z2 指示器） |
 | visualize.py | plot_contour / plot_three / interactive_plot / isoband（Bathe 等应力带）/ Gouraud / traction jumps 图 |
 | reporting.py | 中文结果摘要（位移模长 np.hypot 等） |
 
 ### 验证与辅助
 | 模块 | 职责 |
 |---|---|
-| convergence.py | 收敛研究（run_cantilever_convergence 204 行，B 轮拆分对象） |
-| verification.py | run_plane_verification:15（155 行，B 轮拆分对象） |
+| convergence.py | 收敛研究（run_cantilever_convergence()，B 轮拆分对象） |
+| verification.py | run_plane_verification()（B 轮拆分对象） |
 | patch_test.py | patch 测试 |
 | quality.py | 网格质量指标（bad/warn/ok 互斥分类） |
 | wizard.py | 交互建模向导（无参数+终端时自动） |
@@ -98,7 +100,7 @@ Mesh 构造时浅拷贝 kernel（Q4R hourglass_coefficient 是可变类属性，
    + Q4R 长宽比告警
 3. assemble_sparse + assemble_loads
 4. _solve_linear_system     纯 Dirichlet（空矩阵特判）/ 消去 / 罚 三分支
-   _solve_with_singular_guard:140  秩警告→异常，非秩警告转发（轮3 修复）
+   _solve_with_singular_guard()  秩警告→异常，非秩警告转发（轮3 修复）
    _check_solution_finite   NaN/Inf 快速失败
 4'. 残差                    后向误差 ||r||∞/(||K||∞||u||∞+||F||∞)（Bathe §8.2.6）
 5. 应力响应                 单元/积分点应变应力 + von Mises
@@ -107,7 +109,7 @@ Mesh 构造时浅拷贝 kernel（Q4R hourglass_coefficient 是可变类属性，
 6. 小变形 + 结果有限性检查；条件数可选（默认关）
 ```
 
-## 5. 测试体系（~1060 函数）
+## 5. 测试体系（~1400 函数）
 
 - **金标准锁定**：`tests/boundary_golden/*.json`（边界段 schema——不得新增键）+ `tests/test_solve_refactor_lock.py`（求解逐位锁）
 - **漂移门**：`scripts/regression_compare.py`（基线 7ee65fc vs main，相对差必须 0.0）
