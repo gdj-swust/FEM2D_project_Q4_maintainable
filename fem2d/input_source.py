@@ -611,6 +611,13 @@ def resolve_input_file(fp, config, ask=None):
         from fem2d.cli import ask as default_ask
         ask = default_ask
 
+    # 类型守卫: 库调用/测试可能传非路径 — os.path.splitext 会冒裸 TypeError
+    # 无上下文. bytes 是 os.PathLike 的虚拟子类, 能通过 splitext, 但后续
+    # 扩展名分支全部失配 → 静默落入"不支持的输入", 也一并拒绝
+    if not isinstance(fp, (str, os.PathLike)) or isinstance(fp, bytes):
+        raise TypeError(
+            f"fp 必须为路径 (str/os.PathLike), 得到 {type(fp).__name__}")
+
     # 扩展名大小写不敏感 (Windows 上 .MSH/.GEO 会被直接拒)
     ext = os.path.splitext(fp)[1].lower()
 

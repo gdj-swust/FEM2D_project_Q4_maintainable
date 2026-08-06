@@ -125,7 +125,4 @@ vm = result["vm_stress"]
 print(f"  最大位移: {np.max(np.abs(u)):.6e} m")
 print(f"  最大 von Mises: {vm.max():.3e} Pa  ({vm.max()*1e-6:.2f} MPa)")
 
-try:
-    interactive_plot(mesh, result, scale=500)
-except EOFError:
-    print("\n[INFO] 非交互环境 (stdin 不可用), 跳过交互绘图")
+interactive_plot(mesh, result, scale=500)
