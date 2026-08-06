@@ -41,6 +41,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, List, NoReturn, Optional, Tuple
 
+# 中文 locale (Windows GBK) 下 stdout 默认走 locale 编码 — 管道/重定向时
+# 被按 UTF-8 解码即乱码, 判别性测试断言失败 (P-κ 验收发现); 固定 UTF-8 +
+# errors=replace, 输出编码确定性, 任意 locale 下可复现。
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # 脚本位于 scripts/ 下 — 仓库根固定由文件位置推导, 从任意目录调用都可跑
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PY = sys.executable
