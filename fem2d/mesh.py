@@ -83,6 +83,9 @@ class Mesh:
     _fixed_dofs: np.ndarray = field(init=False, repr=False)
     _fixed_set: set | None = field(default=None, init=False, repr=False)
     _fixed_dirty: bool = field(default=False, init=False, repr=False)
+    # 刚体模态检查结果缓存: (fixed_dofs 内容快照拷贝, 结果 list) | None —
+    # 见 check_rigid_body_constraints 缓存注释 (BC 未变免重算拓扑)
+    _rigid_cache: tuple | None = field(default=None, init=False, repr=False)
     thickness: float = 1.0
     E: float = 210e9
     nu: float = 0.3
@@ -187,6 +190,11 @@ class Mesh:
         self._fixed_dofs = value
         self._fixed_set = None      # 惰性: 首次 fix_node 时从数组重建
         self._fixed_dirty = False
+        # BC 重赋值 → 刚体模态检查结果失效。只清 _rigid_cache, 不调
+        # invalidate_cache: 连接/几何缓存与 BC 无关, 全清会让参数研究
+        # 中改 BC 后白白重建全部预处理 (fix_node 不经 setter 写 set +
+        # dirty, 由检查时的内容快照比较兜底 — 见 check_rigid_body_constraints)
+        self._rigid_cache = None
 
     def __post_init__(self):
         """初始化后不自动计算拓扑 — 延迟到首次访问时 (lazy evaluation)"""
@@ -306,7 +314,10 @@ class Mesh:
         property setter 把任何重绑赋值路由到 :meth:`replace_nodes` /
         :meth:`replace_elements` — 它们内部完成校验、只读锁定并清除
         缓存。直接绕过 API 改数组会导致面积/形函数系数/邻接关系
-        静默过期, 产生错误结果.
+        静默过期, 产生错误结果。
+
+        同时清除刚体模态检查结果缓存 — 节点坐标/单元连接直接决定
+        连通分量分解与 R 约束矩阵, 网格变更后旧结果必然过期。
         """
         self._connectivity_built = False
         self.node_to_elems = None
@@ -330,6 +341,8 @@ class Mesh:
         self._q4r_hourglass_material = None
         self._q4i_enhancement = None
         self._q4i_enhancement_material = None
+        # 刚体模态检查结果缓存 (键含网格拓扑) — 网格变更必须失效
+        self._rigid_cache = None
 
     def replace_nodes(self, new_nodes):
         """原子替换节点坐标 — 显式修改网格的唯一正规途径.
@@ -941,12 +954,25 @@ class Mesh:
 
         仅计数不足时会漏掉: 3 个共线约束无法阻止转动, 或约束在断开的零件上。
 
+        结果缓存: BC 与网格未变时直接复用上次结果, 免重算
+        connected_components (O(n) 图遍历) — 参数研究/收敛研究的
+        重复 solve 是热路径。缓存键 = fixed_dofs 内容快照拷贝
+        (np.array_equal 比较, 覆盖 fix_node/setter/原地修改全部写
+        入口) + 网格变更经 invalidate_cache 失效 (replace_nodes /
+        replace_elements)。返回的 list 只读复用 — 调用方不得原地修改。
+
         返回
         ----
         list[dict]: 每个有问题的分量 {"component": int, "nodes": list, "issue": str}
         """
         from scipy.sparse import csr_matrix
         from scipy.sparse.csgraph import connected_components
+
+        fixed = self.fixed_dofs
+        if self._rigid_cache is not None:
+            snapshot, cached = self._rigid_cache
+            if np.array_equal(fixed, snapshot):
+                return cached
 
         self.build_connectivity()
         n_nodes = self.n_nodes
@@ -961,7 +987,6 @@ class Mesh:
         n_comp, labels = connected_components(adj, directed=False)
 
         # ── 2. 逐分量检查 ──
-        fixed_set = set(self.fixed_dofs)
         issues = []
 
         for comp in range(n_comp):
@@ -975,13 +1000,12 @@ class Mesh:
                 })
                 continue
 
-            # 该分量中被约束的 DOF
-            comp_dofs = set()
-            for n in comp_nodes:
-                if (2*n) in fixed_set:
-                    comp_dofs.add(2*n)
-                if (2*n + 1) in fixed_set:
-                    comp_dofs.add(2*n + 1)
+            # 该分量中被约束的 DOF — 向量化: 全分量 DOF 一次 np.isin
+            # (旧实现逐节点 Python 循环 + set 成员查询, 100k 节点级
+            # 网格是热路径)。2n 与 2n+1 互异且 comp_nodes 无重复 →
+            # 结果 set 的元素集与旧循环逐元素一致 (len 相等)。
+            comp_dofs_all = np.concatenate([2 * comp_nodes, 2 * comp_nodes + 1])
+            comp_dofs = set(comp_dofs_all[np.isin(comp_dofs_all, fixed)].tolist())
 
             if len(comp_dofs) == 0:
                 issues.append({
@@ -1048,6 +1072,10 @@ class Mesh:
                     "constrained_nodes": constrained_nodes,
                 })
 
+        # 快照必须拷贝: 原地修改 fixed_dofs 数组 (setflags(write=True)
+        # 绕过 setter/fix_node) 时, 内容比较才能发现变化 — 存引用会
+        # 把数组与自己比较, 永远命中陈旧结果
+        self._rigid_cache = (fixed.copy(), issues)
         return issues
 
     def info(self):
