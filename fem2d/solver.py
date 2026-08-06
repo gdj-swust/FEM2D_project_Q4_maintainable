@@ -192,11 +192,11 @@ def _solve_linear_system(K, F, free_dofs, fixed_dofs, prescribed,
             "expected auto, direct, cg, cg-block or ilu.")
     dirichlet_only = (method == "elimination" and len(free_dofs) == 0)
     if dirichlet_only:
-        # 纯 Dirichlet: u 全部已知, 直接算反力 (Bathe §4.2.2)
+        # 纯 Dirichlet: u 全部已知, 反力 R_b = (K·u − F)_b 由 solve()
+        # 从共享 Ku 计算 (P-α: 全量 K·u 主流程只算一次, 见 solve)
         u = np.zeros(n_dof)
         u[fixed_dofs] = prescribed
-        R_full = K.dot(u) - F
-        reactions = R_full[fixed_dofs]
+        reactions = None
     elif method == "elimination":
         if solver_key == "auto":
             solver_key = "cg" if len(free_dofs) >= 100000 else "direct"
@@ -226,8 +226,8 @@ def _solve_linear_system(K, F, free_dofs, fixed_dofs, prescribed,
         log(f"  penalty = {penalty:.2e} "
             "(k_penalty = max(|K_ii|) × 1e8, additive)")
         u = _solve_with_singular_guard(spsolve, K_mod, F_mod)
-        # penalty: 计算等效反力 R = K·u - F (用于平衡检查)
-        reactions = (K.dot(u) - F)[fixed_dofs]
+        # penalty: 等效反力 R = K·u − F 由 solve() 从共享 Ku 计算 (P-α)
+        reactions = None
         linear_solver_info = {"name": "direct", "iterations": 1}
     else:
         raise ValueError(f"Unknown method: {method}")
@@ -251,11 +251,14 @@ def _check_solution_finite(u, reactions, method):
 
 
 def _compute_residual(K, F, K_mod, F_mod, u, free_dofs,
-                      method, dirichlet_only, log):
+                      method, dirichlet_only, log, Ku=None):
     """Backward error 残差 (Bathe §8.2.6, ∞-范数) + 报告 + 阈值拒绝.
 
     ||r||_∞ / (||K||_∞·||u||_∞ + ||F||_∞) — 矩阵/向量 ∞-范数相容,
     避免 Frobenius 范数放大分母。返回 (residual, residual_abs)。
+
+    Ku : ndarray or None — 主流程已算好的全量 K·u (P-α 共享, 同一
+    数组); None 时 (直接调用) 回退自身计算, 两条路径数值逐位一致。
     """
     if dirichlet_only:
         residual = 0.0
@@ -264,7 +267,8 @@ def _compute_residual(K, F, K_mod, F_mod, u, free_dofs,
         # 自由行上的原方程 K_a·u = F_a。使用完整自由行避免再次构造
         # K_aa/K_ab; 也是含非零给定位移时的一致 backward error。
         rhs = F[free_dofs]
-        r = (K.dot(u) - F)[free_dofs]
+        r = (Ku - F)[free_dofs] if Ku is not None \
+            else (K.dot(u) - F)[free_dofs]
         r_inf = np.linalg.norm(r, ord=np.inf)
         row_counts = np.diff(K.indptr)
         row_sums = np.zeros(K.shape[0], dtype=float)
@@ -510,15 +514,19 @@ def _compute_element_response(mesh, u_e):
     return stress, strain, vm, stress_qp, strain_qp, dA_qp
 
 
-def _hourglass_monitor(mesh, K, u, u_e, log):
+def _hourglass_monitor(mesh, K, u, u_e, log, Ku=None):
     """内能有限性检查 + Q4R 沙漏能分级监控.
 
     沙漏能占比本身不是精度指标 (过刚/过柔都会 >90%) — 只作可靠性
     提示; 长宽比警告由 _q4r_aspect_ratio_warning 在装配前给出.
+
+    Ku : ndarray or None — 主流程已算好的全量 K·u (P-α 共享, 同一
+    数组); None 时 (直接调用) 回退自身计算, 两条路径数值逐位一致。
     """
     hourglass_energy_elem = None
     hourglass_energy = 0.0
-    internal_energy = float(0.5 * u @ K.dot(u))
+    internal_energy = float(
+        0.5 * u @ Ku) if Ku is not None else float(0.5 * u @ K.dot(u))
     if not np.isfinite(internal_energy):
         # 极端但有限的载荷/材料下内能可能溢出 — 不返回"成功"的 inf 结果
         raise RuntimeError(
@@ -692,12 +700,20 @@ def solve(
      linear_solver_info, _dirichlet_only) = _solve_linear_system(
         K, F, free_dofs, fixed_dofs, prescribed,
         method, linear_solver, n_dof, log)
+
+    # ── P-α: 全量 K·u 只算一次, 残差/内能/反力消费者共享同一数组 ──
+    # 消去法反力在 apply_elimination 内部固有计算 (K_aa 已提取, 不动);
+    # 主流程自身的 K·u 计算一次: elimination 残差、内能、penalty 与
+    # 纯 Dirichlet 支反力分别对 Ku 切片/点积 (数值与直算逐位一致)。
+    Ku = K.dot(u)
+    if _dirichlet_only or method == "penalty":
+        reactions = (Ku - F)[fixed_dofs]
     _check_solution_finite(u, reactions, method)
 
     # ── 4. 残差检查 (Bathe §8.2.6: backward error, 一致范数) ──
     residual, _residual_abs = _compute_residual(
         K, F, K_mod, F_mod, u, free_dofs,
-        method, _dirichlet_only, log)
+        method, _dirichlet_only, log, Ku=Ku)
 
     # ── 5. 应力计算 ──
     u_e = u[mesh.element_dofs]
@@ -706,7 +722,8 @@ def solve(
 
     # ── Q4R 沙漏能量监控 (含内能有限性检查) ──
     internal_energy, hourglass_energy_elem, hourglass_energy, \
-        hourglass_energy_ratio = _hourglass_monitor(mesh, K, u, u_e, log)
+        hourglass_energy_ratio = _hourglass_monitor(
+            mesh, K, u, u_e, log, Ku=Ku)
 
     # ── 5.5 全局力/力矩平衡检查 (Bathe §4.2.2) ──
     # 残差小只说明线性方程解得准, 不代表载荷方向/厚度/边界正确
