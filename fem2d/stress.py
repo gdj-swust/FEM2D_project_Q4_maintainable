@@ -331,9 +331,13 @@ def nodal_L2_projection(mesh, elem_stress):
             f"一致质量矩阵奇异 (节点: {orphan[:10].tolist()}) — "
             "请先移除孤立节点")
     factor = splu(mass.tocsc())
-    # 多右端一次回代: SuperLU 逐列独立回代 (同一 L/U 分解), 与逐列
-    # factor.solve(rhs[:, c]) 逐位一致 (等价测试实测 0 ULP)。
-    return factor.solve(rhs)
+    # 逐列回代: SuperLU 多右端 solve 在部分平台/scipy 版本的 BLAS
+    # 实现 (Linux OpenBLAS 多线程 dtrsm) 下与逐列 solve 存在 ULP
+    # 级差异 — 逐列保证跨平台与参考/旧实现逐位恒等 (CI 回归实测)。
+    recovered = np.empty((n_nodes, n_comp))
+    for component in range(n_comp):
+        recovered[:, component] = factor.solve(rhs[:, component])
+    return recovered
 
 
 def point_in_element(mesh, x, y):
