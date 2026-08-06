@@ -128,6 +128,7 @@ class Mesh:
                                     else concentrated_forces)
         self._elem_type = elem_type
         # 缓存字段 (areas 等) 由 field(default=None) 类属性兜底, 无需赋 None
+        _reject_complex_nodes(nodes, "nodes")
         self._nodes = np.asarray(nodes, dtype=float)
         self._elements = np.asarray(elements)
         self.__post_init__()
@@ -352,6 +353,7 @@ class Mesh:
         property setter 自动路由到这里): 校验新数组 (形状/有限性),
         重建节点数组 (保持只读), 并清除全部惰性缓存。单元连接不变。
         """
+        _reject_complex_nodes(new_nodes, "replace_nodes: new_nodes")
         nodes = np.asarray(new_nodes, dtype=float)
         if nodes.shape != self._nodes.shape:
             raise ValueError(
@@ -1090,6 +1092,24 @@ class Mesh:
                 f"{self.elem_type}/{self.element_kernel.name}  "
                 f"{self.n_dof} DOFs  Jacobian: {'OK' if ok else f'{len(bad)} BAD'}  "
                 f"boundary: {n_bdy} edges")
+
+
+def _reject_complex_nodes(nodes, arg_name):
+    """复数节点坐标 → TypeError (与 elements 拒绝族对齐).
+
+    复数数组 `np.asarray(..., dtype=float)` 只发 ComplexWarning 并把
+    虚部静默丢弃 — 坐标 1+5j 变 1.0, 几何被静默改变 (fuzz 已找到
+    ComplexWarning 但未判 problem)。全库其余位置 (elements 索引 /
+    principal_stresses / von_mises / nodal_average) 均显式拒绝复数,
+    nodes 是漏网之鱼 — 在此补齐, 错误类型与消息风格对齐 elements
+    的既有拒绝 (TypeError + dtype 上下文)。
+    """
+    arr = np.asarray(nodes)
+    if np.iscomplexobj(arr):
+        raise TypeError(
+            f"{arg_name} must be a real-valued (x, y) coordinate array, "
+            f"got dtype {arr.dtype} — complex coordinates are rejected "
+            f"(imaginary parts would be silently discarded)")
 
 
 def _same_traction(a, b):

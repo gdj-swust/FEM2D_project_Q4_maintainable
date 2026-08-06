@@ -13,6 +13,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -97,6 +98,35 @@ def ensure_artifact_dir_writable(artifact_dir):
             "指定可写位置", exit_code=1) from error
 
 
+_MSH_TEMP_PREFIX = ".fem2d-msh-"
+_STALE_MSH_AGE = 24 * 3600  # 24h 前创建的临时网格视为陈旧 (启动清扫判据)
+
+
+def _sweep_stale_msh_temps(directory):
+    """启动清扫: 删除 24h 前创建的 .fem2d-msh-* 临时网格.
+
+    崩溃/强制退出遗留的临时 .msh 会随发布包泄漏 (models/ 曾混入
+    4.1MB — S-α 审查实证); atexit 只能覆盖正常退出。只清 24h 前
+    创建的文件, 运行中会话的临时文件 (创建后立即写入, 生命周期
+    短于 24h) 不被误删。返回删除的文件数。
+    """
+    if not os.path.isdir(directory):
+        return 0
+    cutoff = time.time() - _STALE_MSH_AGE
+    removed = 0
+    for name in os.listdir(directory):
+        if not name.startswith(_MSH_TEMP_PREFIX):
+            continue
+        path = os.path.join(directory, name)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                os.unlink(path)
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 def _protect_foreign_msh(final_path):
     """同名 .msh 已存在时的覆盖保护.
 
@@ -142,6 +172,11 @@ def generate_geo_with_topology(
     非法) → 抛异常。调用方必须同时处理 None 与异常 — 测试层应
     检查 None 后 skip/报错, 不应在 None 上解包。
     """
+    # 启动清扫: 陈旧临时网格 (24h 前) 在 gmsh 启动前删除 — 崩溃遗留
+    # 的 .fem2d-msh-* 会随发布包泄漏; atexit 只覆盖正常退出
+    _sweep_stale_msh_temps(os.path.dirname(
+        os.path.abspath(output_path or geo_path)))
+
     # quad 重组在 gmsh Blossom 下非确定性 (8 线程实测 ~75% 成功, 其余
     # 产出混合三角/四边) — 拓扑验证失败自动重试, 重试 2 次成功率 >98%
     #。

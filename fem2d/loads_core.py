@@ -551,6 +551,42 @@ def make_edge_profile_func(
 # 表达式解析 — AST 白名单编译 (从 run.py 提取)
 # ═══════════════════════════════════════════════════════════════
 
+class _IntToFloat(ast.NodeTransformer):
+    """整数字面量 → float (表达式 DoS 防护).
+
+    Python 大整数运算不是常量时间: ``9**9**9**9`` 在 int 域逐级膨胀到
+    10^92 位, 编译成功但求值永久挂起 (外部审查实测 timeout 10s 仍无
+    结果)。整数字面量转 float 后 ``9.0**9.0**9.0**9.0`` 微秒级抛
+    OverflowError — 资源耗尽变为响亮失败。
+
+    转换在 AST 白名单校验之后、编译之前执行: 校验器仍按原始常量
+    判定 (语义不变); 小整数 → float 精确, 大整数字面量的 float()
+    舍入与 int×float 运算的隐式 int→float 转换逐位一致 → 既有合法
+    表达式数值逐位不变 (test_s_alpha_security 逐位证明锁定)。
+    """
+
+    def visit_Constant(self, node):  # noqa: F401 — ast.NodeTransformer 框架 dispatch 调用
+        if isinstance(node.value, int) and not isinstance(node.value, bool):
+            return ast.copy_location(ast.Constant(float(node.value)), node)
+        return node
+
+
+def _expr_has_spatial_names(p: str) -> bool:
+    """含 x/y 变量 → 空间函数表达式 (AST Name 检查, 非 'x' in p 子串).
+
+    ``'exp(1)'`` 里的 'x' 是函数名字符串而非空间变量 — 子串匹配把
+    常数函数表达式误判为 callable, 与 sin(pi/2) 报错的既有契约自相
+    矛盾 (外部审查实证)。语法错误时退回子串路由: 报错路径交
+    _compile_expr 带表达式上下文 (消息不变)。
+    """
+    try:
+        tree = ast.parse(p.strip(), mode="eval")
+    except SyntaxError:
+        return "x" in p or "y" in p
+    return any(isinstance(n, ast.Name) and n.id in ("x", "y")
+               for n in ast.walk(tree))
+
+
 def _compile_expr(expr: str):
     """AST 白名单编译: x,y 空间表达式 → lambda x,y: <expr>
 
@@ -615,6 +651,11 @@ def _compile_expr(expr: str):
             "(仅支持 数字/运算符/x/y/sin/cos/tan/exp/sqrt/log/abs/pi)") from None
     _Validator().visit(tree)
 
+    # DoS 防护: int 常量 → float (见 _IntToFloat docstring)。fix_missing_locations
+    # 补齐替换节点的行/列信息 — 替换后的常量节点缺少 location 会导致
+    # compile() 抛 "PyCF_ONLY_AST" 类位置错误。
+    tree = ast.fix_missing_locations(_IntToFloat().visit(tree))
+
     code = compile(tree, '<expr>', 'eval')
     return lambda x, y: eval(code, {"__builtins__": {}}, {"x": x, "y": y, **_FUNCS})  # nosec B307 — AST 白名单校验后执行, 见 ast_whitelist
 
@@ -647,7 +688,7 @@ def parse_vec2(s: str):
         if not p:
             results.append(0.0)
             continue
-        if 'x' in p or 'y' in p:
+        if _expr_has_spatial_names(p):
             results.append(_compile_expr(p))
         else:
             try:
@@ -656,8 +697,8 @@ def parse_vec2(s: str):
                 raise ValueError(
                     f"无法解析 '{p}' — 纯数字或含 x/y 的表达式 "
                     f"(例: 1e6 / 0,-1000*(1-y/2) / sin(pi*x/2),0). "
-                    f"注意: 不含 x/y 的函数表达式 (如 sin(pi/2)) 不会被识别为空间函数, "
-                    f"请直接写数值 (如 1.0).")
+                    f"注意: 不含 x/y 变量的函数表达式 (如 sin(pi/2)、"
+                    f"exp(1)) 不会被识别为空间函数, 请直接写数值 (如 1.0).")
             if not np.isfinite(value):
                 # 数值溢出 (如 1e999 → inf) — CLI 静默忽略
                 raise ValueError(

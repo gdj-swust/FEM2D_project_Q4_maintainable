@@ -29,10 +29,11 @@ CODE_MAP = ROOT / "docs" / "CODE_MAP.md"
 
 # 硬编码锁定值 (2026-08-06, D-α 实测 @ main 810b7bd + 本守卫文件计入):
 # P轮Ⅱ 七包合入前 134 文件 / ~1552 函数 / 1628 收集 → 合入后
-# 141 文件 / 1627 函数 / 1790 收集 → 本包新增守卫文件 → 142/1630/1793.
-TEST_FILES = 142
-TEST_FUNCTIONS = 1630
-COLLECTED = 1793
+# 141 文件 / 1627 函数 / 1790 收集 → 本包新增守卫文件 → 142/1630/1793
+# → S-α 新增 test_s_alpha_security.py (19 函数) → 143/1649/1812.
+TEST_FILES = 143
+TEST_FUNCTIONS = 1649
+COLLECTED = 1812
 
 # 前缀字样由拼接构造 — 禁止在本文件出现连续序列
 _DF = "def test" + "_"
@@ -62,7 +63,7 @@ def _repo_test_function_count() -> int:
 
 
 def test_guard_readme_test_suite_numbers():
-    """README 测试体系数字锁定: 141→142 文件 / 1790→1793 收集.
+    """README 测试体系数字锁定: 142→143 文件 / 1793→1812 收集.
 
     回退 (134 文件 / 1628 测试 重现) 必须红 — 硬编码判别性语义.
     """
@@ -77,7 +78,7 @@ def test_guard_readme_test_suite_numbers():
 
 
 def test_guard_code_map_test_suite_numbers():
-    """CODE_MAP 测试体系数字锁定: 142 文件 / ~1630 函数.
+    """CODE_MAP 测试体系数字锁定: 143 文件 / ~1649 函数.
 
     d11 已锁 CODE_MAP, 本测试覆盖 README + 全仓库口径 — 双锁防漏.
     """
