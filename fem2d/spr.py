@@ -192,12 +192,12 @@ def _fit_node_block(mesh, sample_xy, sample_values, ptr, flat,
     dy = dy / h[per_sample_ok]
 
     normal = _normal_matrix(dx, dy, starts_ok, counts_ok)
+    # 逐分量 rhs 组装 → 整数组 reduceat: 沿 axis=0 逐列独立同序归约,
+    # 与逐列调用 np.add.reduceat 逐位一致 (等价测试实测 0 ULP)。
     rhs = np.empty((counts_ok.size, 3, n_comp), dtype=float)
-    for comp in range(n_comp):
-        column = values_ok[:, comp]
-        rhs[:, 0, comp] = np.add.reduceat(column, starts_ok)
-        rhs[:, 1, comp] = np.add.reduceat(dx * column, starts_ok)
-        rhs[:, 2, comp] = np.add.reduceat(dy * column, starts_ok)
+    rhs[:, 0, :] = np.add.reduceat(values_ok, starts_ok)
+    rhs[:, 1, :] = np.add.reduceat(dx[:, None] * values_ok, starts_ok)
+    rhs[:, 2, :] = np.add.reduceat(dy[:, None] * values_ok, starts_ok)
 
     target = node_ids[ok]
     try:
