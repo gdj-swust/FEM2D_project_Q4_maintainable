@@ -5,6 +5,9 @@
   python scripts/make_release_zip.py --list      # 只列将打包的文件, 不写 zip
   python scripts/make_release_zip.py --full      # full 模式: 含 tools/ (gmsh.exe)
   python scripts/make_release_zip.py --out-dir <目录>  # 覆盖输出目录 (测试用)
+  python scripts/make_release_zip.py --split     # 拆 4 包 (P-λ 发布拆包, 见下)
+  python scripts/make_release_zip.py --split --list   # 只列 4 包清单, 不写 zip
+  python scripts/make_release_zip.py --root <目录>    # 仓库根覆盖 (守恒比对用)
 
 排除规则与 .gitignore/交接文档一致, 每条规则注明"为什么":
   .git / build / dist / *.egg-info   生成物与版本库不进发布包
@@ -20,6 +23,28 @@
 ⚠️ .github 必须保留 — 点开头路径不能无脑排除 (曾漏过 CI 配置, 见交接文档)。
 
 版本单一源: 文件名中的版本号从 pyproject.toml 读取, 与打包声明永不漂移。
+
+--split 拆包设计 (P-λ, 划分以"文件是否可再生 / 是否运行必需"为准):
+  source     源码包: 全量减 tools/、models/、可再生的生成物
+             (脚本生成的 .msh / convergence.png / perf_results.json);
+             保持可 `pip install .` 与 `pytest -q` 冒烟 (含 boundary_golden)。
+  runtime    运行包: 运行必需代码 (run.py/fem2d/scripts 运行链子集) + tools/
+             (Windows gmsh 4.15.2 可执行); 解压后 `python run.py ...` 端到端。
+  models     示例模型包: models/ 全部 (.geo/.spec/.txt/.md + 生成的 .msh 示例)。
+  testdata   测试/基准数据包: tests/boundary_golden/ 基准数据 + 可再生的
+             收敛/性能基准产物 (scripts/convergence/*.msh、convergence.png、
+             perf_results.json), 供验收复跑。
+
+守恒契约: 4 包文件清单并集 == 原单 zip 清单 (无文件丢失、无凭空新增)。
+有意重叠两处 (并集守恒下显式声明, 守恒测试红侧锁定):
+  1. 运行必需代码 (fem2d/、run.py、run_demo.py、pyproject.toml、
+     requirements.txt、README.md、LICENSE、scripts 运行链三文件)
+     同时进 source 与 runtime — 源码包需代码做 pip install/pytest,
+     运行包需代码做端到端运行;
+  2. tests/boundary_golden/** 同时进 source (pytest 完整性, golden
+     测试按相对路径读数据) 与 testdata (基准数据本体)。
+4 个 zip 使用同一版本号与时间戳、同一顶层目录前缀, 解压到同一目录
+即还原完整项目 (运行包可直接引用示例包的 models/)。
 """
 import argparse
 import fnmatch
@@ -52,6 +77,71 @@ _ALWAYS_EXCLUDE = [
 
 # zip 内顶层目录 — 与历史发布包一致, 解压后得到干净的项目文件夹
 _ARCHIVE_PREFIX = "FEM2D_project_Q4_maintainable"
+
+# ── --split 拆包 (P-λ) ──────────────────────────────────────────────
+# 4 包固定命名后缀 (守恒测试与 README 用法说明依赖, 改名须同步)
+_SPLIT_SUFFIXES = ("source", "runtime-win64", "models", "testdata")
+
+# 运行必需代码: 进 runtime, 同时进 source (有意重叠, 见模块 docstring)
+_RUNTIME_CODE = {
+    "run.py",
+    "run_demo.py",
+    "pyproject.toml",
+    "requirements.txt",
+    "README.md",
+    "LICENSE",
+    "scripts/__init__.py",      # runner 依赖 scripts 包声明
+    "scripts/gmsh_runner.py",   # fem2d/gmsh_adapter.py 子进程 .geo → .msh
+    "scripts/geo_spec.py",      # fem2d/wizard.py .spec/文本 → .geo
+}
+_RUNTIME_DIRS = ("fem2d/", "tools/")
+
+# 可再生的基准产物 (脚本生成, 源码包排除; 进 testdata)
+_GENERATED_ARTIFACTS = ("perf_results.json",)
+
+
+def _is_runtime_code(rel: str) -> bool:
+    """运行必需代码: 显式清单 + fem2d/ tools/ 整目录."""
+    if rel in _RUNTIME_CODE:
+        return True
+    return any(rel.startswith(d) for d in _RUNTIME_DIRS)
+
+
+def _is_generated_artifact(rel: str) -> bool:
+    """脚本可再生的基准产物 (源码包不含; 进测试/基准数据包)."""
+    if rel in _GENERATED_ARTIFACTS:
+        return True
+    if rel.startswith("scripts/convergence/"):
+        # convergence_study.py 生成的网格与图; .geo 是入库输入, 留在源码包
+        return rel.endswith(".msh") or rel.endswith(".png")
+    return False
+
+
+def split_manifests(files: list) -> dict:
+    """单 zip 清单 → 4 包清单 dict.
+
+    守恒契约: 4 包并集 == 输入清单 (无文件丢失、无凭空新增); 有意重叠
+    两处 (运行必需代码 / boundary_golden) 见模块 docstring 与守恒测试。
+    """
+    packages = {name: [] for name in _SPLIT_SUFFIXES}
+    for rel in files:
+        if rel.startswith("tools/"):
+            packages["runtime-win64"].append(rel)
+        elif rel.startswith("models/"):
+            packages["models"].append(rel)
+        elif rel.startswith("tests/boundary_golden/"):
+            # 有意重叠: 源码包 (pytest 完整性) + 测试数据包 (基准数据)
+            packages["source"].append(rel)
+            packages["testdata"].append(rel)
+        elif _is_generated_artifact(rel):
+            packages["testdata"].append(rel)
+        elif _is_runtime_code(rel):
+            # 有意重叠: 源码包 (pip install/pytest) + 运行包 (端到端运行)
+            packages["runtime-win64"].append(rel)
+            packages["source"].append(rel)
+        else:
+            packages["source"].append(rel)
+    return {name: sorted(rels) for name, rels in packages.items()}
 
 
 def _excluded(rel: str, include_tools: bool) -> bool:
@@ -113,28 +203,88 @@ def build_zip(root, out_dir, include_tools=False, version=None, timestamp=None):
     return target
 
 
+def _dir_bytes(root: Path, rels: list) -> int:
+    """清单文件在磁盘上的字节合计 (报告/验收用, 文件缺失按 0 计)."""
+    total = 0
+    for rel in rels:
+        try:
+            total += (root / rel).stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def build_split_zips(root, out_dir, include_tools=False, version=None,
+                     timestamp=None):
+    """--split 模式: 4 包拆包, 返回 [(包名, zip 路径)] (守恒见 split_manifests).
+
+    version/timestamp 可注入 (测试确定性); 4 个 zip 共用同一版本号与
+    时间戳、同一顶层目录前缀 — 解压到同一目录即还原完整项目。
+    """
+    version = version or load_version(root / "pyproject.toml")
+    timestamp = timestamp or time.strftime("%Y%m%d_%H%M%S")
+    files = collect_files(root, include_tools=include_tools)
+    packages = split_manifests(files)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    targets = []
+    for name in _SPLIT_SUFFIXES:
+        rels = packages[name]
+        target = out_dir / (
+            f"FEM2D_project_Q4_{version}_{timestamp}_{name}.zip")
+        with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
+            for rel in rels:
+                archive.write(root / rel, f"{_ARCHIVE_PREFIX}/{rel}")
+        targets.append((name, target))
+    return targets
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="发布 zip 打包 (排除规则见模块 docstring)")
     parser.add_argument("--list", action="store_true",
                         help="只打印将打包的文件列表, 不写 zip (验证排除规则)")
     parser.add_argument("--full", action="store_true",
                         help="full 模式: 含 tools/ (gmsh.exe, 几十 MB 量级)")
+    parser.add_argument("--split", action="store_true",
+                        help="拆 4 包: source/runtime-win64/models/testdata "
+                             "(守恒并集 == 原单包清单, 见模块 docstring)")
+    parser.add_argument("--root", default=None,
+                        help="仓库根覆盖 (默认本脚本所在仓库; 守恒比对时指向 "
+                             "含 tools/ 的另一检出)")
     parser.add_argument("--out-dir", default=str(Path.home() / "Downloads"),
                         help="zip 输出目录 (默认 ~/Downloads)")
     args = parser.parse_args(argv)
 
-    version = load_version(REPO_ROOT / "pyproject.toml")
-    files = collect_files(REPO_ROOT, include_tools=args.full)
+    root = Path(args.root) if args.root else REPO_ROOT
+    version = load_version(root / "pyproject.toml")
+    files = collect_files(root, include_tools=args.full)
     mode = "full" if args.full else "standard"
 
     if args.list:
-        for rel in files:
-            print(rel)
-        print(f"# {len(files)} files | version={version} | mode={mode}",
-              file=sys.stderr)
+        if args.split:
+            for name, rels in split_manifests(files).items():
+                print(f"== {name} ==")
+                for rel in rels:
+                    print(rel)
+                print(f"# {name}: {len(rels)} files", file=sys.stderr)
+        else:
+            for rel in files:
+                print(rel)
+        print(f"# {len(files)} files (union) | version={version} | "
+              f"mode={mode} | split={bool(args.split)}", file=sys.stderr)
         return 0
 
-    target = build_zip(REPO_ROOT, args.out_dir,
+    if args.split:
+        targets = build_split_zips(root, args.out_dir,
+                                   include_tools=args.full, version=version)
+        for name, target in targets:
+            n = len(split_manifests(files)[name])
+            print(f"wrote {target} ({n} files, "
+                  f"{_dir_bytes(root, split_manifests(files)[name])/1e6:.1f} MB, "
+                  f"{name}, {mode} mode)")
+        return 0
+
+    target = build_zip(root, args.out_dir,
                        include_tools=args.full, version=version)
     print(f"wrote {target} ({len(files)} files, {mode} mode)")
     return 0
