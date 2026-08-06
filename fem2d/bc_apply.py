@@ -433,9 +433,23 @@ def _apply_body_force(config, mesh, batch_mode):
             mesh.body_force = body_input
             print("  体力: 已设置 (callable)")
             # 返回契约必须是二元组 (runner 固定 bfx, bfy = apply_bcs(...)):
-            # 分量独立求值, callable 时打印层显示 f(x,y)
-            return (lambda x, y: body_input(x, y)[0],
-                    lambda x, y: body_input(x, y)[1])
+            # 分量独立求值, callable 时打印层显示 f(x,y)。
+            # 精确缓存: 两个分量 lambda 对同一 (x, y) 共享一次 body 调用 —
+            # dict 键为浮点坐标元组, 积分点坐标是固定浮点值, 逐点精确命中
+            # (禁止近似匹配: 近邻坐标是不同的键, 各自求值)。状态型 body
+            # 的两分量由此来自同一次求值, 不会交叉错位 (曾 bfx 取第 k 次
+            # 调用的分量 0、bfy 取第 k+1 次调用的分量 1, 整体 callable
+            # 每积分点被执行两次)。
+            body_cache = {}
+
+            def _body_components(x, y):
+                key = (x, y)
+                if key not in body_cache:
+                    body_cache[key] = body_input(x, y)
+                return body_cache[key]
+
+            return (lambda x, y: _body_components(x, y)[0],
+                    lambda x, y: _body_components(x, y)[1])
         if isinstance(body_input, (tuple, list, np.ndarray)):
             # 程序化配置 (AnalysisConfig(body=(bx, by))) — 字段声明为
             # object, 仅按字符串处理会抛 TypeError; 形状校验收敛到
