@@ -644,6 +644,10 @@ PLOTS = {
     "12": ("loads",         "载荷明细 (面力/体力/集中力)"),
 }
 
+# plot_three 合法 tag 集 — 直接派生自 PLOTS (单一事实源), 12 个:
+# mesh/ux/uy/umag/sx/sy/txy/vm/s1/s2/taumax/loads
+_VALID_TAGS = {v[0] for v in PLOTS.values()}
+
 def plot_three(mesh, result, tag='vm', scale=100, save=None,
                isoband_levels=None, isoband_tag=None, sigma_ref=None,
                recovery="SPR"):
@@ -655,6 +659,11 @@ def plot_three(mesh, result, tag='vm', scale=100, save=None,
     isoband_tag: 固定带宽仅当 tag==isoband_tag 时生效 (避免 Mises 范围误用于 S11)
                  为 None 时所有分量均使用固定带宽
     """
+    # tag 白名单: 非法分量名曾从 g_vals[tag]/f_vals[tag] 冒裸 KeyError
+    if tag not in _VALID_TAGS:
+        raise ValueError(
+            "tag 必须为合法分量名之一: "
+            f"{sorted(_VALID_TAGS)} — 得到 {tag!r}")
     u = result["u"]; u2 = u.reshape(-1,2)
     u_mag = np.hypot(u2[:,0], u2[:,1])  # 同 reporting: 防 |u|~1e308 平方溢出
     s = result["stress"]  # (n_elem, 3) — [σ_x, σ_y, τ_xy]

@@ -78,3 +78,33 @@ def test_resolve_input_file_pathlike_passes_guard():
     """os.PathLike (pathlib.Path) 放行到解析层 — CliError 而非 TypeError."""
     with pytest.raises(CliError):
         resolve_input_file(pathlib.Path("whatever.inp"), AnalysisConfig())
+
+
+# ═══════════════════════════════════════════════════════════════
+# 任务 2: plot_three tag 白名单校验
+# ═══════════════════════════════════════════════════════════════
+
+def test_plot_three_rejects_unknown_tag():
+    """非法 tag → ValueError 且消息列出全部合法 tag (修复前裸 KeyError 'bad')."""
+    mesh, result = _two_tri(), _result()
+    with pytest.raises(ValueError, match="tag") as ei:
+        plot_three(mesh, result, tag="bad")
+    msg = str(ei.value)
+    for k in VALID_TAGS:
+        assert k in msg, f"错误消息未列出合法 tag {k}: {msg}"
+
+
+def test_plot_three_rejects_non_str_tag():
+    """非字符串 tag (None/int) → 同款 ValueError (修复前裸 KeyError)."""
+    mesh, result = _two_tri(), _result()
+    for bad in (None, 5):
+        with pytest.raises(ValueError, match="tag"):
+            plot_three(mesh, result, tag=bad)
+
+
+def test_plot_three_all_valid_tags_work(tmp_path):
+    """全部合法 tag 照常出图 — 守卫不误伤任何分量 (保存路径, 无异常)."""
+    mesh, result = _two_tri(), _result()
+    for tag in VALID_TAGS:
+        plot_three(mesh, result, tag=tag, scale=1.0,
+                   save=str(tmp_path / f"tag_{tag}.png"))
