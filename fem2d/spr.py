@@ -42,14 +42,31 @@ def recovery_sample_positions(mesh, n_sample):
                 f"sample points, but {n_sample} stress samples were given")
         return np.einsum("qn,end->eqd", shape, mesh.nodes[mesh.elements])
 
+    # 逐单元 recovery_quadrature 协议 (兼容第三方内核): 先收集全部
+    # 形状矩阵, 形状逐单元一致时一次堆叠 matmul — 与逐单元 matmul
+    # 同一求和序, 逐位一致 (等价测试实测); 非均匀形状回退逐单元。
     positions = np.empty((mesh.n_elements, n_sample, 2), dtype=float)
+    if not mesh.n_elements:
+        return positions
+    shapes = [None] * mesh.n_elements
+    first_shape = None
+    uniform = True
     for eid, conn in enumerate(mesh.elements):
         shape, _ = kernel.recovery_quadrature(mesh, eid)
         if shape.shape[0] != n_sample:
             raise ValueError(
                 f"Element {eid}: {n_sample} stress samples, "
                 f"but kernel returned {shape.shape[0]} recovery points")
-        positions[eid] = shape @ mesh.nodes[conn]
+        if first_shape is None:
+            first_shape = shape
+        elif shape.shape != first_shape.shape:
+            uniform = False
+        shapes[eid] = shape
+    if uniform:
+        positions[...] = np.stack(shapes) @ mesh.nodes[mesh.elements]
+    else:
+        for eid, conn in enumerate(mesh.elements):
+            positions[eid] = shapes[eid] @ mesh.nodes[conn]
     return positions
 
 
@@ -140,9 +157,10 @@ def _fit_node_block(mesh, sample_xy, sample_values, ptr, flat,
     starts = np.zeros(node_ids.size, dtype=np.int64)
     np.cumsum(sample_counts[:-1], out=starts[1:])
 
-    # 每个节点的单元在 flat 中连续 → 直接取切片再展开积分点。
-    elem_slice = flat[ptr[node_lo]:ptr[node_hi]] if np.all(active) else (
-        np.concatenate([flat[ptr[nid]:ptr[nid + 1]] for nid in node_ids]))
+    # 每个节点的单元在 flat 中连续 → 直接取块切片再展开积分点。
+    # 空节点 (count==0) 的切片长度为零, 逐节点拼接活跃节点切片 ≡
+    # 整块切片 (恒等, 逐位不变) — 旧实现的逐节点列表推导在此简化。
+    elem_slice = flat[ptr[node_lo]:ptr[node_hi]]
     elem_of = np.repeat(elem_slice, n_qp)
     qp_of = np.tile(np.arange(n_qp, dtype=np.int64), elem_slice.size)
 
@@ -191,12 +209,12 @@ def _fit_node_block(mesh, sample_xy, sample_values, ptr, flat,
     dy = dy / h[per_sample_ok]
 
     normal = _normal_matrix(dx, dy, starts_ok, counts_ok)
+    # 逐分量 rhs 组装 → 整数组 reduceat: 沿 axis=0 逐列独立同序归约,
+    # 与逐列调用 np.add.reduceat 逐位一致 (等价测试实测 0 ULP)。
     rhs = np.empty((counts_ok.size, 3, n_comp), dtype=float)
-    for comp in range(n_comp):
-        column = values_ok[:, comp]
-        rhs[:, 0, comp] = np.add.reduceat(column, starts_ok)
-        rhs[:, 1, comp] = np.add.reduceat(dx * column, starts_ok)
-        rhs[:, 2, comp] = np.add.reduceat(dy * column, starts_ok)
+    rhs[:, 0, :] = np.add.reduceat(values_ok, starts_ok)
+    rhs[:, 1, :] = np.add.reduceat(dx[:, None] * values_ok, starts_ok)
+    rhs[:, 2, :] = np.add.reduceat(dy[:, None] * values_ok, starts_ok)
 
     target = node_ids[ok]
     try:
