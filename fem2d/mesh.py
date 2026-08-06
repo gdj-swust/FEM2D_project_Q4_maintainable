@@ -80,11 +80,13 @@ class Mesh:
     # 再经 setter 锁定。
     _nodes: np.ndarray = field(init=False, repr=False)
     _elements: np.ndarray = field(init=False, repr=False)
+    _fixed_dofs: np.ndarray = field(init=False, repr=False)
+    _fixed_set: set | None = field(default=None, init=False, repr=False)
+    _fixed_dirty: bool = field(default=False, init=False, repr=False)
     thickness: float = 1.0
     E: float = 210e9
     nu: float = 0.3
     plane_type: str = "stress"
-    fixed_dofs: np.ndarray = field(default_factory=lambda: np.array([], dtype=int))
     prescribed_vals: dict = field(default_factory=dict)
     body_force: object = None   # tuple | callable | None
     surface_tractions: list = field(default_factory=list)
@@ -161,6 +163,31 @@ class Mesh:
     def elements(self, value):
         self.replace_elements(value)
 
+    @property
+    def fixed_dofs(self) -> np.ndarray:
+        """受约束 DOF 索引 — 只读数组, 修改走 fix_node/fix_nodes_func.
+
+        延迟落盘: fix_node 只更新内部 set (O(1)), 数组在首次读取时
+        一次性重建 (O(n log n)) — 整边固支 (bc_apply 逐节点 fix_node)
+        曾每次全量 set + sorted 重建 (O(n² log n), 10 万节点 ≈ 10¹⁰
+        次操作)。内容恒为排序去重 int64, 与历史 np.unique 语义一致。
+        """
+        if self._fixed_dirty:
+            assert self._fixed_set is not None  # dirty 仅由 fix_node 置位, 彼时 set 已建
+            arr = np.array(sorted(self._fixed_set), dtype=int)
+            arr.setflags(write=False)
+            self._fixed_dofs = arr
+            self._fixed_dirty = False
+        return self._fixed_dofs
+
+    @fixed_dofs.setter
+    def fixed_dofs(self, value):
+        # __post_init__ 校验后经本 setter 写入; fix_node 不走 setter
+        # (直接改 set + 标记 dirty — 见 fix_node 延迟落盘注释)
+        self._fixed_dofs = value
+        self._fixed_set = None      # 惰性: 首次 fix_node 时从数组重建
+        self._fixed_dirty = False
+
     def __post_init__(self):
         """初始化后不自动计算拓扑 — 延迟到首次访问时 (lazy evaluation)"""
         self._connectivity_built = False
@@ -198,6 +225,19 @@ class Mesh:
                 f"(n_elem, {expected_npe}), got {elems_raw.shape}")
         if not np.all(np.isfinite(nodes)):
             raise ValueError("nodes contain NaN or Inf")
+        # 布尔单元索引: True/False 会被 rint 静默转 1/0, 构造出重复节点
+        # 退化单元 — 与 _validate_node_id (mesh.py) / require_dof_index_array
+        # (checks.py) 的 bool 拒绝策略同族, 此处补漏网
+        if elems_raw.dtype.kind == "b":
+            raise ValueError(
+                "Element node indices must be integers — boolean arrays "
+                "are rejected (True/False silently become 1/0)")
+        if elems_raw.dtype.kind not in ("i", "u", "f"):
+            # str/object 会在 np.isfinite 冒裸 TypeError — 非数值 dtype
+            # 带参数名拒绝 (与 require_finite_scalar 模式对齐)
+            raise TypeError(
+                f"elements must be a numeric array of node indices, "
+                f"got dtype {elems_raw.dtype}")
         if not np.all(np.isfinite(elems_raw)):
             raise ValueError("elements contain NaN or Inf")
         # 拒绝非整数节点索引 (浮点索引会被静默截断, 非常危险)
@@ -326,6 +366,16 @@ class Mesh:
                 f"得到 {elems_raw.shape}")
         if elems_raw.shape[0] == 0:
             raise ValueError("replace_elements: 单元集不能为空")
+        # 与 __post_init__ 同族守卫: 布尔掩码会被 rint 静默转 1/0,
+        # 构造出重复节点退化单元; str/object 在 ufunc 冒裸 TypeError
+        if elems_raw.dtype.kind == "b":
+            raise ValueError(
+                "replace_elements: 单元节点索引必须是整数 — "
+                "布尔数组被拒绝 (True/False 会静默转 1/0)")
+        if elems_raw.dtype.kind not in ("i", "u", "f"):
+            raise TypeError(
+                f"replace_elements: 单元节点索引必须是数值数组, "
+                f"got dtype {elems_raw.dtype}")
         if not np.issubdtype(elems_raw.dtype, np.integer):
             bad = elems_raw != np.rint(elems_raw)
             if np.any(bad):
@@ -609,8 +659,12 @@ class Mesh:
         if dof in ("y", "both"):
             dofs.append(2 * nid + 1)
 
-        # 用 set 快速判重, list 累积新增
-        existing = set(self.fixed_dofs.tolist())
+        # set 判重 O(1)/次 — 每次全量重建 (set + sorted) 让整边固支
+        # (bc_apply 逐节点调用) 呈 O(n² log n) 结构性超线性; 延迟落盘:
+        # 数组在首次读取时一次性重建, 见 fixed_dofs property
+        if self._fixed_set is None:
+            self._fixed_set = set(self.fixed_dofs.tolist())
+        existing = self._fixed_set
         for d in dofs:
             if d in existing:
                 old_val = self.prescribed_vals.get(d, 0.0)
@@ -622,10 +676,7 @@ class Mesh:
                                   f"{old_val:.6e}, overwriting to {value:.6e}")
             existing.add(d)
             self.prescribed_vals[d] = value
-        self.fixed_dofs = np.array(sorted(existing), dtype=int)
-        # 保持全程冻结: __post_init__ 之后 fixed_dofs 也必须是只读的,
-        # 与 nodes/elements 的可变契约一致 (见 replace_nodes)。
-        self.fixed_dofs.setflags(write=False)
+        self._fixed_dirty = True
 
     def fix_nodes_func(self, node_list, func):
         """函数形式的给定位移 (Bathe §4.2.2: 非零位移约束)
@@ -779,7 +830,7 @@ class Mesh:
             raise ValueError(
                 f"Edge ({ni},{nj}) is shared by {len(eids)} elements; "
                 f"surface tractions require a boundary edge (exactly 1 element).")
-        self.surface_tractions.append({"nodes": (ni, nj), "traction": (tx, ty)})
+        self._append_traction({"nodes": (ni, nj), "traction": (tx, ty)})
 
     def add_pressure(self, ni, nj, p):
         """添加边上的法向压力 [Pa] — 自动从单元方向计算 t = -p·n (Bathe §4.2.1)
@@ -804,11 +855,42 @@ class Mesh:
         # 不缓存外法向: 组装时由当前几何重新计算 (boundary_outward_normal),
         # 这样 replace_nodes/replace_elements 改变几何后载荷自动跟随 —
         # 缓存法向会导致改几何后压力沿用旧方向。
-        self.surface_tractions.append({
+        self._append_traction({
             "nodes": (ni, nj),
             "traction": (p,),
             "is_pressure": True,
         })
+
+    def _append_traction(self, record):
+        """追加面力记录 — 同一边界边重复施加曾静默双倍载荷 (位移精确
+        ×2, 审查实测比值 2.0000)。
+
+        保持累加语义 (载荷拆分是既有锁定契约:
+        test_error_indicator_invariant_to_load_splitting), 因此
+        重复施加 → 响亮警告而非去重; 交互路径 (bc_apply 段选择去重)
+        在段选择层防重, API 路径在施加层提醒。节点对按无序 (min,max)
+        归一 — add_pressure(ni,nj) 与 add_pressure(nj,ni) 是同一载荷。
+        """
+        ni, nj = record["nodes"]
+        key = (min(ni, nj), max(ni, nj))
+        is_pressure = bool(record.get("is_pressure", False))
+        for existing in self.surface_tractions:
+            a, b = existing["nodes"]
+            if (min(a, b), max(a, b)) == key \
+                    and bool(existing.get("is_pressure", False)) == is_pressure:
+                if _same_traction(existing["traction"], record["traction"]):
+                    warnings.warn(
+                        f"边 {key} 已施加完全相同面力 "
+                        f"{existing['traction']!r} — 重复施加将使载荷翻倍 "
+                        "(×2)。若为误操作请移除重复记录。",
+                        UserWarning, stacklevel=3)
+                else:
+                    warnings.warn(
+                        f"边 {key} 已施加不同面力 {existing['traction']!r} — "
+                        f"新面力 {record['traction']!r} 将线性叠加。"
+                        "若为误操作请移除重复记录。",
+                        UserWarning, stacklevel=3)
+        self.surface_tractions.append(record)
 
     def nodes_on_edge(self, axis, edge, tol=None):
         """查找边界框特定边上的节点.
@@ -980,3 +1062,20 @@ class Mesh:
                 f"{self.elem_type}/{self.element_kernel.name}  "
                 f"{self.n_dof} DOFs  Jacobian: {'OK' if ok else f'{len(bad)} BAD'}  "
                 f"boundary: {n_bdy} edges")
+
+
+def _same_traction(a, b):
+    """两条面力记录的值是否完全相同 (callable 按对象同一性比较).
+
+    add_traction/add_pressure 已验证分量有限, 此处只需数值相等。
+    callable (空间分布面力) 无法按值比较, 同对象引用视为同一载荷。
+    """
+    if len(a) != len(b):
+        return False
+    for x, y in zip(a, b):
+        if callable(x) or callable(y):
+            if x is not y:
+                return False
+        elif x != y:
+            return False
+    return True

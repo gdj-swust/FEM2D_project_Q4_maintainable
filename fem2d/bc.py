@@ -200,10 +200,10 @@ def apply_elimination(
     u : (n_dof,) ndarray — 全位移向量
     reactions : (n_fixed,) ndarray — 支反力 (Bathe Eq 4.45)
     """
-    n_dof = K.shape[0]
     free_dofs, fixed_dofs, prescribed_vals = _validate_elimination_inputs(
         K, F, free_dofs, fixed_dofs, prescribed_vals,
-        system_validated=_system_validated)
+        system_validated=_system_validated)  # K 形状 (含 0-D 前置) 在此校验
+    n_dof = len(free_dofs) + len(fixed_dofs)  # 分区已校验覆盖 [0,n_dof)
     solver_key = _normalize_solver_key(linear_solver)
 
     if len(free_dofs) == 0:
@@ -312,10 +312,16 @@ def apply_penalty(K, F, fixed_dofs, prescribed_vals=None, penalty=None,
 
 def _validate_system_inputs(K, F):
     """K 方阵 + 数据有限 / F 形状与有限性 (elimination/penalty 共用)."""
-    if K.shape[0] != K.shape[1]:
-        raise ValueError(
-            f"K must be square, got shape {K.shape}")
     from scipy.sparse import issparse
+    if not issparse(K):
+        K = np.asarray(K)
+    if K.ndim != 2 or K.shape[0] != K.shape[1]:
+        # 标量/0-D 数组会冒裸 IndexError (0 维 shape[0] 越界), 非数组
+        # 冒裸 AttributeError ('.shape') — 与 estimate_condition 同款
+        # 前置, ValueError 带上下文
+        raise ValueError(
+            f"K must be a square matrix (n×n), got "
+            f"{getattr(K, 'shape', type(K).__name__)}")
     k_data = K.data if issparse(K) else np.asarray(K).ravel()
     if k_data.size and not np.all(np.isfinite(k_data)):
         n_bad = int(np.count_nonzero(~np.isfinite(k_data)))

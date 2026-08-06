@@ -41,6 +41,22 @@ def principal_stresses(stress):
         raise ValueError(
             "principal_stresses: stress 必须为 (3,) 单向量或 (n, 3) 数组 "
             f"[σx, σy, τxy], got {stress.shape}")
+    if np.iscomplexobj(stress):
+        # complex 在 np.hypot 冒裸 TypeError — 与 NaN/Inf 拒绝同族
+        raise ValueError(
+            f"principal_stresses: stress 必须为实数 [σx, σy, τxy], "
+            f"got complex dtype {stress.dtype}")
+    if stress.dtype.kind not in ("i", "u", "f", "b"):
+        # str/object 会在 np.isfinite 冒裸 TypeError — 带参数名拒绝
+        # (与 require_finite_scalar 非数值 → TypeError 模式对齐)
+        raise TypeError(
+            f"principal_stresses: stress 必须为数值数组 [σx, σy, τxy], "
+            f"got dtype {stress.dtype}")
+    if not single and stress.dtype.kind == "f" and stress.dtype.itemsize < 8:
+        # float32/16 批量算术停在低精度 (单向量路径恒 float64) — 同数据
+        # 两形态精度不一致; 提升 float64 (float32⊂float64 精确, 无舍入)。
+        # float64 输入不动 — 冻结区逐位不变
+        stress = np.asarray(stress, dtype=float)
     if not np.all(np.isfinite(stress)):
         raise ValueError(
             "principal_stresses: stress contains NaN/Inf — "
@@ -75,6 +91,15 @@ def nodal_average(mesh, elem_stress, weights=None):
         raise ValueError(
             "elem_stress must have shape (n_elem, n_comp), got "
             f"{elem_stress.shape}")
+    if np.iscomplexobj(elem_stress):
+        # complex 在 np.bincount 权重冒裸 TypeError — 与 NaN/Inf 拒绝同族
+        raise ValueError(
+            "nodal_average: elem_stress 必须为实数 — complex 虚部会被丢弃")
+    if elem_stress.dtype.kind not in ("i", "u", "f", "b"):
+        # str/object 会在 np.isfinite 冒裸 TypeError — 带参数名拒绝
+        raise TypeError(
+            f"nodal_average: elem_stress 必须为数值数组, "
+            f"got dtype {elem_stress.dtype}")
     if not np.all(np.isfinite(elem_stress)):
         raise ValueError(
             "nodal_average: elem_stress contains NaN/Inf — 恢复输入非法")
@@ -84,7 +109,15 @@ def nodal_average(mesh, elem_stress, weights=None):
     elif isinstance(weights, str) and weights == "area":
         w = np.asarray(mesh.areas, dtype=float)
     else:
-        w = np.asarray(weights, dtype=float)
+        w_raw = np.asarray(weights)
+        if np.iscomplexobj(w_raw):
+            raise ValueError(
+                "nodal_average: weights 必须为实数 — complex 虚部会被丢弃")
+        if w_raw.dtype.kind not in ("i", "u", "f", "b"):
+            raise TypeError(
+                f"nodal_average: weights 必须为数值数组, "
+                f"got dtype {w_raw.dtype}")
+        w = np.asarray(w_raw, dtype=float)
         if w.shape != (mesh.n_elements,):
             raise ValueError(
                 f"weights must have shape ({mesh.n_elements},), got {w.shape}")
@@ -187,7 +220,14 @@ def nodal_L2_projection(mesh, elem_stress):
     逐单元 recovery_quadrature 协议 (兼容第三方内核)。
     """
     mesh.build_connectivity()
-    elem_stress = np.asarray(elem_stress, dtype=float)
+    raw_stress = np.asarray(elem_stress)
+    if np.iscomplexobj(raw_stress):
+        # numpy≥2 astype(float) 对 complex 静默丢虚部 (ComplexWarning) —
+        # 与 A1 同族拒绝, 否则虚部污染恢复场
+        raise ValueError(
+            "nodal_L2_projection: elem_stress 必须为实数 — "
+            "complex 虚部会被静默丢弃")
+    elem_stress = np.asarray(raw_stress, dtype=float)
     if elem_stress.ndim not in (2, 3):
         raise ValueError(
             "elem_stress must have shape (ne,ncomp) or (ne,nqp,ncomp)")

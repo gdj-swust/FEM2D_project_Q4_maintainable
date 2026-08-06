@@ -315,7 +315,14 @@ def _traction_jump_arrays(mesh, elem_stress, sigma_ref=None):
     # 校验位于提前返回之后会让非法 sigma_ref 被静默接受并返回空列表.
     _validate_sigma_ref(sigma_ref)
     mesh.build_connectivity()
-    stress = np.asarray(elem_stress, dtype=float)
+    raw_stress = np.asarray(elem_stress)
+    if np.iscomplexobj(raw_stress):
+        # numpy≥2 astype(float) 对 complex 静默丢虚部 (ComplexWarning) —
+        # 与 R-α A1 同族拒绝 (fuzz 值池补 complex 数组后暴露)
+        raise ValueError(
+            "compute_traction_jumps: elem_stress 必须为实数 — "
+            "complex 虚部会被静默丢弃")
+    stress = np.asarray(raw_stress, dtype=float)
     if stress.ndim != 2 or stress.shape[1] != 3:
         # 裸 IndexError (stress[e1]) 会把用户引向错误的数组索引方向 —
         # 形状契约 (n_elem, 3) 前置校验
