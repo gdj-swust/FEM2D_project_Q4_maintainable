@@ -473,3 +473,23 @@ def test_traction_callable_nan_wrapped():
     mesh.add_traction(1, 2, lambda x, y: (np.nan, 0.0), 0.0)
     with pytest.raises(ValueError, match="面力表达式在 Gauss 点"):
         assemble(mesh, 2 * mesh.n_nodes)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 性能对比: 1000 边压力模型批量 vs 逐边参考实现 (红侧)
+# ═══════════════════════════════════════════════════════════════
+def test_bench_1000_edge_pressure_faster_than_legacy():
+    """1000 边压力环: 批量 assemble 必须快于逐边参考实现 (红侧)."""
+    import timeit
+    mesh = _ring_pressure(_ring(k=1000, radius=10.0), 1e6)
+    n_dof = 2 * mesh.n_nodes
+    F_new = assemble(mesh, n_dof)
+    F_ref = _reference_assemble_surface(mesh, np.zeros(n_dof))
+    assert np.array_equal(F_new, F_ref), "1000 边模型必须逐位一致"
+    t_new = min(timeit.repeat(
+        lambda: assemble(mesh, n_dof), number=10, repeat=5))
+    t_old = min(timeit.repeat(
+        lambda: _reference_assemble_surface(mesh, np.zeros(n_dof)),
+        number=10, repeat=5))
+    assert t_new < t_old, (
+        f"批量路径未提速: 批量 {t_new:.4f}s >= 逐边 {t_old:.4f}s")
