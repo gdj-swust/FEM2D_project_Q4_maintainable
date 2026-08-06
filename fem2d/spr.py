@@ -42,14 +42,31 @@ def recovery_sample_positions(mesh, n_sample):
                 f"sample points, but {n_sample} stress samples were given")
         return np.einsum("qn,end->eqd", shape, mesh.nodes[mesh.elements])
 
+    # 逐单元 recovery_quadrature 协议 (兼容第三方内核): 先收集全部
+    # 形状矩阵, 形状逐单元一致时一次堆叠 matmul — 与逐单元 matmul
+    # 同一求和序, 逐位一致 (等价测试实测); 非均匀形状回退逐单元。
     positions = np.empty((mesh.n_elements, n_sample, 2), dtype=float)
+    if not mesh.n_elements:
+        return positions
+    shapes = [None] * mesh.n_elements
+    first_shape = None
+    uniform = True
     for eid, conn in enumerate(mesh.elements):
         shape, _ = kernel.recovery_quadrature(mesh, eid)
         if shape.shape[0] != n_sample:
             raise ValueError(
                 f"Element {eid}: {n_sample} stress samples, "
                 f"but kernel returned {shape.shape[0]} recovery points")
-        positions[eid] = shape @ mesh.nodes[conn]
+        if first_shape is None:
+            first_shape = shape
+        elif shape.shape != first_shape.shape:
+            uniform = False
+        shapes[eid] = shape
+    if uniform:
+        positions[...] = np.stack(shapes) @ mesh.nodes[mesh.elements]
+    else:
+        for eid, conn in enumerate(mesh.elements):
+            positions[eid] = shapes[eid] @ mesh.nodes[conn]
     return positions
 
 
