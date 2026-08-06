@@ -133,7 +133,7 @@ def _cantilever_mesh(L, H, nx, ny, E, nu, t, P_mag, elem_type):
     return mesh
 
 
-def _sample_level(mesh, result, L, H, I, P_mag):
+def _sample_level(mesh, result, L, H):
     """Tip deflection + bending stress sample at (L/2, H/2) (smooth region).
 
     弯曲应力不取 max|σ_xx|（会被固定端角点奇异性污染），改为在
@@ -324,7 +324,7 @@ def run_cantilever_convergence(
         mesh = _cantilever_mesh(L, H, nx, ny, E, nu, t, P_mag, elem_type)
         result = solve(mesh, method="elimination", verbose=verbose)
 
-        uy_tip, s_sample_fem = _sample_level(mesh, result, L, H, I, P_mag)
+        uy_tip, s_sample_fem = _sample_level(mesh, result, L, H)
         z2 = estimate(mesh, result, method="SPR", verbose=False)
         h_char = L / nx
         _record_level(results, mesh, h_char, uy_tip, s_sample_fem, z2)

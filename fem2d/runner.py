@@ -57,7 +57,6 @@ def _ensure_patch_test(elem_type="CPS3", plane="stress"):
     失败 → 抛 CliError **且不缓存** — 同进程下一次调用必须重新
     运行并再次失败, 不能静默放行 (失败只属于本次运行, 不是可复用的结果).
     """
-    global _patch_checked
     key = (elem_type, plane)
     if key in _patch_checked:
         return
