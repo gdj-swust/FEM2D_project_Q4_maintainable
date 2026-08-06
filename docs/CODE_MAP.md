@@ -2,7 +2,7 @@
 
 > 用途：给下一任总指挥/执行者快速进入状态。本文件是**静态结构地图**
 > （模块/函数一律以 **符号引用** 标注，如 `input_source.resolve_input_file()` —
-> 免疫拆分式行号漂移；数字快照 9.27.0 @ main），数值行为由金标准/漂移门
+> 免疫拆分式行号漂移；数字快照 9.28.0 @ main），数值行为由金标准/漂移门
 > 锁定，结构变动需同步更新本节。配套：`COMMANDER_HANDOFF_20260805c.md`。
 
 ## 1. 顶层结构
@@ -12,7 +12,7 @@ run.py                 纯转发 → runner.main（编码安全网在 main 内�
 run_demo.py            demo_complex 示例（椭圆孔内压+顶部压力+自重），直接复用正式 API
 fem2d/                 主包（30 顶层模块 + element/ + boundary/ 两个子包）
 scripts/               工具层（打包/探针/fuzz/漂移门/geo_spec 等 12+ 脚本）
-tests/                 116 文件，~1400 test 函数（grep def test_: 1401）
+tests/                 134 文件，~1552 test 函数（grep def test_: 1552）
 docs/                  api_contract / boundary_plugins / ci / coverage / performance
 models/                示例模型；tools/ 捆绑 Gmsh 4.15.2
 ```
@@ -109,7 +109,7 @@ Mesh 构造时浅拷贝 kernel（Q4R hourglass_coefficient 是可变类属性，
 6. 小变形 + 结果有限性检查；条件数可选（默认关）
 ```
 
-## 5. 测试体系（~1400 函数）
+## 5. 测试体系（~1552 函数）
 
 - **金标准锁定**：`tests/boundary_golden/*.json`（边界段 schema——不得新增键）+ `tests/test_solve_refactor_lock.py`（求解逐位锁）
 - **漂移门**：`scripts/regression_compare.py`（基线 7ee65fc vs main，相对差必须 0.0）
