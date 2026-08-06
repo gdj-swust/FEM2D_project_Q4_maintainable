@@ -374,3 +374,102 @@ def test_np_add_at_processes_repeated_indices_in_order():
         for i, v in zip(idx, val):
             F2[i] += v
         assert np.array_equal(F1, F2)
+
+# ═══════════════════════════════════════════════════════════════
+# callable 求值次数 + 错误消息兼容
+# ═══════════════════════════════════════════════════════════════
+
+def test_callable_pressure_evaluated_once_per_gauss_point():
+    """callable 压力每 Gauss 点恰求值一次 (契约: 逐点求值)."""
+    mesh = _ring(k=6)
+    count = 0
+
+    def counting(x, y):
+        nonlocal count
+        count += 1
+        return 1e6
+
+    for i in range(1, 6):
+        mesh.add_pressure(i, i + 1, counting)
+    mesh.add_pressure(6, 1, counting)
+    assemble(mesh, 2 * mesh.n_nodes)
+    assert count == 6 * 3, f"callable 压力求值 {count} 次, 期望 18"
+
+
+def test_callable_traction_evaluated_once_per_gauss_point():
+    """callable 面力每 Gauss 点恰求值一次."""
+    mesh = _ring(k=4)
+    count = 0
+
+    def counting(x, y):
+        nonlocal count
+        count += 1
+        return 1e6
+
+    mesh.add_traction(1, 2, counting, 0.0)
+    assemble(mesh, 2 * mesh.n_nodes)
+    assert count == 3, f"callable 面力求值 {count} 次, 期望 3"
+
+
+def test_callable_components_evaluated_once_per_gauss_point():
+    """callable 面力分量 (tx, ty 各自) 每 Gauss 点恰求值一次."""
+    mesh = _ring(k=4)
+    count = 0
+
+    def counting(x, y):
+        nonlocal count
+        count += 1
+        return 1e6
+
+    mesh.surface_tractions = [
+        {"nodes": (1, 2), "traction": (counting, counting)}]
+    assemble(mesh, 2 * mesh.n_nodes)
+    assert count == 6, f"分量 callable 求值 {count} 次, 期望 6 (2 分量 × 3 点)"
+
+
+def test_pressure_callable_raise_wrapped_with_edge_and_point():
+    """压力表达式异常 → ValueError 带边号+Gauss 点 (消息格式不变)."""
+    def _boom(x, y):
+        raise ZeroDivisionError("1/x")
+
+    mesh = _ring_pressure(_ring(k=4), _boom)
+    with pytest.raises(ValueError, match=r"边 \(1,2\) 压力表达式在 Gauss 点"):
+        assemble(mesh, 2 * mesh.n_nodes)
+
+
+def test_pressure_callable_invalid_values_messages():
+    """callable 返回 str/序列/None/NaN → 统一非法值消息 (含边号)."""
+    for bad in (lambda x, y: "abc", lambda x, y: (1.0, 2.0),
+                lambda x, y: None, lambda x, y: np.nan):
+        mesh = _ring_pressure(_ring(k=4), bad)
+        with pytest.raises(
+                ValueError, match=r"边 \(1,2\) 压力在 Gauss 点 .*NaN/Inf/字符串"):
+            assemble(mesh, 2 * mesh.n_nodes)
+
+
+def test_pressure_constant_nan_rejected_at_first_gauss_point():
+    """常数压力 NaN (手工记录) → 第一个 Gauss 点处非法值消息."""
+    mesh = _ring(k=4)
+    mesh.surface_tractions = [
+        {"nodes": (1, 2), "traction": (np.nan,), "is_pressure": True}]
+    with pytest.raises(ValueError, match=r"边 \(1,2\) 压力在 Gauss 点"):
+        assemble(mesh, 2 * mesh.n_nodes)
+
+
+def test_traction_callable_raise_wrapped():
+    """面力表达式异常 → ValueError 带边号+Gauss 点 (消息格式不变)."""
+    def _boom(x, y):
+        raise ZeroDivisionError("1/x")
+
+    mesh = _ring(k=4)
+    mesh.add_traction(1, 2, _boom, 0.0)
+    with pytest.raises(ValueError, match="面力表达式在 Gauss 点"):
+        assemble(mesh, 2 * mesh.n_nodes)
+
+
+def test_traction_callable_nan_wrapped():
+    """面力表达式返回 NaN → evaluate_vector_field 自检 → 包装消息."""
+    mesh = _ring(k=4)
+    mesh.add_traction(1, 2, lambda x, y: (np.nan, 0.0), 0.0)
+    with pytest.raises(ValueError, match="面力表达式在 Gauss 点"):
+        assemble(mesh, 2 * mesh.n_nodes)
