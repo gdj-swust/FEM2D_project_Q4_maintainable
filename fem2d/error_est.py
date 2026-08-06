@@ -177,9 +177,15 @@ def estimate(mesh, result, method="SPR", verbose=True):
             "estimate_error: result 必须是 solve() 的返回 dict 且含 "
             f"'stress' 键, got {type(result).__name__}")
     stress = np.asarray(result["stress"], dtype=float)
-    stress_qp = result.get("stress_qp")
-    if stress_qp is not None:
-        stress_qp = np.asarray(stress_qp, dtype=float)
+    if not np.all(np.isfinite(stress)):
+        # 统一 NaN/Inf 入口防护 (审查 2026-08-06): stress 虽经
+        # _estimate_stress_jumps → _traction_jump_arrays 兜底校验,
+        # 但前置拒绝可避免 SPR 恢复在 NaN 上白跑 — 非法数据不得静默
+        raise ValueError(
+            f"estimate: result['stress'] 包含 NaN/Inf — 误差指标无法计算 "
+            f"(形状 {stress.shape})")
+    stress_qp = _validate_stress_qp_entry(
+        "estimate: result['stress_qp']", result.get("stress_qp"))
 
     # ── 1. 改进应力 σ* ──
     if method == "SPR":
@@ -305,6 +311,28 @@ def _validate_sigma_ref(sigma_ref):
         require_finite_positive(sigma_ref, "sigma_ref")
 
 
+def _validate_stress_qp_entry(entry_name, stress_qp):
+    """stress_qp 入口统一防护 — complex 拒绝 + 有限性校验.
+
+    审查 (2026-08-06): stress_qp 不进 _traction_jump_arrays (直接进
+    SPR 恢复 / 不参与计算), 在 estimate / element_refinement_indicator
+    入口补同款防护 — 非法数据不得静默进入恢复或被忽略. complex 拒绝
+    与 _traction_jump_arrays 同族 (numpy≥2 astype 静默丢虚部).
+    """
+    if stress_qp is None:
+        return None
+    raw_qp = np.asarray(stress_qp)
+    if np.iscomplexobj(raw_qp):
+        raise ValueError(
+            f"{entry_name} 必须为实数 — complex 虚部会被静默丢弃")
+    qp_arr = np.asarray(raw_qp, dtype=float)
+    if not np.all(np.isfinite(qp_arr)):
+        raise ValueError(
+            f"{entry_name} 包含 NaN/Inf — 误差指标无法计算 "
+            f"(形状 {qp_arr.shape})")
+    return qp_arr
+
+
 def _traction_jump_arrays(mesh, elem_stress, sigma_ref=None):
     """Vectorized internal-edge traction jumps.
 
@@ -328,6 +356,14 @@ def _traction_jump_arrays(mesh, elem_stress, sigma_ref=None):
         # 形状契约 (n_elem, 3) 前置校验
         raise ValueError(
             f"elem_stress 必须为 (n_elem, 3) 数组, 得到形状 {stress.shape}")
+    if not np.all(np.isfinite(stress)):
+        # 审查 (2026-08-06): 缺少有限性校验 — NaN 应力在 np.where 处被
+        # 静默归零成 jump_rel=0.0 (当作"无跳跃"), 单单元空数据路径
+        # 直接返回空列表吞掉非法数据. 统一入口拒绝 (与 R-α complex
+        # 拒绝同族), 校验必须先于空数据提前返回.
+        raise ValueError(
+            f"elem_stress 包含 NaN/Inf — 误差指标无法计算 "
+            f"(形状 {stress.shape})")
     edge_data = mesh.internal_edge_data
     if edge_data is None or len(edge_data) == 0:
         empty = np.empty(0, dtype=float)
@@ -611,6 +647,12 @@ def element_refinement_indicator(mesh, result):
         raise ValueError(
             "element_refinement_indicator: result 必须是 solve() 的返回 "
             f"dict 且含 'stress' 键, got {type(result).__name__}")
+    # result["stress"] 经 _internal_edge_jump_logs → _traction_jump_arrays
+    # 统一有限性校验; stress_qp 为本函数不使用但 solve() 契约携带的字段 —
+    # 同族防护: 非法数据不得被静默忽略 (审查 2026-08-06)
+    _validate_stress_qp_entry(
+        "element_refinement_indicator: result['stress_qp']",
+        result.get("stress_qp"))
     stress = result["stress"]
     n_elem = mesh.n_elements
     nodes = mesh.nodes
