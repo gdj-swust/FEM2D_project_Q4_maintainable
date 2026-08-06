@@ -90,24 +90,31 @@ FEM2D_project_Q4/
 │   ├── visualize.py       # 云图 (flat/gouraud/isoband/scalar_jump)
 │   ├── verification.py    # 平面应力/应变解析对照 (--self-test)
 │   └── topology_core.py / quality.py / patch_test.py / convergence.py / material.py
-├── scripts/               # 工具层 (12 .py + 1 .sh)
+├── scripts/               # 工具层 (13 .py + 1 .sh)
 │   ├── gmsh_runner.py     # 子进程 gmsh: .geo → .msh (300s 超时 + 原子发布)
 │   ├── geo_spec.py        # 中文文本描述 → .geo 生成
 │   ├── check_dead_code.py / check_imports_deep.py   # 自制静态检查器
 │   └── convergence_study.py / test_complex.py / make_test_spec.sh
-├── tests/                 # 74 个测试文件 + conftest.py, 939 测试
-│                         #   (本机 2026-08-04 实测 937 passed + 2 skipped;
+├── tests/                 # 133 个测试文件 + conftest.py, 1628 测试
+│                         #   (本机 2026-08-06 实测 1626 passed + 2 skipped,
+│                         #    覆盖率 98.3%;
 │                         #    无 Gmsh 环境的 collected/skip 以实测为准)
 ├── models/                # 算例库: 21 .geo + 7 .spec + 3 .txt
 └── tools/gmsh-4.15.2-Windows64/gmsh.exe   # Gmsh 可执行文件 (捆绑)
 ```
 
-> 打包惯例 (用户约定): `FEM2D_project_Q4_YYYYMMDD_HHMMSS_maintainable.zip`
-> 放 Downloads, **不含 `tools/`** (gmsh 可执行文件另行分发)、缓存、测试
-> 产物与 `*.egg-info`。若分发包选择捆绑
-> `tools/gmsh-4.15.2-Windows64/gmsh.exe` (Windows 64 位; 约 86 MB), 须
-> 保留其 GPL v2+ 许可证与版权声明 (https://gmsh.info); 其余平台可删该
-> 目录并自行放置 gmsh 或设 `GMSH_PATH` (SHA256:
+> 打包惯例 (用户约定): `scripts/make_release_zip.py` 默认产出单 zip
+> `FEM2D_project_Q4_<版本>_<时间戳>_maintainable.zip` 放 Downloads
+> (版本号来自 pyproject.toml, 单一源), 不含 `tools/`、缓存、测试产物与
+> `*.egg-info`。`--split` 产出 4 个分包 (同一版本号/时间戳/顶层目录,
+> 解压到同一目录即还原完整项目, 守恒: 4 包文件并集 == 原单包清单):
+>   ..._source.zip           源码包 — fem2d/scripts/tests/docs, 可 `pip install .` + `pytest`
+>   ..._runtime-win64.zip    运行包 — 运行必需代码 + tools/ (gmsh.exe), 解压即 `python run.py ...`
+>   ..._models.zip           示例模型包 — models/ 全部 (.geo/.spec/.txt/.msh)
+>   ..._testdata.zip         测试/基准数据包 — boundary_golden + 收敛/性能基准数据
+> `--full` 单 zip 捆绑 `tools/gmsh-4.15.2-Windows64/gmsh.exe` (Windows 64
+> 位; 约 86 MB), 须保留其 GPL v2+ 许可证与版权声明 (https://gmsh.info);
+> 其余平台可删该目录并自行放置 gmsh 或设 `GMSH_PATH` (SHA256:
 > `317c43391e5b1fab3a1dd80dc5245dad6e2d087910f4b8ebc234bd6d4b8f41a1`)。
 > `pip install -e .[dev]` 后 `fem2d` console script 可用。
 
