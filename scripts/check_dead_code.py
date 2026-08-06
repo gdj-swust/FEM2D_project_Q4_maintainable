@@ -23,6 +23,7 @@ v3 (2026-08): 修复 v2 的两个系统性漏报 (评审反馈):
 """
 import ast
 import os
+import re
 import sys
 from collections import Counter
 
@@ -380,12 +381,34 @@ def _is_abstract(fn):
         for d in fn.decorator_list)
 
 
+_NOQA = re.compile(r"#\s*noqa(?::\s*(?P<codes>[A-Za-z0-9_,\s]*))?")
+
+
+def _line_has_noqa(line_text):
+    """行尾 noqa 注释 → 该行候选免报.
+
+    与 ruff 语义一致: 裸 ``# noqa`` 抑制全部规则; 带码表时仅抑制
+    列出的规则。check_dead_code 的候选一律按行报告, 行上标注
+    ``# noqa: F401`` 即"此候选已核实为误报/有副作用, 勿报" —
+    典型场景: 注册副作用导入 (``from . import plugins  # noqa: F401``,
+    导入即注册) 与被外部经实例形式调用的方法。
+    """
+    m = _NOQA.search(line_text)
+    if m is None:
+        return False
+    codes = (m.group("codes") or "").strip()
+    if not codes:
+        return True
+    return "F401" in [c.strip() for c in codes.split(",")]
+
+
 def analyze(path, src, name_uses, attr_calls, from_imports,
             class_self_calls, protected, fuzzy_attrs, immune_attrs):
     """返回 {dimension: [(lineno, name/desc, reason)]}"""
     tree = ast.parse(src)
     findings = {k: [] for k in ("import", "unused_def", "unused_param",
                                 "unused_const", "unreachable", "unused_method")}
+    src_lines = src.splitlines()
 
     # 1. 未使用导入 — 按本文件内 Name 引用判定 (v3: 不再用全项目统计,
     #    否则其他文件用一次 os 会让所有文件的 import os 逃检);
@@ -499,6 +522,14 @@ def analyze(path, src, name_uses, attr_calls, from_imports,
                         (sub.lineno, f"{node.name}.{sub.name}{hint}",
                          "方法零调用 (类名限定)"))
 
+    # 统一 noqa 过滤: 报告行携带 `# noqa` / `# noqa: F401` → 该候选免报
+    # (注册副作用导入 / 经实例形式调用的方法等已核实误报)。
+    for dim in list(findings):
+        findings[dim] = [
+            item for item in findings[dim]
+            if item[0] > len(src_lines)
+            or not _line_has_noqa(src_lines[item[0] - 1])
+        ]
     return findings
 
 

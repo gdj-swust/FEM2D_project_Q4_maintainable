@@ -119,7 +119,7 @@ class BoundarySegmentBuilder:
             return self._split_closed_chain(nodes)
         return self._split_open_chain(nodes)
 
-    def metadata_for_edges(self, edges):
+    def metadata_for_edges(self, edges):  # noqa: F401 — naming.py 经 builder 实例形式调用 (S-α 审查)
         """Collect deterministic CAD provenance for a group of mesh edges."""
         entity_tags = set()
         entity_types = set()
