@@ -75,6 +75,12 @@ def _group_by(keys: np.ndarray, n_rows: int, values: np.ndarray):
     return ptr, values[order]
 
 
+# 3×3 邻域偏移 (ElementLocator.candidates 回退用). 拼接顺序不影响结果 —
+# np.unique 排序后输出只取决于桶的值集, 因此偏移排列次序是自由的.
+_NB_DX = np.array([-1, -1, -1, 0, 0, 0, 1, 1, 1], dtype=np.int64)
+_NB_DY = np.array([-1, 0, 1, -1, 0, 1, -1, 0, 1], dtype=np.int64)
+
+
 def node_element_table(elements: np.ndarray, n_nodes: int) -> CSRLists:
     """Return node -> element ids, sorted ascending inside each node."""
     elements = np.asarray(elements, dtype=np.int64)
@@ -268,6 +274,7 @@ class ElementLocator:
     """
 
     __slots__ = (
+        "_nb_cell_offsets",
         "_tol",
         "elements",
         "flat",
@@ -320,6 +327,9 @@ class ElementLocator:
         self.shape = (nx, ny)
         self.origin = low - 2.0 * self._tol
         self.inv_cell = 1.0 / cell
+        # 9 邻域单元偏移 (查询路径预计算 — 仅由 ny 决定, 不影响任何
+        # 桶/插入语义): candidates 3×3 回退的域内分支一次广播取邻域
+        self._nb_cell_offsets = _NB_DX * ny + _NB_DY
 
         limit = np.array([nx - 1, ny - 1], dtype=np.int64)
         i0 = np.clip(((lower - self._tol - self.origin)
@@ -370,14 +380,72 @@ class ElementLocator:
             found = self.flat[self.ptr[cell]:self.ptr[cell + 1]]
             if found.size:
                 return found
-        blocks = []
-        for ix in range(max(gx - 1, 0), min(gx + 2, nx)):
-            for iy in range(max(gy - 1, 0), min(gy + 2, ny)):
-                cell = ix * ny + iy
-                blocks.append(self.flat[self.ptr[cell]:self.ptr[cell + 1]])
-        if not blocks:
+        # 3x3 邻域回退: 批量取邻域桶 (<=9). 与逐桶 Python 循环 +
+        # concatenate + np.unique 的输出逐元素一致 — 排序后输出只
+        # 依赖桶的值集, 与拼接顺序无关. 域外 >=2 桶时窗口必空, 提前
+        # 返回也避免大而有限的坐标在偏移加法中触发 int64 溢出 (旧
+        # 实现用 Python int 的 range 天然免疫). 域内(远离边界)的 9
+        # 邻域全有效, 预计算偏移一次广播取到; 近边界/域外按 scalar
+        # 窗口界取 (与旧 range 同构, 无重复桶).
+        if not (-1 <= gx <= nx and -1 <= gy <= ny):
             return np.empty(0, dtype=np.int64)
-        return np.unique(np.concatenate(blocks))
+        if 1 <= gx <= nx - 2 and 1 <= gy <= ny - 2:
+            # 域内 3×3 (空桶触发): 预计算偏移一次广播 — 多数窗口为空,
+            # flatnonzero 早退避免 9 次逐桶空检查
+            cells = gx * ny + gy + self._nb_cell_offsets
+            starts = self.ptr[cells]
+            ends = self.ptr[cells + 1]
+            nz = np.flatnonzero(ends - starts)
+            if nz.size == 0:
+                return np.empty(0, dtype=np.int64)
+            blocks = [self.flat[s:e] for s, e in zip(starts[nz], ends[nz])]
+        else:
+            ix_lo = max(gx - 1, 0)
+            ix_hi = min(gx + 2, nx)
+            iy_lo = max(gy - 1, 0)
+            iy_hi = min(gy + 2, ny)
+            # 单列窗口 (x 边界/域外): cell 在 flat 中按 cell 连续 → 一次
+            # 切片即整个窗口的拼接 (免逐桶收集 + concatenate). 注意同一
+            # elem 可跨 2×2 桶重复出现在相邻 cell, 组间序不保证 → 切片
+            # 仍需 sort (桶内有序唯一是构建性质, 组间不是)
+            if ix_hi - ix_lo == 1:
+                c0 = ix_lo * ny + iy_lo
+                c1 = ix_lo * ny + iy_hi - 1
+                seg = self.flat[self.ptr[c0]:self.ptr[c1 + 1]].copy()
+                if not seg.size:
+                    return np.empty(0, dtype=np.int64)
+                seg.sort()
+                if seg.size > 1:
+                    keep = seg[1:] != seg[:-1]
+                    seg = seg[np.concatenate(([True], keep))]
+                return seg
+            # 多列非连续窗口 (≤ 6 桶): 纯 Python 逐桶收集 —
+            # numpy 小数组每调用固定开销 ~0.35 µs, 窗口小时循环更快
+            blocks = []
+            app = blocks.append
+            flat = self.flat
+            ptr = self.ptr
+            for ix in range(ix_lo, ix_hi):
+                for iy in range(iy_lo, iy_hi):
+                    cell = ix * ny + iy
+                    s = ptr[cell]
+                    e = ptr[cell + 1]
+                    if s < e:
+                        app(flat[s:e])
+            if not blocks:
+                return np.empty(0, dtype=np.int64)
+        if len(blocks) == 1:
+            # 单桶直返: 桶内元素构建时已按 (cell, elem) 排序并去重,
+            # 单桶切片本身就是排序后的唯一值 — 与 np.unique 输出逐元素一致
+            return blocks[0]
+        # 多桶: 一次 concatenate + 原地 sort 去重 (np.unique 排序语义,
+        # 避开其对小数组的 hash 检查开销)
+        buf = np.concatenate(blocks)
+        buf.sort()
+        if buf.size > 1:
+            keep = buf[1:] != buf[:-1]
+            buf = buf[np.concatenate(([True], keep))]
+        return buf
 
     def max_bucket_span(self) -> int:
         """Return the largest number of cells any element box occupies.
