@@ -108,6 +108,72 @@
 - 合并后 main 复验: pytest 0 失败 / 覆盖率 98.4% / 探针 0 FAIL / fuzz
   41 分支 0 problems / 漂移门 0.000e+00。
 
+## 9.28.0 (2026-08-06) — 审查轮 29 条发现五包修复 (R-α~R-γ)
+
+> 来源: 9.27.0 全面审查 (wt_review/docs/review_20260805.md, 29 条: P2×3+P3×26,
+> 数值内核零公式错误)。五包并行修复, 每包判别性测试 + 独立验收。
+
+### R-α 输入校验与 mesh 状态 (10 条)
+
+- **A1 [P2]**: von_mises/principal_stresses 对 complex 应力数组 — 单向量静默丢虚部
+  (0.7071) / 批量类型污染 / 裸 TypeError → 入口 `np.iscomplexobj` 拒绝 ValueError 带参数名。
+- **A2**: bool 单元索引数组静默转重复节点单元 → dtype.kind=="b" 显式拒绝 (补 mesh 漏网)。
+- **A3**: str/object 索引与应力数组裸 TypeError → isfinite 前 dtype 检查 (与
+  require_finite_scalar 对齐)。
+- **A4**: apply_elimination/apply_penalty 的 K 形状校验自身裸 IndexError/AttributeError
+  → getattr(shape) 前置 ValueError 带上下文。
+- **A5**: principal_stresses 批量 float32/16 精度截断 → 入口提升 float64 (与单向量一致)。
+- **A6**: 同边界边重复 add_traction/add_pressure 静默双倍载荷 (位移 ×2.0000) →
+  响亮警告 (交互路径已有去重, API 路径补齐)。
+- **A7**: fix_node 每次全量重建 fixed_dofs O(n² log n) → 惰性 set 延迟落盘, 求解逐位不变。
+- **A8**: fuzz 分支 30/31 完全重复 (宣称 41 实为 40) → 分支去重 + 值池补 complex 数组
+  (A1 盲区来源)。
+- **A9 [冻结区, 仅入口守卫]**: CST 批量刚度路径退化单元静默 NaN → 显式面积守卫
+  (与单元素路径同判据; 有限输入逐位不变)。
+- **A10 [冻结区, 仅入口校验]**: find_containing_element(inf) 裸 OverflowError →
+  locator.candidates 非有限输入返回空 (与 point_in_element 同族)。
+
+### R-β 安全清洗器 (2 条)
+
+- **B1 [P2]**: `Merge "*.geo"` 绕过 SystemCall 拦截 (审查实证: gmsh 日志显式调用
+  `cmd /c echo ...`) → Merge 纳入递归扫描 (仅 .geo 目标, 不误伤 Merge "model.step"
+  CAD 导入合法用法), API + 子进程双路径生效。
+- **B2**: Mesh.Format/MshFileVersion 剥离正则 `^\s*` 行首锚点可被同行前导语句绕过
+  → 去锚点改 `\b` 匹配 (与 Save 同款)。
+
+### R-γ 边界识别冻结区 (2 条, 特殊程序)
+
+- **C1 [P2 真 bug]**: `_merge_adjacent_lines` 共线判据 = axis 三档 + 起点 x 坐标 —
+  夹角 30° 非共线斜线被合并成弯曲"直边" (中点偏离弦 13.4%) → 改为归一化方向
+  点积 |cos θ| ≥ 1-1e-6 + 共享端点, axis/pos 保留粗档挡板。金标准 21/21 零 diff
+  (现有金标准模型不含弯曲合并产物), 判别性 3 测 (30° 折线七边形 + gmsh 圆角矩形
+  lc=0.8 实参, 弯曲偏离 20.7%)。
+- **C2**: 角弧识别悬崖 (粗网格角弧 ≤4 边整段丢失) — 判定为 20° 角点门设计使然,
+  docs/boundary_plugins.md 标注该悬崖 + 决策备忘 (待总指挥裁决)。
+
+### R-δ 交互与契约 (12 项)
+
+- **D1**: wizard GBK 崩溃字符 U+00B3 (`N/m³`) → ASCII (`N/m^3`); **D2**: interactive_plot
+  裸 input() EOFError → cli.ask + 空串退出; **D3**: 向导聚合边 `内孔` 与子边
+  `内孔1..N` 重叠配置 → 选聚合边后排除子边 (与 parse_spec 互斥对齐)。
+- **D4-D8 契约表 5 条**: E 行 exit 1 (改契约) / G 行 ValueError 带统计 (改契约) /
+  OverflowError 补记 / penalty×cg 限制补记 / 探针数字回填 151 + (3,) 正路径探针断言
+  (落实体系弱势 1/2)。
+- **D9**: 死参数 3 处 + 冗余 global; **D10**: 交互菜单文案补 @段名; **D11**:
+  CODE_MAP 行号改符号引用 + 计数回填 (落实体系弱势 4); **D12**: @段名/@组名同名
+  语义警告文档化。
+
+### R-ε 测试强度 (3 条)
+
+- **E1**: Q4R 补独立物理锚点 (patch test + 沙漏闭式反力值, 独立实现推导);
+- **E2**: Q4 高斯积分点位置锁定 (单行纯弯闭式解 — 积分点错位则弯曲刚度错误);
+- **E3**: 4 个 summary 冒烟测试补输出断言 (改坏输出 → 红)。
+
+### 验收 (独立复跑, 不采信汇报)
+
+五包各: pytest 0 失败 / ruff 全过 / 无 gmsh 模拟 0 失败 / 漂移门 0.0 / 探针 0 FAIL /
+fuzz 500 0 problems; R-γ 金标准 21/21 零 diff + 锁测试逐位。合并后 main 复验同绿。
+
 ## 9.25.0 (2026-08-05) — 发布链路修复 (外部审查轮 6a/6b/6c)
 
 外部审查 (构建 wheel + 静态检查 + 极端输入) 实锤 4 项缺陷, 三包并行修复:
