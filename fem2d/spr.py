@@ -140,9 +140,10 @@ def _fit_node_block(mesh, sample_xy, sample_values, ptr, flat,
     starts = np.zeros(node_ids.size, dtype=np.int64)
     np.cumsum(sample_counts[:-1], out=starts[1:])
 
-    # 每个节点的单元在 flat 中连续 → 直接取切片再展开积分点。
-    elem_slice = flat[ptr[node_lo]:ptr[node_hi]] if np.all(active) else (
-        np.concatenate([flat[ptr[nid]:ptr[nid + 1]] for nid in node_ids]))
+    # 每个节点的单元在 flat 中连续 → 直接取块切片再展开积分点。
+    # 空节点 (count==0) 的切片长度为零, 逐节点拼接活跃节点切片 ≡
+    # 整块切片 (恒等, 逐位不变) — 旧实现的逐节点列表推导在此简化。
+    elem_slice = flat[ptr[node_lo]:ptr[node_hi]]
     elem_of = np.repeat(elem_slice, n_qp)
     qp_of = np.tile(np.arange(n_qp, dtype=np.int64), elem_slice.size)
 
