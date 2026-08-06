@@ -116,7 +116,10 @@ def test_solve_bit_exact_gold():
     m.add_force(3, 1e5, 0.0)
     r = solve(m, verbose=False)
     np.testing.assert_allclose(r["u"], GOLD_U, rtol=1e-13, atol=0.0)
-    np.testing.assert_allclose(r["reactions"], GOLD_REACTIONS, rtol=1e-13, atol=0.0)
+    # reactions[0] 是固定 DOF 支反力, 理论精确 0 — 平台残差 ±3.6e-12 且符号
+    # 随 BLAS 消去顺序翻转 (CI 实测 +3.6e-12 vs 本地 -3.6e-12), 相对误差在
+    # 零附近数学上失效. atol=1e-9 只放行残差噪声, 真实支反力 (~4e4) 仍由 rtol 锁.
+    np.testing.assert_allclose(r["reactions"], GOLD_REACTIONS, rtol=1e-13, atol=1e-9)
     np.testing.assert_allclose(r["stress"], GOLD_STRESS, rtol=1e-13, atol=0.0)
 
 
