@@ -95,7 +95,7 @@ FEM2D_project_Q4/
 │   ├── geo_spec.py        # 中文文本描述 → .geo 生成
 │   ├── check_dead_code.py / check_imports_deep.py   # 自制静态检查器
 │   └── convergence_study.py / test_complex.py / make_test_spec.sh
-├── tests/                 # 143 个测试文件 + conftest.py, 1812 测试
+├── tests/                 # 144 个测试文件 + conftest.py, 1854 测试
 │                         #   (本机 2026-08-06 实测 1810 passed + 2 skipped,
 │                         #    覆盖率 98.0%;
 │                         #    无 Gmsh 环境的 collected/skip 以实测为准)

@@ -1,0 +1,5578 @@
+% !TEX program = xelatex
+\documentclass[12pt,a4paper]{ctexart}
+\usepackage{geometry}\geometry{margin=2.5cm}
+\usepackage{tikz}\usetikzlibrary{positioning,arrows.meta}
+\usepackage{booktabs,longtable,multirow,array,graphicx}
+\usepackage{fancyvrb}
+\usepackage{titlesec,hyperref,enumitem,listings,xcolor,amsmath,amssymb}
+\definecolor{codebg}{RGB}{245,245,245}
+\definecolor{cmt}{RGB}{130,130,130}
+\definecolor{keyword}{RGB}{0,0,180}
+\lstset{basicstyle=\ttfamily\small,backgroundcolor=\color{codebg},frame=single,
+        commentstyle=\color{cmt},keywordstyle=\color{keyword},
+        breaklines=true,showstringspaces=false}
+% 注: listings 的 literate 在 XeTeX 下对非 ASCII 搜索串无效,
+% 代码块内希腊字母/制表符一律在源文中用 ASCII 替代 (见各章节).
+\titleformat{\section}{\Large\bfseries}{\thesection\quad}{0pt}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection\quad}{0pt}{}
+\titleformat{\subsubsection}{\normalsize\bfseries}{\thesubsubsection\quad}{0pt}{}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
+\setlist{itemsep=2pt,parsep=0pt}
+\linespread{1.15}
+\emergencystretch=3em
+
+\newcommand{\fem}{\Verb}
+\newcommand{\llbracket}{[\![}
+\newcommand{\rrbracket}{]\!]}
+% ①-⑩ 归入 CJK 字符类（正文编号标记用，SimSun 含这些字形）
+\xeCJKDeclareCharClass{CJK}{"2460 -> "2469}
+
+\title{\Huge FEM2D Q4 二维有限元求解器\\[6pt]\Large 完整使用文档（理论、代码与 API 参考）\\[4pt]\normalsize 版本 9.28.0}
+\author{}
+\date{2026-08-07}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+%══════════════════════════════════════════════════════════════
+\section{软件介绍}
+%══════════════════════════════════════════════════════════════
+
+\subsection{项目定位}
+
+FEM2D Q4 是一个二维线弹性有限元求解器，参照 Bathe《Finite Element
+Procedures》（第 2 版）逐公式实现，用于教学与研究目的。它覆盖从几何建模、
+网格生成、求解到误差估计与后处理的完整链路，是一个\textbf{公式完整、
+行为可验证、面向教学}的数值软件——每条核心公式都能在 Bathe 教材中
+找到出处，每个数值行为都有测试锁定。
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{语言}：Python 3.9+（开发与验证于 3.13），纯 Python 实现，免编译
+  \item \textbf{依赖}：numpy / scipy / matplotlib（运行时）；gmsh（网格生成，可选）；pytest（测试）
+  \item \textbf{单元}：CST（常应变三角形）、Q4（双线性四边形）、Q4R（单点积分 + 沙漏控制）、Q4I（QM6 非协调单元）
+  \item \textbf{规模}：约 5.5 万行；143 个测试文件、1649 个测试函数、1812 项收集测试；覆盖率 98.3\%
+  \item \textbf{精度}：漂移门 6 个基线值跨平台逐位一致（相对误差 0.000e+00）
+  \item \textbf{版本}：9.28.0（main = e397f64）
+\end{itemize}
+
+\subsection{功能总览}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3.2cm}p{11.5cm}}
+\toprule
+\textbf{类别} & \textbf{能力} \\
+\midrule
+问题类型 & 平面应力 / 平面应变（按单元码自动判定，可显式覆盖） \\
+载荷 & 集中力、边界分布面力（线/抛物线/圆弧分布）、法向压力、体力（含空间函数表达式） \\
+约束 & 消去法（elimination，默认）、罚方法（penalty）；任意 DOF 指定位移 \\
+求解 & 稀疏直接求解（SuperLU）、Jacobi-PCG 迭代（大型模型自动切换）、CG 与 ILU 可选 \\
+应力后处理 & 单元应力、节点平均、L2 投影、SPR 超收敛恢复、主应力 / von Mises / 最大剪应力 \\
+误差估计 & Z2 能量误差（SPR/L2/加权三种恢复）、单元细化指示器、应力跳跃（牵引跳跃） \\
+网格质量 & Jacobian 检查、质量评级（bad/warn/ok 互斥分类）、刚体模态守卫 \\
+验证工具 & 分片试验、悬臂梁收敛研究、解析解对标（E1/E2/E3）、漂移门 \\
+可视化 & 云图（含 Gouraud 光滑）、Bathe 等应力带图（isoband）、交互式后处理、轨迹图 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{技术特征}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3.2cm}p{11.5cm}}
+\toprule
+\textbf{特征} & \textbf{内容} \\
+\midrule
+行为冻结区 & element/ 内核公式、solver 数值逻辑、error\_est 公式、边界识别算法——改动需特殊程序（见 §5.5） \\
+金标准锁定 & boundary\_golden 段 schema + solve\_refactor\_lock 逐位锁 \\
+漂移门 & 6 个物理量相对误差 $<10^{-9}$，跨平台（Windows/Linux）一致 \\
+契约表 & docs/api\_contract.md：全部公开 API 的输入/输出/异常契约 + 探针 151 项断言 \\
+微尺度硬指标 & 1e-150 几何 / 1e12 坐标 / 1e-310 载荷全链路保持有限，禁止绝对阈值 \\
+输入安全 & 数学表达式经 AST 白名单解析（禁 eval），gmsh 脚本调用经净化 \\
+错误纪律 & 用户误用 $\to$ 带上下文的 ValueError/TypeError；NaN/Inf 一律拒绝；奇异矩阵抛异常而非返回 NaN \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%══════════════════════════════════════════════════════════════
+\section{安装与快速开始}
+%══════════════════════════════════════════════════════════════
+
+\subsection{方式一：便携包（免安装，推荐演示用）}
+
+\fem|FEM2D_project_Q4_9.28.0_PORTABLE_WIN64.zip|（约 190 MB）内含
+Python 3.13.5（embeddable 免安装版）、全部依赖（numpy/scipy/matplotlib/gmsh
+及其 DLL）、求解器源码与演示模型。解压到任意 Windows 10/11 x64 电脑即可使用，
+无需安装 Python、无需联网。
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{完整演示}：双击 \fem|demo.bat|——椭圆孔内压模型全流程
+        （网格生成 $\rightarrow$ 求解 $\rightarrow$ 云图）
+  \item \textbf{手动命令行}：\fem|run.bat| 后直接跟参数（如
+        \fem|run.bat run.py models\demo_complex.geo| \fem|--fix left|
+        \fem|--body 0,-78000|）；
+        无参数运行进入\textbf{交互终端}（可连续输入命令，\fem|exit| 退出）；
+        要逐项交互输入（菜单式）则双击 \fem|ask_model.bat|；
+        或直接使用包内解释器：
+\end{itemize}
+
+\begin{lstlisting}[language=bash]
+python\python.exe run.py models\demo_complex.geo --plane stress
+python\python.exe scripts\verify_all.py --fast   环境自检
+\end{lstlisting}
+
+便携包已在\emph{全新路径}（模拟新电脑）解压验证：求解结果与参考值一致，
+全量自检 ALL PASS。
+
+\subsection{方式二：源码方式（开发/研究用）}
+
+\begin{lstlisting}[language=bash]
+pip install -e .[dev]        安装运行时 + 开发工具链
+python run.py models/demo_complex.spec --no-plot
+python scripts/verify_all.py --full   全量验证 9 阶段
+\end{lstlisting}
+
+\subsection{完整演示流程详解}
+
+以 \fem|demo_complex.geo|（椭圆孔内压）为例，一次分析依次经历五个阶段
+（详见 §5.2）：
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{输入分派}：识别 \fem|.geo| 为 Gmsh 脚本，通过捆绑的
+        gmsh.exe 执行生成网格（子进程，\texttt{-nt N -2} 参数），同时解析
+        \fem|@FEM:| 注释得到材料/载荷/边界配置；
+  \item \textbf{模型构建}：网格导入 + 拓扑校验（重复单元/零边/退化/
+        孤立节点/非流形边）+ 边界段识别（区域注册表 $\rightarrow$ 几何标签
+        $\rightarrow$ 纯拓扑检测三级优先级）；
+  \item \textbf{条件施加}：固定/面力/压力/体力四类边界条件装配为载荷向量；
+  \item \textbf{求解与报告}：装配刚度矩阵、消去法求解、应力恢复、
+        Z2 误差估计，输出中文结果摘要；
+  \item \textbf{后处理}：生成位移/应力云图（PNG + 交互窗口）。
+\end{enumerate}
+
+\textbf{输出物}：\fem|_fem2d_out/| 下含 \fem|mesh.msh|、位移/应力
+云图、等应力带图与 \fem|report.txt| 中文报告。
+
+\subsection{端到端演示走读：demo 背后发生了什么}
+
+§2.3 讲的是\textbf{操作}步骤；这里讲\textbf{代码}层面同一流程的五个
+阶段（对应 \fem|run_demo.py|，80 行出头，演示脚本刻意保持"一眼
+能读完"）。走读的目的：把前面各章的概念（导入管线、边界识别、
+按标签施加、响亮失败）拼成一条完整链路。
+
+\paragraph{第一阶段：几何 → 网格（Gmsh API 直读，无中间格式）}
+
+\begin{lstlisting}
+msh_path, gmsh_import = generate_geo_with_topology(
+    GEO_PATH, output_path=MSH_PATH, plane_type="stress")
+except CliError as error:
+    print(f"[ERROR] {error}")
+    sys.exit(error.exit_code)
+\end{lstlisting}
+
+\fem|.geo| 脚本交给 Gmsh 网格化后，\fem|gmsh_import| 直接从内存拿
+节点/单元/物理组——\textbf{没有 .inp 中间文件}（§3.8 弃用 .inp 输入
+的原因）。失败路径用 \fem|CliError| 显式退出并带退出码，而不是
+让异常一路裸抛到终端。
+
+\paragraph{第二阶段：边界模型（语义 + 拓扑双来源）}
+
+\begin{lstlisting}
+segs = build_boundary_segments(
+    mesh, registry=gmsh_import.regions,
+    edge_labels=None, geo_path=geo_path,
+    diagnostics=BoundaryDiagnostics())
+print_segments(segs)
+\end{lstlisting}
+
+\fem|registry| 是 Gmsh 物理组语义（\$6.7.6 优先级链的第 1 级），
+\fem|edge_labels=None| 表示不强制标签覆盖，\fem|geo_path| 供
+命名器回查 .geo 里的几何名（"椭圆孔"/"顶部"等中文标签的来源）。
+\fem|print_segments| 把识别结果逐段打印——用户第一眼看到的就是
+边界模型，而不是数字矩阵。
+
+\paragraph{第三阶段：约束——按标签匹配，不硬编码索引}
+
+\begin{lstlisting}
+FIX_NAMES = ['left', '左', '底部', 'bottom']
+for i, s in enumerate(segs):
+    label_lower = s.get('label', '').lower()
+    if any(name.lower() in label_lower for name in FIX_NAMES):
+        for n in s["nodes"]:
+            mesh.fix_node(int(n), "both", 0.0)
+\end{lstlisting}
+
+中英文双名匹配（\fem|left/左/底部/bottom|）——识别管线的标签层
+（§6.7.6）把物理组名与几何名统一成中文标签，这里直接按标签
+找边。若标签变化导致匹配失败，脚本 \fem|sys.exit(1)| 并列出可用
+分段——\textbf{响亮失败}：历史上曾 WARN 后继续求解，欠约束模型
+要么奇异矩阵报错（把新手引向错误方向），要么部分约束静默给出
+错误结果。演示脚本是新手入口，必须响失败。
+
+\paragraph{第四阶段：三类载荷（三种施加机制一次看全）}
+
+\begin{lstlisting}
+for a, b in zip(ns, ns[1:]):
+    mesh.add_traction(int(a), int(b), 0.0, -1e6)   # 顶部 1MPa 下压
+for a, b in zip(ns, ns[1:]):
+    mesh.add_pressure(int(a), int(b), 1e6)         # 椭圆孔内压
+mesh.body_force = (0.0, -78000.0)                  # 自重
+\end{lstlisting}
+
+三个载荷各演示一种机制：\fem|add_traction|（分布面力，按边）、
+\fem|add_pressure|（法向压力，方向由相邻单元 CCW 自动确定，
+§6.7.4 约定）、\fem|body_force|（体积力）。每个载荷施加后都有
+\fem|FATAL| 守卫——标签生成变化曾导致孔压\textbf{静默消失}（求解
+成功但工况不是文档声明的工况），这是比报错更危险的事故模式。
+
+\paragraph{第五阶段：求解与展示}
+
+\begin{lstlisting}
+result = solve(mesh)
+u = result["u"]; vm = result["vm_stress"]
+print(f"最大位移: {np.max(np.abs(u)):.6e} m")
+print(f"最大 von Mises: {vm.max():.3e} Pa")
+interactive_plot(mesh, result, scale=500)
+\end{lstlisting}
+
+\textbf{数值单位纪律}：位移以 m（\fem|6e| 科学计数）、应力以 Pa 与
+MPa 双单位打印——默认 SI 制下 Pa 数值大且难读，MPa 是工程习惯
+（§10.1 第 1 条单位制提醒）。\fem|scale=500| 是变形放大系数：
+真实位移 $\sim 10^{-5}$ m 在图上肉眼不可见，放大 500 倍才看得出
+变形形态（这只是显示约定，不影响解本身）。
+
+\paragraph{六个教学点（回顾）}
+
+\begin{enumerate}[leftmargin=*]
+  \item 导入走 Gmsh API 直读，无 .inp 中间格式（§3.8）；
+  \item 边界模型由物理组语义 + 拓扑角色双来源构建（§6.7.6）；
+  \item 按标签施加约束/载荷，不硬编码节点索引——标签层是
+        识别管线的对外接口；
+  \item 三类载荷（面力/压力/体力）对应三种 API，方向约定各一
+        （§4.9 载荷离散）；
+  \item 每个失败路径都响亮退出（\fem|FATAL| + 可用分段列表），
+        绝不 WARN 后静默继续；
+  \item 单位与显示纪律（SI 主单位 + MPa 工程习惯 + 变形放大）。
+\end{enumerate}
+
+这个 80 行的脚本因此是"最小完整程序"的标本：\textbf{每一条线都是
+正式 API 的复用}（\fem|build_boundary_segments|、\fem|solve|、
+\fem|interactive_plot|），没有第二套私有实现——这与 §11.1 死代码
+教训（CLI 手写第二份解析器）形成对照。
+
+\subsection{随附演示模型}
+
+随包在 \fem|models/| 目录提供演示模型（均可用 \fem|run.py| 直接分析，
+清单与 \fem|models/README.md| 一致）：
+
+\begin{longtable}{p{4.4cm}p{2.8cm}p{7.3cm}}
+\toprule
+\textbf{文件} & \textbf{单元} & \textbf{工况 / 用途} \\
+\midrule
+demo\_complex.geo / .spec & Q4（geo 内置 Recombine） & 椭圆孔内压 1MPa + 右端拉伸 + 自重；§2.3--2.4 走读对象 \\
+cook\_membrane.geo / .spec & CST & Cook 膜（1974 经典基准）：梯形斜板 + 右端剪切 \\
+curved\_beam.geo / .spec & CST & 曲梁纯弯（90° 扇区）：曲边界 + 弯曲精度验证 \\
+l\_bracket.geo / .spec & CST & L 形支架：凹角应力奇异性考题 \\
+multi\_hole\_plate.geo / .spec & CST & 三孔平板：多孔应力集中 + 孔间干涉 \\
+wrench.geo & CST & 扳手：开口弧 + 直柄（复杂轮廓演示） \\
+plate\_q4.geo & Q4（需 \texttt{--quad}） & 悬臂板 2.0×0.5m：CPS4 基准示例 \\
+q4\_plate\_hole.geo & Q4 & 圆孔板：Kirsch 应力集中对标（Q4 版） \\
+hp\_hexagon / hp\_star / hp\_octagon 等 & CST/Q4 & 不规则多孔系列：边界识别与收敛研究（§6.7.8） \\
+\bottomrule
+\end{longtable}
+
+\textbf{单元类型由 .geo 决定}：demo\_complex.geo 内置
+\texttt{Recombine Surface\{1\}}，默认生成的就是\textbf{纯四边形 Q4}
+网格（约 1.9 万单元）；想跑 CST 三角网格请用不含 Recombine 的 .geo
+（如 cook\_membrane.geo）。\texttt{--quad} 只对 \fem|.geo|/\fem|.txt|
+生成过程生效，不会把已有网格重新解释成四边形（见 §2.7.4）。
+
+此外 \fem|.txt| 中文几何描述文件可在终端交互向导（\fem|wizard.py|）
+辅助下快速建模，适合教学演示。
+
+\subsection{便携包目录结构}
+
+\begin{lstlisting}[language=bash]
+FEM2D_project_Q4_9.28.0_PORTABLE_WIN64/
+|-- run.py / run_demo.py / demo.bat / run.bat / ask_model.bat / README.txt
+|-- fem2d/  element/  boundary/       源码
+|-- scripts/  tests/  docs/  models/  工具/测试/文档/模型
+|-- tools/gmsh-4.15.2-Windows64/      gmsh.exe（子进程网格生成）
+|-- python/                           Python 3.13.5 免安装解释器
+|   `-- site/                         numpy/scipy/matplotlib/gmsh+pytest
+|       `-- bin/gmsh-4.15.dll         gmsh Python 模块的 DLL
+`-- _fem2d_out/                       运行输出（自动创建）
+\end{lstlisting}
+
+各条目作用与\textbf{可删性}（压缩包约 190 MB，删掉测试/文档可瘦身
+到约 150 MB）：
+
+\begin{longtable}{p{4.6cm}p{5.6cm}p{4.0cm}}
+\toprule
+\textbf{条目} & \textbf{作用} & \textbf{说明} \\
+\midrule
+run.py & CLI 入口（80 行，转发 \fem|runner.main|） & 必需 \\
+run\_demo.py & 一键完整演示（§2.3--2.4 走读对象） & 必需（演示入口） \\
+demo.bat / run.bat / ask\_model.bat & 双击批处理：\texttt{cd /d "\%~dp0"} 以自身目录为基准；文件以 \textbf{GBK 编码}保存（中文 Windows 原生代码页，零编码竞态）；run.bat 无参数进入交互终端（可连续输入命令，\fem|exit| 退出）；ask\_model.bat 为交互式菜单向导 & 必需（无命令行经验用户入口） \\
+README.txt & 包内快速开始说明（与实际 bat 内容一致） & 建议保留 \\
+fem2d/ & 求解器核心源码包（element/, boundary/, 五阶段管线） & 必需 \\
+scripts/ & verify\_all.py / regression\_compare.py 等验证与工具脚本 & 必需（环境自检）；fuzz/打包脚本可删 \\
+tests/ & 166 个 pytest 测试文件（§9 章主题） & \textbf{可删}（运行与分析无关，调试/学习才用） \\
+docs/ & 设计/契约/审查文档（.md） & \textbf{可删} \\
+models/ & 演示与基准几何（.geo）+ 工况（.spec） & 必需（演示/练习） \\
+tools/gmsh-4.15.2-Windows64/ & gmsh.exe 独立可执行文件：CLI 子进程生成网格（§2.3 第一阶段） & 必需（.geo 路径）；缺失时 .geo 不可用，\fem|.msh|/\fem|.spec| 仍可（§9.9） \\
+python/ & Python 3.13.5 embeddable 免安装解释器（python.exe + DLL + 标准库） & 必需 \\
+python/site/ & 第三方依赖（numpy/\allowbreak scipy/\allowbreak matplotlib/\allowbreak gmsh+\allowbreak pytest 及各自 DLL） & 必需 \\
+python/site/bin/gmsh-4.15.dll & gmsh Python 模块的 DLL：API 直读 .msh（run\_demo 路径，§2.4 第一阶段） & 必需 \\
+python/tkinter/、\_tkinter.pyd、tcl86t/tk86t.dll、tcl/ & Tk 图形后端（TkAgg）：matplotlib 交互窗口弹窗 & 必需（窗口云图）；仅用 \fem|--save| 存 PNG 可删 \\
+\_fem2d\_out/ & 运行输出（网格/云图/报告），自动创建 & \textbf{可删}（每次运行重建） \\
+\bottomrule
+\end{longtable}
+
+\textbf{移动/解压注意事项}（换电脑失败的高发原因，详见 §2.8）：
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{压缩包内没有外层目录}——资源管理器"全部解压缩"会自动
+        建同名文件夹；用命令行 unzip 时务必先建目录再解压，否则文件
+        散落在当前目录；
+  \item \textbf{整体搬运}：\fem|python/|、\fem|tools/| 与源码的相对路径
+        是固定的（bat 用 \fem|\%~dp0| 定位自身目录），只拷 run.py 或
+        只拷 exe 必挂；
+  \item \textbf{杀毒软件}可能隔离 python.exe / gmsh.exe——解压后先确认
+        文件齐全再双击；
+  \item \textbf{路径建议}：解压到纯 ASCII 路径（如 \fem|D:\FEM2D|）；
+        中文字符路径在个别终端 + gmsh 子进程组合下可能出现编码问题，
+        遇到先换路径再排查。
+\end{enumerate}
+
+\subsection{Gmsh .geo 语法详解（重点）}
+
+\fem|.geo| 是本项目的\textbf{主要输入形态}（§3.1 按扩展名分派）。为
+什么重要：它是 Gmsh 的脚本语言，把\textbf{几何}（点/线/面）与
+\textbf{网格控制}（尺寸/算法）写在一个文本文件里，可编程（变量、
+循环、数学函数），还能通过 \fem|@FEM:| 注释把工况也放进来（§3.6）
+——"几何 + 工况"单文件。求解器拿到 .geo 后交给捆绑的 Gmsh 执行并
+直接读回网格（§2.3 第一阶段），不需要手写网格文件。
+
+\subsubsection{脚本基础：注释、变量、表达式与循环}
+
+\begin{lstlisting}
+// 行注释（demo_complex.geo 头部即全中文注释）
+/* 也可以写块注释 */
+lc = 0.03;              // 变量赋值，每条语句以分号结尾
+W = 2.0;  H = 1.5;  FR = 0.3;    // 一行多语句
+\end{lstlisting}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{注释}：\fem|//| 行注释、\fem|/* */| 块注释——脚本可读性
+        靠注释，demo 文件里每个点/线都有中文注释说明几何意图；
+  \item \textbf{变量}：直接赋值即创建，无类型声明；整型/浮点/字符串
+        自动区分；可做算术运算（\fem|ax - aR| 等）；
+  \item \textbf{数学函数}：\fem|Pi| 常量，\fem|Cos() Sin() Sqrt() Atan2() Mod() Floor()| 等，可嵌套（\fem|2*Pi*i/n1|）；
+  \item \textbf{For 循环}（椭圆孔分段的写法）：
+\end{itemize}
+
+\begin{lstlisting}
+For i In {0:n1-1}
+  ang = 2*Pi*i/n1;
+  Point(200 + i) = { cx1 + a1*Cos(ang), cy1 + b1*Sin(ang), 0, lc};
+EndFor
+\end{lstlisting}
+
+循环范围 \fem|{a:b}| \textbf{含两端点}，循环变量可参与算术；
+范围必须整数值（先算好整数再循环，别在范围里写除法）。
+
+\textbf{编号规则}：每种实体（Point/Line/Circle/Curve Loop/Plane
+Surface/Physical）有\textbf{独立命名空间}，同类内编号唯一。编号不
+要求连续——demo 里外边界用 1--17、椭圆孔用 200+、孔边线用 300+，
+\textbf{分段编号}是组织长脚本的常用手法（新实体用大号段，不会与
+已有编号冲突）。
+
+\subsubsection{几何命令全解}
+
+\small
+\begin{longtable}{p{8.4cm}p{6.1cm}}
+\toprule
+\textbf{语法} & \textbf{语义 / 要点} \\
+\midrule
+\fem|Point(id) = {x, y, z, lc};| & 空间点；2D 问题 z 恒为 0；第 4 个参数 lc 是\textbf{该点附近的网格特征长度}（越小越密） \\
+\fem|Line(id) = {p1, p2};| & 两点的直线段 \\
+\fem|Circle(id) = {起点, 圆心, 终点};| & 圆弧（三点式）；起点绕圆心转到终点；\textbf{张角必须小于 180°}（Gmsh 硬限制，见 §2.7.6） \\
+\fem|Curve Loop(id) = {e1, e2, ...};| & 曲线段围成的\textbf{闭合环}：首尾相接、方向一致；反方向写负号 \fem|{-e3}| \\
+\fem|Plane Surface(id) = {环1, 环2, ...};| & 第一个环为外边界，\textbf{后续环是孔}（方向相反）；嵌套环 = 环内挖环 \\
+\fem|Physical Surface("domain", id) = {面};| & 给面分组命名（导出进 .msh 的 \$PhysicalNames） \\
+\fem|Physical Curve("left", id) = {边, ...};| & 把若干曲线归为一个边界组——\textbf{求解器边界标签的来源}（§2.4 第三阶段 \fem|fix = left, 底部| 按标签匹配） \\
+\bottomrule
+\end{longtable}
+\normalsize
+
+Physical 标签中英文皆可（demo 里 left/right/底部/顶部/凹弧/椭圆孔
+混用），求解器标签层统一成中文语义（§6.7.6）。标签名是\textbf{用户
+与识别管线的接口}——命名规范（语义清晰、覆盖全部边界）直接决定
+边界条件能不能按标签施加上。
+
+\subsubsection{进阶建模命令}
+
+基础表之外的常用命令。先记住一个分水岭：\textbf{内置内核}（上面的
+点/线/面语法）稳定、教学最友好；\textbf{OpenCASCADE 内核}（
+\fem|SetFactory("OpenCASCADE")| 切换）才有布尔运算、圆角倒角、真
+样条曲面。项目捆绑的 gmsh.exe 两个内核都支持，run.py 只按 .geo
+内容执行，与内核无关；建模习惯上：\textbf{常规板件用内置内核，
+复杂外形（布尔挖孔、倒角、曲边）切 OpenCASCADE}。
+
+\begin{longtable}{p{8.4cm}p{6.1cm}}
+\toprule
+\textbf{语法} & \textbf{语义 / 要点} \\
+\midrule
+\fem|Ellipse(id) =| \newline \fem|{起点, 圆心, 辅助点, 终点};| & 椭圆弧：起点/圆心定一个半轴方向，辅助点定长短轴比；张角仍 $<180°$，全椭圆拆多段——demo 用 20 段多边形近似 \\
+\fem|Polyline(id) = {p1, p2, ...};| & 一条命令画多段折线，只占\textbf{一个实体号}（标签/引用更省心），等价若干 Line \\
+\fem|Spline(id) = {p1, p2, ...};| & Catmull-Rom 样条，\textbf{曲线穿过全部给定点}；拟合采样点轮廓用这个 \\
+\fem|BSpline(id) = {控制点, ...};| & B 样条，曲线\textbf{不穿过}控制点（靠近）；\fem|Bezier| 同理；设计曲线用这些 \\
+\fem|Extrude \{dx,dy,dz\} \{ Line\{...\}; \}| & 线沿矢量拉伸成面——2D 矩形板一条命令生成 3 条新边 + 1 个新面，\textbf{新实体编号自动分配}（引用前先在 gmsh 界面查看编号） \\
+\fem|Revolve \{ {x,y,z}, | \newline \fem|\{dx,dy,dz\}, ang \} \{ Line\{...\}; \}| & 绕轴旋转拉伸；圆环、弧板、回转件的 2D 截面建模 \\
+\fem|Translate \{dx,dy,dz\}| \newline \fem|\{ 实体...; \}| & 平移实体；\fem|Rotate|、\fem|Mirror|、\fem|Scale| 同族（参数格式类似，见 Gmsh 手册）；\fem|Duplicata| 包裹 = \textbf{复制}而非移动 \\
+\fem|BooleanUnion()| \newline \fem|BooleanIntersection()| \newline \fem|BooleanDifference()| & 布尔运算（挖孔/并体/交体）；\textbf{必须先} \fem|SetFactory("OpenCASCADE")|；被减实体用 \fem|\{ Surface\{a\}; Delete; \}| 就地删除 \\
+\fem|Coherence;| & 合并重合的点/线（拓扑净化），布尔运算后收尾常用 \\
+\fem|Point\{a\} In Surface\{b\};| & 嵌入点/线：把载荷作用点钉在面内，避免网格节点恰好在施力位置的尴尬 \\
+\bottomrule
+\end{longtable}
+\normalsize
+
+Extrude/Revolve 生成的实体编号是\textbf{自动分配}的，无法在 .geo
+里预知；模板化建模时要么先跑一遍记下编号，要么仍手写点/线拿回
+编号控制权（demo\_complex.geo 即后者——全部显式编号，可读性优先）。
+
+\subsubsection{网格控制命令}
+
+\begin{lstlisting}
+Mesh.Format = 39;          // 输出 MSH 4.1 文本格式（项目统一）
+Mesh.SaveAll = 1;          // 保存所有实体（默认只存物理组）
+Recombine Surface{1};      // 三角网格重组为四边形 —— Q4 网格的关键
+Mesh 2;                    // 生成 2 维网格（曲面网格化）
+Save "demo_complex.msh";   // 写出网格文件
+\end{lstlisting}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{lc 特征长度}：每个 Point 的 lc 控制该点附近网格单元
+        尺寸；全部用同一个 lc 变量 = 全模型统一密度（demo 的
+        \fem|lc = 0.03| 生成约 1.9 万四边形）。lc 减半 $\rightarrow$ 单元
+        数约乘 4，求解时间非线性上升——先大 lc 验证工况，再加密；
+  \item \textbf{Recombine Surface\{1\}}：把面上三角网格重组为四边形。
+        demo\_complex.geo 内置此行 $\rightarrow$ 默认跑出来就是 Q4
+        （§2.5 表）；运行时 \texttt{--quad} 等价于强制
+        \texttt{Mesh.RecombineAll = 1} + 切换重组算法（
+        gmsh\_adapter.py:760--762）。求解器\textbf{拒绝三角/四边形
+        混合网格}——重组不完整时（复杂表面/洞边）报错提示指向此问题；
+  \item \fem|Mesh 2;| 之后的 \fem|Save| 写出的内容由
+        \fem|Mesh.Format| 决定（4.1 文本格式，§3.8 详解）。
+\end{itemize}
+
+\subsubsection{完整实例走读：demo\_complex.geo}
+
+官方示例 \fem|models/demo_complex.geo|（106 行）是上述命令的组合
+范例，按四段读：
+
+\textbf{① 全局参数与底边半圆凹口}（变量 + 弧拆分）：
+
+\begin{lstlisting}
+W = 2.0;  H = 1.5;  FR = 0.3;
+aR = 0.35;  ax = 0.8;        // 凹弧半径, 弧心 x 坐标
+Point(1)  = { -W+FR, -H,   0, lc};   // 左下圆角终点
+Point(2)  = { ax-aR,  -H,   0, lc};  // 凹弧左端点
+Point(4)  = { ax,     -H,   0, lc};  // 凹弧圆心
+Point(17) = { ax,     -H+aR, 0, lc}; // 凹弧顶点（半圆最高点）
+Line(1)  = {1, 2};
+Circle(2) = {2, 4, 17};      // 凹弧左半段: 起点2 圆心4 终点17
+Circle(11) = {17, 4, 3};     // 凹弧右半段（两个90°弧拼成180°）
+\end{lstlisting}
+
+要点：\textbf{半圆凹口被拆成两个 90° 弧}——Gmsh 的 Circle 要求张角
+$<180°$，半圆必须拆（文件注释明确写着这条约束）。
+
+\textbf{② 外边界闭环}（10 条曲线首尾相接）：
+
+\begin{lstlisting}
+Curve Loop(100) = { 1, 2, 11, 3, 4, 5, 6, 7, 8, 9, 10 };
+\end{lstlisting}
+
+环内每段的方向就是 Circle/Line 定义的起点→终点方向，必须沿环
+一致；首尾闭合（最后一段终点 = 第一段起点）。
+
+\textbf{③ 椭圆孔}（For 循环 + 范围列表）：
+
+\begin{lstlisting}
+For i In {0:n1-1}
+  Point(200 + i) = { cx1 + a1*Cos(ang), cy1 + b1*Sin(ang), 0, lc};
+EndFor
+For i In {0:n1-1}
+  Line(300 + i) = { 200 + i, 200 + ((i+1)%n1) };
+EndFor
+Curve Loop(301) = { 300:300+n1-1 };   // 范围写法 {a:b} 含两端
+\end{lstlisting}
+
+椭圆用 20 段多边形近似；孔环的方向与外环\textbf{相反}（内孔边界）。
+
+\textbf{④ 面 + 标签 + 网格}：
+
+\begin{lstlisting}
+Plane Surface(1) = { 100, 301 };   // 外环 + 孔环 = 带孔面
+Physical Surface("domain", 200) = {1};
+Physical Curve("left",  101) = {9};
+Physical Curve("底部", 103) = {1, 3};   // 底边两段并成一个标签
+Physical Curve("椭圆孔", 112) = {300:319};
+Recombine Surface{1};
+Mesh 2;
+Save "demo_complex.msh";
+\end{lstlisting}
+
+标签把"底部"的\textbf{两条曲线归为一组}——边界条件 \fem|fix = 底部|
+一次匹配整条底边（§2.4 第三阶段的标签匹配来源）。这就是完整
+的"几何 → 可求解模型"闭环。
+
+\subsubsection{参数化建模模板：改变量 = 换模型}
+
+.geo 是脚本语言，最高效的用法是\textbf{参数化模板}：把尺寸/位置/
+网格密度全部提到文件头部变量，改几个数重跑一遍就是新模型。
+这也是"几何 + 工况单文件"的完整形态（§3.6 的 \fem|@FEM:| 注释可
+叠加在任意 .geo 上）。以带圆孔矩形板为例（比 demo 更简，所有边界
+都打了 Physical 标签，求解时 \fem|fix/traction| 直接按名引用）：
+
+\begin{lstlisting}
+W = 2.0;  H = 1.0;              // 板尺寸
+CX = 1.0;  CY = 0.5;  R = 0.3;  // 孔心 + 半径
+lc = 0.05;                      // 网格密度
+Point(1) = {0, 0, 0, lc};  Point(2) = {W, 0, 0, lc};
+Point(3) = {W, H, 0, lc};  Point(4) = {0, H, 0, lc};
+Line(1) = {1, 2};  Line(2) = {2, 3};
+Line(3) = {3, 4};  Line(4) = {4, 1};
+Curve Loop(1) = {1, 2, 3, 4};
+n = 16;                         // 孔多边形段数
+For i In {0:n-1}
+  ang = 2*Pi*i/n;
+  Point(100 + i) = { CX + R*Cos(ang), CY + R*Sin(ang), 0, lc};
+EndFor
+For i In {0:n-1}
+  Line(200 + i) = {100 + i, 100 + ((i+1)%n)};
+EndFor
+Curve Loop(2) = {200:200+n-1};
+Plane Surface(1) = {1, 2};      // 外环 + 孔环 = 带孔面
+Physical Surface("domain", 200) = {1};
+Physical Curve("left", 101) = {4};
+Physical Curve("right", 102) = {2};
+Physical Curve("top", 103) = {3};
+Physical Curve("bottom", 104) = {1};
+Recombine Surface{1};
+Mesh 2;
+Save "params.msh";
+\end{lstlisting}
+
+用法：想算孔偏右、板加长的工况，只改 \fem|CX = 1.5; W = 2.5;| 两个
+数重跑即可。编号分段（外框 1--4、孔点 100+、孔边 200+）保证变量化
+后不会撞号；Physical 标签与变量无关，永远能按名施加边界条件。
+把这份模板存成 \fem|templates/| 目录的基础件，新工况从复制开始，
+比从零写 .geo 快得多（§5 顶层结构有 templates/ 的说明）。
+
+\subsubsection{常见错误与调试}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{弧超过 180°}：Gmsh 直接报错——拆成几个 $<180°$ 的弧
+        （完整实例走读里的凹口是现成模板）；
+  \item \textbf{环不闭合 / 方向不一致}：建面失败，报"Bad orientation"
+        类错误——逐段核对首尾点编号与方向；
+  \item \textbf{编号重复}：同类实体编号冲突报错——换分段编号；
+  \item \textbf{忘写分号}：报错定位在下一行——逐句补；
+  \item \textbf{For 范围含小数}（如 \fem|{0:n/2}|）：范围必须整数——
+        先取整或用整数计数变量；
+  \item \textbf{lc 过小}：单元数爆炸、生成很慢——先用大 lc 验证工况；
+  \item \textbf{生成成功但求解报"混合网格"}：Recombine 未完全生效
+        （复杂表面）——检查退化区或用 \texttt{--quad} 强制；
+  \item \textbf{布尔运算报"Unknown" / 命令不识别}：忘了
+        \fem|SetFactory("OpenCASCADE")|——内置内核无 Boolean，切工厂后
+        重跑；
+  \item \textbf{引用 Extrude 自动编号的实体失败}：新实体编号由 Gmsh
+        分配，.geo 里写死会错——先用 gmsh 界面跑一遍查编号，或改手写
+        点/线；
+  \item \textbf{Spline 点数太少}：样条至少 3 个点（BSpline 至少 2 个
+        控制点）——报错信息里能看出点数。
+\end{itemize}
+
+调试手段：先用 gmsh.exe 手动打开 .geo（Gmsh 图形界面能直观看到
+几何与网格，错误定位最快），确认无误后再交给 run.py 求解。
+
+\subsection{换电脑使用流程（新机器首次运行）}
+
+本节约为"昨天换电脑跑不了"的场景写的排查专节。先记住结论：
+\textbf{便携包不依赖系统 Python、不依赖 PATH、不依赖当前目录}——
+bat 用 \fem|cd /d "\%~dp0"| 定位自身目录（§2.6 表）。所以换电脑
+跑不了几乎只有三类原因，按序排查即可。
+
+\subsubsection{第一步：判断自己走哪条路线}
+
+\begin{itemize}[leftmargin=*]
+  \item 目录里有 \fem|python\python.exe|（便携包）$\rightarrow$ §2.8.2；
+  \item 没有，是 pip 安装的源码方式 $\rightarrow$ §2.8.3（新机器没装
+        Python / gmsh 是最常见原因）。
+\end{itemize}
+
+\subsubsection{便携包路线：5 步跑通}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{完整解压}：资源管理器右键"全部解压缩"得到同名文件夹
+        （zip 内无外层目录，命令行 unzip 先建目录，§2.6 注意事项）；
+  \item \textbf{位置}：建议纯 ASCII 路径（\fem|D:\FEM2D| 等），中文
+        路径遇到编码问题先换路径；
+  \item \textbf{双击 demo.bat}：看到 "FEM2D Q4 v9.28.0 便携演示"
+        横幅与网格生成进度 $\rightarrow$ 终端打印最大位移/最大
+        von Mises $\rightarrow$ 弹出云图窗口 = 成功；
+  \item \textbf{环境自检}：\fem|run.bat scripts\verify_all.py --fast|
+        ——全部 PASS 即环境健康；
+  \item \textbf{跑其他模型}：\fem|run.bat run.py models\demo_complex.spec|
+        或 \fem|run.bat run.py| \fem|models\demo_complex.geo|
+        \fem|--fix left --body 0,-78000|（参数直接跟在 bat 后面）；
+        想逐项交互输入则双击 \fem|ask_model.bat| 交互向导。
+\end{enumerate}
+
+\subsubsection{源码路线：5 步跑通}
+
+\begin{enumerate}[leftmargin=*]
+  \item 安装 Python 3.10+（CI 用 3.13；官方安装包勾选
+        \texttt{Add python.exe to PATH}）；
+  \item 命令行进入项目目录：\fem|python -m pip install -e .[dev]|；
+  \item gmsh 检查：\fem|python -c "import gmsh; print(gmsh.__version__)"|
+        ——失败则 \fem|pip install gmsh|（.geo 路径必需；只读 .msh 可
+        跳过，§9.9 无 gmsh 纪律）；
+  \item \fem|python scripts\verify_all.py --fast| 全部 PASS；
+  \item \fem|python run.py models\demo_complex.spec --no-plot|。
+\end{enumerate}
+
+\subsubsection{故障速查表}
+
+\begin{longtable}{p{4.8cm}p{4.7cm}p{4.7cm}}
+\toprule
+\textbf{症状} & \textbf{最常见原因} & \textbf{解决} \\
+\midrule
+双击 demo.bat 闪退/无反应 & 解压不完整；杀毒隔离 python.exe & 重新完整解压（约 190MB），目录加白名单 \\
+提示 'python' 不是内部或外部命令 & 在系统 cmd 直接敲 python（源码路线没装 Python / PATH 未配） & 便携包用 \fem|python\python.exe|（bat 已自动）；源码路线先装 Python \\
+报 gmsh 相关错误（.geo 路径） & tools/ 或 python/site 缺失 & 便携包重新解压；源码路线 \fem|pip install gmsh| \\
+求解报 "Mesh contains invalid elements" & 网格生成参数问题，不是环境问题 & 看 \fem|jacobian_report| 输出与 §10 排查流程 \\
+旧电脑能跑、新电脑不能 & 只复制了部分文件；用了旧桌面快捷方式 & 整个目录一起拷，重新双击（bat 以自身目录为基准，文件齐就能跑） \\
+满屏 font/Agg 警告、窗口弹不出 & 旧版包无 tkinter（Agg 后端无窗口） & 新版包已内置 tkinter 可弹窗；任何情况 \fem|--save| 存 PNG 兜底 \\
+终端中文乱码 & 代码页不是 UTF-8 & bat 已 \fem|chcp 936|（GBK 原生）；手动 cmd 先执行 \fem|chcp 936| \\
+运行 run.bat 只出 Python 版本号 + \fem|>>>| 提示符 & 旧版 bat 无参数时把 \fem|python\python.exe| 丢给 cmd 交互解释器 & 新版 run.bat 无参数进入交互终端（\fem|FEM2D>| 提示符，\fem|exit| 退出） \\
+报 \fem|'dp0"' 不是内部或外部命令| 或 \fem|'锟斤拷…' is not recognized| & 旧版 bat 以 UTF-8+LF 保存，在 GBK 代码页 cmd 下字节错位（\fem|chcp 65001| 切换与文件读取存在竞态） & 重新解压新版 zip；bat 已改为 GBK+CRLF 编码（中文 Windows 原生代码页，无切换无竞态） \\
+\bottomrule
+\end{longtable}
+
+\subsubsection{自检命令说明}
+
+\fem|verify_all|（scripts/ 下）是环境健康的权威判据：
+\texttt{--fast}（约 2--3 分钟：核心测试 + 探针 + 漂移门 + 无 gmsh
+模拟）；\texttt{--full} 九阶段全量；\texttt{--drift} 只跑漂移门；
+\texttt{--no-gmsh} 模拟无 gmsh 环境。\textbf{无 gmsh 也能全 PASS}——
+1600+ 测试在无 gmsh 下 skip 而不失败（§9.9 纪律），这是"环境不完整
+但还能验证"的设计。
+
+%══════════════════════════════════════════════════════════════
+\section{命令行用法}
+%══════════════════════════════════════════════════════════════
+
+\subsection{入口}
+
+主入口 \fem|run.py|（纯转发到 \fem|runner.main|），位置参数为输入文件：
+
+\begin{lstlisting}[language=bash]
+python run.py <input> [options]
+\end{lstlisting}
+
+\fem|<input>| 支持四种格式，自动识别：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{扩展名} & \textbf{内容} & \textbf{处理方式} \\
+\midrule
+.spec & 工况配置（键值对，可引用几何/网格文件） & 键值解析 + 引用文件派发 \\
+.geo & Gmsh 几何脚本（可含 \fem|@FEM:| 配置注释） & 调用 gmsh.exe 生成网格 \\
+.txt & 中文几何描述（简易建模） & 内置解析器生成网格 \\
+.msh & Gmsh 网格文件（含 PhysicalNames） & 直接导入 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{主要参数}
+
+\begin{lstlisting}[language=bash]
+--plane {stress,strain}       平面应力/应变（默认按单元码自动判定）
+--E / --nu / --lc             材料与网格尺寸（默认 E=2.10e11, nu=0.3, lc 按几何）
+--elem-type {CST,Q4,Q4R,Q4I}  单元类型覆盖
+--fix / --fix-ux / --fix-uy   边界约束（节点号或几何边名）
+--traction / --force          面力/集中力
+--body                        体力（支持含 x/y 的表达式）
+--error-method {auto,spr,l2,weighted}  误差恢复方法
+--no-plot / --keep-open       后处理控制
+--save SAVE / --output-dir    结果输出
+--linear-solver {auto,direct,cg,cg-block,ilu}  线性求解器
+--method {elimination,penalty}  约束施加方法
+--self-test                   内置自检
+\end{lstlisting}
+
+\subsection{参数细节}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3.2cm}p{3.4cm}p{7.8cm}}
+\toprule
+\textbf{参数} & \textbf{取值} & \textbf{说明} \\
+\midrule
+\fem|--plane| & stress / strain & 不传时按单元码自动判定（CPS* $\to$ stress，CPE* $\to$ strain）；显式传值优先 \\
+\fem|--elem-type| & CST / Q4 / Q4R / Q4I & 对生成的网格做单元类型覆盖（如三角形网格 $\to$ CST；四边形网格 $\to$ Q4 族） \\
+\fem|--fix| & \fem|n:dof:val| & 约束节点 n 的 dof（x/y/both），可多次；也接受几何边名 \\
+\fem|--fix-ux| / \fem|--fix-uy| & 节点号 & 批量固定一组节点的 x / y 位移 \\
+\fem|--traction| & \texttt{edge:tx,ty[:p|l|n]} & 边上的分布面力；p=抛物线、l=线性、n=法向压力 \\
+\fem|--force| & \fem|n:fx,fy| & 节点集中力 \\
+\fem|--body| & \fem|bx,by| & 体力分量，可用含 x/y 的数学表达式（AST 白名单） \\
+\fem|--lc| & 实数 & 网格特征尺寸，越小网格越密 \\
+\fem|--error-method| & auto/spr/l2/weighted & 误差估计的应力恢复方法；auto 优先 SPR \\
+\fem|--linear-solver| & auto/direct/cg/cg-block/ilu & auto $\le 10$ 万 DOF 用 direct，更大用 Jacobi-PCG \\
+\fem|--method| & elimination/penalty & 约束施加方法；penalty 仅兼容 direct 类求解器 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{示例}
+
+\begin{lstlisting}[language=bash]
+# 1. 演示模型（椭圆孔内压）：完整流程 + 云图
+python run.py models/demo_complex.geo
+
+# 2. 工况文件（右端拉伸 1 MPa）：无绘图，命令行结果
+python run.py models/demo_complex.spec --no-plot
+
+# 3. 悬臂梁：固定左端，端部集中力，Q4 单元，L2 恢复
+python run.py models/cantilever.geo --fix-ux 0,1,2 --fix-uy 0,1,2 \
+       --force 9:0,-1000 --elem-type Q4 --error-method l2
+
+# 4. 大型模型：显式迭代求解器 + 性能自检
+python run.py big.geo --linear-solver cg --plane strain
+\end{lstlisting}
+
+\subsection{spec 文件语法}
+
+\fem|.spec| 是键值对文本，编码一次分析的完整工况（材料、网格、载荷、边界）。
+支持：缺 \fem|=| 或空值报错（带行号）、BOM 自动剥离、未知键警告忽略
+（前向兼容）、E/nu/lc 等数值语义在 config 校验层统一拦截。
+
+\begin{lstlisting}
+# demo_complex.spec 示例
+E = 2.1e11          # 杨氏模量 (Pa)
+nu = 0.3            # 泊松比
+t = 0.01            # 厚度 (m)
+lc = 0.5            # 网格特征尺寸
+plane = stress      # 平面应力
+mesh = models/demo_complex.geo
+fix = 1:x,2:y       # 节点约束
+force = 5:0,1000    # 集中力
+\end{lstlisting}
+
+\subsection{.geo 中的 @FEM 配置注释}
+
+\fem|.geo| 是 Gmsh 脚本，其中的 \fem|@FEM:| 注释会被解析为配置
+（与 spec 相同的键值格式），并随网格一起加载，实现"几何 + 工况"单文件：
+
+\begin{lstlisting}
+// @FEM: E=2.1e11
+// @FEM: nu=0.3
+// @FEM: fix=1:x
+// @FEM: traction=3:0,1e6:n
+\end{lstlisting}
+
+\subsection{.txt 中文几何}
+
+\fem|.txt| 提供简易中文几何描述（矩形/圆孔/椭圆孔组合 + 固定/力/压力
+关键词），面向快速教学建模，由内置解析器直接生成结构化网格，无 gmsh 依赖。
+
+\subsection{.msh 网格文件详解（Gmsh 原生格式）}
+
+\fem|.msh| 是本软件实际使用的网格交换格式：Gmsh 原生格式，经 Gmsh API
+直接导入（\fem|fem2d/gmsh_adapter.py| 的 \fem|import_msh()| →
+\fem|_extract_mesh()|），不经过任何中间格式。无论是 \fem|.geo| 生成还是
+外部工具（Gmsh、tMG、Salome 等）导出的 \fem|.msh|，都在这一条链路上被
+解析。
+
+\textbf{文件结构}。ASCII 文本版（v2.2）的最小单三角形网格示例：
+\begin{lstlisting}
+$MeshFormat
+2.2 0 8
+$EndMeshFormat
+$PhysicalNames
+1
+1 2 "square"
+$EndPhysicalNames
+$Nodes
+3
+1 0 0 0
+2 1 0 0
+3 0 1 0
+$EndNodes
+$Elements
+1
+1 2 2 1 1 2 3
+$EndElements
+\end{lstlisting}
+
+各段含义（导入器真正关心的只有三段）：
+
+\begin{center}\small
+\begin{tabular}{ll}
+段名 & 含义 \\ \hline
+\fem|$MeshFormat| & 版本号 + 0（ASCII）/1（二进制）+ 8（双精度） \\
+\fem|$PhysicalNames| & 物理组标签（"square" 等），驱动语义边界识别与区域命名 \\
+\fem|$Nodes| & 节点编号 + 坐标 x y z（每行一个） \\
+\fem|$Elements| & 每行 = 编号、类型码、物理组、几何实体、节点…… \\
+\end{tabular}
+\end{center}
+
+\fem|$Elements| 的类型码：2 = 3 节点三角形（TRI3）、3 = 4 节点四边形
+（QUAD4）、15 = 3 节点线（T3D2，只出现在边界/构造实体中）。上例行
+\fem|1 2 2 1 1 2 3| 即：元素 1、类型 2（三角形）、物理组 2、几何实体 1、
+节点 1-2-3。
+
+\textbf{导入管线的硬规则}（\fem|_extract_mesh()|，逐条有测试锁定）：
+\begin{enumerate}
+\item 只接受\textbf{一阶线性} 2D 单元（order=1 且节点数等于主节点数，
+3 或 4）；二阶/混合阶单元抛 \fem|GmshTopologyError|。
+\item \textbf{同质网格}：三角形与四边形混排的网格被拒绝（本软件每个
+模型只能是一种单元族）。
+\item \textbf{只保留被 2D 单元引用的节点}：Gmsh 的 \fem|getNodes()| 会
+返回构造实体（点/线/体积网格）上的节点，导入器把未被任何 2D 单元
+引用的节点一律删除并重映射编号——否则它们会在总刚中留下全零行/列，
+造成"约束看似充分却奇异矩阵"（历史教训，见 §10.1）。
+\item \textbf{单元方向归一化}为逆时针（\fem|normalize_element_orientation|），
+外法向方向从此确定（§6.7.4 定向的压力法向约定依赖它）。
+\item \textbf{Z 平坦性检查}：活动 2D 节点的 z 坐标跨度必须不超过
+$\max(\mathrm{span}\cdot 10^{-8},\ \text{ULP 兜底})$；非平面（2.5D）
+网格被拒绝而非静默投影——容差是相对尺度的，微米/纳米级模型不会被
+误杀（§8 微尺度纪律）。
+\item 单元类型按节点数自动命名为 \fem|CPS3|/\fem|CPE3|/\fem|CPS4|/
+\fem|CPE4|（前缀由平面应力/平面应变决定），后续全部代码只认这四种
+名字。
+\end{enumerate}
+
+\textbf{为什么不再用 .inp 中间格式}（2026-08 移除 Abaqus 输入口）。
+历史版本曾支持 \fem|.inp| 输入：逐行解析 \fem|*NODE|、
+\fem|*ELEMENT, TYPE=...|、\fem|*ELSET| 等关键字。手写解析器在真实文件面前暴露了一批
+边界情况缺陷：\fem|TYPE=| 子串匹配把 \fem|CPS4| 误判成 \fem|CPS3|
+（ELSET 名 \fem|CPS3_GROUP| 也会触发）；Gmsh 导出的 \fem|.inp| 混合了
+\fem|T3D2| 线单元节点，导入后产生孤立节点→奇异矩阵；\fem|.geo| 脚本
+被误当 \fem|.inp| 传入时报错信息指向错误方向。改走 Gmsh API 直读
+\fem|.msh| 后，网格拓扑、物理组语义、孤立节点过滤全部由库级保证，
+整类"手写解析器边界情况"错误消失。\fem|.inp| 仅保留为导出格式
+（写 Abaqus 风格文件供其他软件使用），不再是输入格式。
+
+\textbf{常见错误速查}（完整列表见 §10.1）：
+\begin{itemize}
+\item \fem|mixed triangle/quad mesh| — 混排网格：对四边形需求做重组
+（\fem|--quad| 触发 recombination）或网格分文件导入；
+\item \fem|Unsupported Gmsh displacement element| — 高阶/异质单元：
+设 \fem|Mesh.Order = 1| 强制一阶，或后处理降阶；
+\item \fem|non-constant z-coordinates| — 2.5D 网格：先投影到平面再导出；
+\item \fem|No supported first-order 2-D elements| — 网格里只有线/点单元：
+检查 \fem|$Elements| 段类型码。
+\end{itemize}
+
+%══════════════════════════════════════════════════════════════
+\section{理论基础}
+%══════════════════════════════════════════════════════════════
+
+本章给出求解器所实现数值方法的数学推导，公式编号与 Bathe
+《Finite Element Procedures》（2nd ed.）对应。教学目的是：\textbf{每条
+核心公式都能在教材中找到出处}，这也是本项目的公式纪律。
+
+\textbf{阅读指引}：本章的重心放在\textbf{协调单元}（CST/Q4）的构造与
+性质，以及\textbf{沙漏控制}（Q4R 单点积分的稳定化）——这两块既是线
+性单元教学最核心的内容，也是本求解器与商业软件一致的关键机制。
+弹性力学三大方程（平衡/几何/本构）只作一行回顾，不再展开推导。
+
+\subsection{平面线弹性问题的弱形式}
+
+\subsubsection{三大方程（一行回顾）}
+
+平面问题在域 $\Omega$（边界 $\Gamma = \Gamma_u \cup \Gamma_t$）上由三组
+方程描述（Bathe Eq. 4.1--4.12）：平衡方程 $\mathbf{L}^T\boldsymbol{\sigma}
++ \mathbf{f} = \mathbf{0}$、几何方程 $\boldsymbol{\varepsilon} =
+\mathbf{L}\,\mathbf{u}$（$\boldsymbol{\varepsilon} =
+[\varepsilon_x,\ \varepsilon_y,\ \gamma_{xy}]^T$，$\mathbf{L}$ 为
+微分算子）、本构方程 $\boldsymbol{\sigma} = \mathbf{D}\,\boldsymbol{\varepsilon}$。
+平面应力（$\sigma_z = 0$，Bathe Eq. 4.11）与平面应变（$\varepsilon_z =
+0$，Bathe Eq. 4.12）的弹性矩阵：
+
+\begin{equation}
+\mathbf{D}_{stress} = \frac{E}{1-\nu^2}
+\begin{bmatrix} 1 & \nu & 0 \\ \nu & 1 & 0 \\ 0 & 0 & \frac{1-\nu}{2} \end{bmatrix},
+\qquad
+\mathbf{D}_{strain} = \frac{E}{(1+\nu)(1-2\nu)}
+\begin{bmatrix} 1-\nu & \nu & 0 \\ \nu & 1-\nu & 0 \\ 0 & 0 & \frac{1-2\nu}{2} \end{bmatrix}
+\label{eq:constitutive}
+\end{equation}
+
+其中 $E$ 为杨氏模量、$\nu$ 为泊松比。边界条件（Bathe Eq. 4.3--4.5）：
+$\mathbf{u} = \bar{\mathbf{u}}$ on $\Gamma_u$（本质边界），
+$\mathbf{t} = \bar{\mathbf{t}}$ on $\Gamma_t$（自然边界）。
+
+\subsubsection{虚功原理（弱形式）——有限元离散的起点}
+
+对平衡方程取虚位移 $\delta\mathbf{u}$ 的加权积分（虚功原理，Bathe
+Eq. 4.33）：
+
+\begin{equation}
+\int_\Omega \delta\boldsymbol{\varepsilon}^T \mathbf{D}\,\boldsymbol{\varepsilon}\,d\Omega
+= \int_\Omega \delta\mathbf{u}^T \mathbf{f}\,d\Omega
++ \int_{\Gamma_t} \delta\mathbf{u}^T \bar{\mathbf{t}}\,d\Gamma
+\label{eq:virtual}
+\end{equation}
+
+左侧是内力虚功（刚度项），右侧是外力虚功（载荷项）。\textbf{全部有限
+元公式都从这里出发}：只要给出单元内位移插值（形函数），式
+\eqref{eq:virtual} 就机械地产生单元刚度矩阵与载荷向量。这也是"协调单
+元"的定义所在——形函数在单元边界上保持位移连续，弱形式才合法。
+
+\subsection{位移离散与单元刚度}
+
+\subsubsection{位移插值与 B 矩阵}
+
+将 $\Omega$ 划分为 $n_e$ 个单元，单元内位移用形函数插值
+（Bathe Eq. 4.21）：
+\begin{equation}
+\mathbf{u}^{(e)} = \mathbf{N}^{(e)} \mathbf{d}^{(e)},
+\qquad
+\mathbf{N} = \begin{bmatrix} N_1 & 0 & N_2 & 0 & \cdots \\ 0 & N_1 & 0 & N_2 & \cdots \end{bmatrix}
+\end{equation}
+
+其中 $\mathbf{d}^{(e)}$ 为单元节点自由度向量。应变-位移阵
+（Bathe Eq. 4.24）：
+\begin{equation}
+\boldsymbol{\varepsilon} = \mathbf{B}\,\mathbf{d}^{(e)},
+\qquad
+\mathbf{B} = \mathbf{L}\,\mathbf{N}
+\end{equation}
+
+代入虚功原理 \eqref{eq:virtual}，得\textbf{单元刚度矩阵与载荷向量}
+（Bathe Eq. 4.30--4.31）：
+\begin{equation}
+\mathbf{k}^{(e)} = \int_{\Omega^{(e)}} \mathbf{B}^T \mathbf{D}\,\mathbf{B}\,d\Omega
+\qquad
+\mathbf{f}^{(e)} = \int_{\Omega^{(e)}} \mathbf{N}^T \mathbf{f}\,d\Omega
++ \int_{\Gamma_t^{(e)}} \mathbf{N}^T \bar{\mathbf{t}}\,d\Gamma
+\label{eq:ke}
+\end{equation}
+
+\textbf{整体装配}：按自由度编号 $d_{2i} = u_i$（x 向）、$d_{2i+1} = v_i$
+（y 向），对每个单元把 $\mathbf{k}^{(e)}$ 叠加进全局刚度
+$\mathbf{K} = \sum_e \mathbf{k}^{(e)}$（Bathe Eq. 4.18 的 DOF 约定），
+载荷向量同理 $\mathbf{F} = \sum_e \mathbf{f}^{(e)}$。装配在
+\fem|assembly.py| 中以稀疏 COO 结构实现（向量化路径）。
+
+\subsubsection{数值积分（高斯求积）}
+
+式 \eqref{eq:ke} 在等参单元中写为母单元上的积分（Bathe Eq. 5.39）：
+\begin{equation}
+\mathbf{k}^{(e)} = \int_{-1}^{1}\int_{-1}^{1}
+\mathbf{B}(\xi,\eta)^T \mathbf{D}\,\mathbf{B}(\xi,\eta)\,t\,\det\mathbf{J}\,d\xi\,d\eta
+\approx \sum_{i,j} w_i w_j\, \mathbf{B}_{ij}^T \mathbf{D}\,\mathbf{B}_{ij}\,t\,\det\mathbf{J}_{ij}
+\end{equation}
+
+其中 $\mathbf{J}$ 为坐标变换 Jacobian，$\mathbf{B}$ 的导数项
+$\partial N_i/\partial x = \mathbf{J}^{-1}\,\partial N_i/\partial \xi$。
+Q4 用 $2\times2$ 高斯积分（4 点），CST 刚度矩阵为常数阵（面积积分
+解析完成，见下）。
+
+\subsection{单元族}
+
+\subsubsection{CST——常应变三角形}
+
+线性三角形单元（Bathe §5.2.3），形函数为面积坐标：
+\begin{equation}
+N_i = \frac{a_i + b_i x + c_i y}{2A}, \qquad
+A = \frac{1}{2}\det\begin{bmatrix} 1 & x_1 & y_1 \\ 1 & x_2 & y_2 \\ 1 & x_3 & y_3 \end{bmatrix}
+\end{equation}
+
+由于形函数线性，$\mathbf{B}$ 为\textbf{常数阵}（应变为常数，故称
+常应变单元），单元刚度闭合形式：
+\begin{equation}
+\mathbf{k}^{(e)} = t\,A\,\mathbf{B}^T \mathbf{D}\,\mathbf{B}
+\end{equation}
+
+\textbf{性质}：实现最简单、计算最快；弯曲刚度偏刚（线性单元的
+低阶表现，见 §7.4 E1 结果）；无转角自由度——"固定端"约束在 CST
+中等效于一排固定铰（锁整条边所有节点的平动）。
+
+\subsubsection{Q4——双线性协调四边形（本章重点）}
+
+四节点双线性等参单元（Bathe §5.2.4）是\textbf{协调单元}（conforming
+element）的典范：形函数在单元内 $C^0$ 连续、跨单元边界位移连续，
+弱形式 \eqref{eq:virtual} 严格成立。下面的内容按"构造 $\to$ 性质
+$\to$ 工程行为 $\to$ 代码中的验证"的顺序展开。
+
+\paragraph{等参映射与母单元}
+
+每个四边形在物理空间 $(x,y)$ 的节点坐标 $[x_i, y_i]$ 通过\textbf{双线性
+形函数}映射到母单元 $(\xi,\eta)\in[-1,1]^2$（Bathe Eq. 5.39 的等参
+思想）：
+
+\begin{equation}
+N_i(\xi,\eta) = \frac{1}{4}(1+\xi\xi_i)(1+\eta\eta_i), \qquad i=1,\dots,4,
+\qquad
+\mathbf{x} = \sum_{i=1}^{4} N_i(\xi,\eta)\,\mathbf{x}_i
+\label{eq:q4-shape}
+\end{equation}
+
+\paragraph{形函数的三条基本性质（代码中逐一验证）}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Kronecker 性质}：$N_i(\xi_j,\eta_j) = \delta_{ij}$——
+        节点值即形函数在该节点的值，边界条件可直接施加在节点上；
+  \item \textbf{单位分解}（partition of unity）：$\sum_i N_i \equiv 1$——
+        保证刚体平移 $\mathbf{u} = \mathbf{c}$ 被精确再现
+        （零应变，零内力）；
+  \item \textbf{线性完备性}：$\sum_i N_i x_i = x$、$\sum_i N_i y_i = y$——
+        等参映射自身由形函数定义，故\emph{恒成立}；对位移场则保证
+        任意线性位移场（含常应变场）被精确再现。这是\textbf{分片试验}
+        能通过的充分条件。
+\end{enumerate}
+
+第 2、3 条是"单元在极限网格下收敛"的理论保障（Bathe §4.4.2），本
+项目在 \fem|Q4Element.verify_mesh()| 中用数值检查把它们锁死（见
+§6.3 代码讲解）。
+
+\paragraph{协调性：为什么 Q4 是协调单元（C0 连续性证明）}
+
+\textbf{协调单元}的定义（Bathe §4.4.1）：位移场在单元内连续、且
+\textbf{跨单元边界连续}——整体位移场 $\mathbf{u}^h$ 属于 $C^0$。Q4
+满足这条性质的论证基于一个观察：\emph{形函数沿单元边退化为
+一维线性插值，只依赖该边上的两个节点}。
+
+以母单元 $\xi = +1$ 边（连接节点 2、3）为例，代入式
+\eqref{eq:q4-shape}：
+
+\begin{equation}
+N_2(1,\eta) = \frac{1+\eta}{2}, \qquad
+N_3(1,\eta) = \frac{1-\eta}{2}, \qquad
+N_1(1,\eta) = N_4(1,\eta) = 0
+\end{equation}
+
+因此该边上的位移插值为
+$\mathbf{u}(\eta) = \frac{1+\eta}{2}\,\mathbf{u}_2 +
+\frac{1-\eta}{2}\,\mathbf{u}_3$——它是关于边上位置参数的
+\textbf{线性函数}，完全由端点值 $\mathbf{u}_2, \mathbf{u}_3$ 决定。
+对另外三条边（$\xi=-1$、$\eta=\pm1$）作同样的代入得到相同结论：
+\textbf{每条边上的插值只由该边两个端点的节点值唯一确定}。
+
+现在看两个相邻单元 $e_1, e_2$ 共享一条边 $e$。这条边在两个单元的
+局部编号中方向可能相反（$e_1$ 里是 $i\to j$，$e_2$ 里是 $j\to i$），
+但两个单元的插值都只能给出"在 $e$ 上随物理位置线性变化、端点值
+分别为 $\mathbf{u}_i, \mathbf{u}_j$"的同一个函数——参数化方向只改变
+$t$ 的走向，不改变函数值。于是
+
+\begin{equation}
+\mathbf{u}^{h}\big|_{e}^{(e_1)} = \mathbf{u}^{h}\big|_{e}^{(e_2)} =
+(1-t)\,\mathbf{u}_i + t\,\mathbf{u}_j, \qquad t \in [0,1]
+\label{eq:q4-c0}
+\end{equation}
+
+\textbf{跨边位移连续}——这就是"协调"二字的确切含义。代码层面，
+\fem|verify_mesh()| 中的单位分解检查之所以能间接锁住这条性质，
+正是因为这个证明的逆否：若某条边上形函数之和不恒为 $1$，则相邻
+单元在该边上的插值必然分裂（$C^0$ 被破坏）。
+
+\paragraph{协调性带来的三个推论（贯穿全书的三个主题）}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{弱形式中的单元间边界项消失}：虚功原理 \eqref{eq:virtual}
+        中的内力虚功在单元公共边上的贡献由牵引矢量
+        $\mathbf{t}=\boldsymbol{\sigma}\mathbf{n}$ 给出。位移虚位移在公共
+        边上连续（式 \eqref{eq:q4-c0}），两侧单元贡献的虚功恰好
+        相互抵消——这是 §4.6.2 牵引跳跃在收敛极限下
+        $\llbracket\mathbf{t}\rrbracket \to \mathbf{0}$ 的同一机理。
+        于是总刚度阵就是各单元刚度阵的\textbf{简单叠加}，无需任何
+        边界修正项——协调性是"组装"这个操作合法的前提；
+  \item \textbf{应力跨边不连续}：$C^0$ 只约束位移，不约束导数。相邻
+        单元的应变（位移一阶导）在共享边上可以不同——这正是
+        §4.6.2 应力跳跃（牵引跳跃）存在的物理根源：协调单元保证
+        位移连续，\emph{不}保证应力连续，误差评估必须度量这条
+        跳跃（等应力带法 §4.10 的判读基础）；
+  \item \textbf{$C^0$ 族与板壳的界限}：要求导数连续（$C^1$）的单元
+        （如 Kirchhoff 板）需要更复杂的插值（Hermite 形函数、转动
+        自由度）。本项目全部单元（CST/Q4/Q4R/Q4I）均为 $C^0$ 平面
+        单元，因此\textbf{不适用于}要求 $C^1$ 的经典板弯曲问题——
+        这是单元族的固有边界，不是实现缺陷。
+\end{enumerate}
+
+\paragraph{B 矩阵的构造}
+
+位移插值 $\mathbf{u} = \mathbf{N}\mathbf{d}^{(e)}$ 代入几何方程得
+应变-位移矩阵（Bathe Eq. 4.24）。关键一步是\textbf{导数链式法则}：
+形函数定义在自然坐标，而应变需要物理坐标导数，故
+
+\begin{equation}
+\frac{\partial N_i}{\partial x} = \mathbf{J}^{-1} \frac{\partial N_i}{\partial \xi},
+\qquad
+\mathbf{J} = \begin{bmatrix}
+\partial x/\partial \xi & \partial y/\partial \xi \\
+\partial x/\partial \eta & \partial y/\partial \eta
+\end{bmatrix}
+= \sum_{i=1}^{4} \begin{bmatrix}
+(\partial N_i/\partial \xi)\, x_i & (\partial N_i/\partial \xi)\, y_i \\
+(\partial N_i/\partial \eta)\, x_i & (\partial N_i/\partial \eta)\, y_i
+\end{bmatrix}
+\end{equation}
+
+\fem|q4.py| 中 \fem|B_matrix()| 正是这个公式的直接实现：先算
+$\partial N_i/\partial\xi$、$\partial N_i/\partial\eta$（矩阵乘法），
+再 \fem|np.linalg.solve(jacobian, dN_nat)| 完成链式法则。
+
+\paragraph{为什么用 $2\times2$ 高斯积分（全积分）}
+
+刚度阵 \eqref{eq:ke} 在母单元上写成（Bathe Eq. 5.39）：
+
+\begin{equation}
+\mathbf{k}^{(e)} = \int_{-1}^{1}\int_{-1}^{1}
+\mathbf{B}^T \mathbf{D}\,\mathbf{B}\,t\,\det\mathbf{J}\,d\xi\,d\eta
+\approx \sum_{i=1}^{2} \sum_{j=1}^{2}
+w_i w_j\, \mathbf{B}(\xi_i,\eta_j)^T \mathbf{D}\,\mathbf{B}(\xi_i,\eta_j)\,t\,\det\mathbf{J}(\xi_i,\eta_j)
+\label{eq:q4-gauss}
+\end{equation}
+
+对\textbf{平行四边形}（$\det\mathbf{J}$ 常数），被积函数是 $\xi$、
+$\eta$ 的\textbf{二次}多项式（形函数双线性 $\times$ 双线性 = 二次，
+$\det\mathbf{J}$ 为常数），$2\times2$ 高斯点（每维 2 点）可精确积分
+$3$ 阶以内多项式——\textbf{恰好足够}，故称"全积分"（Bathe §5.7.4）。
+对\textbf{任意扭曲四边形}，$\det\mathbf{J}$ 是双线性函数，被积函数升到
+四阶，$2\times2$ 只能近似——这是等参单元的固有离散误差，不是实现
+缺陷。
+
+$1\times1$ 单点积分则\textbf{不足}：它只精确积分线性多项式，二次项
+被"采样到零"——这正是 §4.3.3（Q4R）沙漏模式的根源。
+
+\paragraph{剪切锁定（shear locking）——全积分 Q4 的代价}
+
+全积分 Q4 在纯弯曲工况下会\textbf{过刚}：单元位移场是双线性的，无法
+表示纯弯曲所需的 $\sigma_x \sim y$ 应力分布，只能"借用"剪切变形来
+凑——而这些虚假的寄生剪切变形（parasitic shear）在粗网格下
+贡献了相当大的虚假剪切能，使弯曲刚度被人为抬高（Bathe §5.5.1 的
+锁定讨论）。本项目 E1 悬臂梁实测：Q4 挠度误差随加密
+$12.9\% \to 3.2\% \to 0.38\%$，比 CST（$32.5\% \to 0.17\%$）同阶收敛
+但粗网格误差更小；消除锁定的两条工程路线见下——\textbf{Q4R 单点积分}
+（§4.3.3）与 \textbf{Q4I 非协调模式}（§4.3.4）。
+
+\paragraph{坐标居中化与退化检测（代码中的鲁棒性设计）}
+
+\fem|q4.py| 的两处实现细节体现了本项目"微尺度鲁棒性"纪律（全部
+有测试锁定）：
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{局部坐标}：\fem|element_stiffness()| 先把单元坐标平移
+        到以第一个节点为原点再计算——绝对坐标在 $10^{12}$ 量级时，
+        $\mathbf{B}^T\mathbf{D}\mathbf{B}$ 的浮点乘加引入 $\sim
+        \mathrm{ulp}(\text{原点})$ 的相对误差，实测刚度偏差 $\sim
+        9\times10^{-5}$；
+  \item \textbf{Jacobian 逐点检查}：\fem|build_geometry()| 在 $2\times2$
+        高斯点之外额外检查 5 个点（4 角点 + 中心）的
+        $\det\mathbf{J}$，任何非正值立即拒绝（\fem|stiffness_batch()|
+        与标量路径 \fem|element_stiffness()| 双侧守卫）——扭曲过度的
+        单元在组装前就被抓住，而不是让奇异矩阵在求解器里爆炸；
+  \item \textbf{退化度量}：\fem|degeneracy_measure() = 面积/最长边$^2$|
+        （无量纲）——矩形退化为长宽比的倒数，扭歪再乘 $\sin\theta$，
+        数学塌缩级（$<10^{-8}$）判为退化，与单元绝对尺寸无关。
+\end{itemize}
+
+\subsubsection{Q4R——单点积分 + 沙漏控制（本章重点）}
+
+Q4 的剪切锁定源自全积分对低阶位移场"太诚实"；反过来把积分降到
+$1\times1$ 单点，刚度阵变软、锁定消失，但会引入更危险的问题——
+\textbf{零能量模式（沙漏）}。Q4R 是两者的折中：单点积分 + 稳定化。
+本节按"为什么会有沙漏 $\to$ 稳定化公式 $\to$ 几何感知的构造
+$\to$ 工程限制"展开。
+
+\paragraph{单点积分为什么产生零能模式}
+
+$1\times1$ 高斯点在单元中心 $(\xi,\eta)=(0,0)$ 只有一个采样点。代入
+式 \eqref{eq:q4-gauss} 后，被积函数中所有\textbf{关于 $(\xi,\eta)$ 奇
+次的项在中心处取零值}——被积函数只在中心被评估一次，这些奇次项
+"逃过"了积分。位移场上对应存在\textbf{非仿射零能模式}。零能条件
+的定量刻画如下：单点积分下应变能正比于中心应变
+$\boldsymbol{\varepsilon}(0) = \mathbf{B}(0,0)\,\mathbf{u}_e$，零能模式
+即 $\mathbf{B}(0,0)\,\mathbf{u}_e = \mathbf{0}$ 的解。$\mathbf{B}(0,0)$
+是 $3\times8$ 矩阵、秩 3，故零空间维数 $8-3=5$：其中 3 个是刚体
+模态（零应变，物理允许），多出的 \textbf{2 个}是虚假模式——$u$、
+$v$ 两个位移方向各一个，型态为
+
+\begin{equation}
+\mathbf{g} = [+1,\ -1,\ +1,\ -1]^T
+\qquad\text{(节点位移型态 $\Leftrightarrow$ 插值场 $u = \xi\eta$)}
+\end{equation}
+
+代入形函数：$u = N_1 - N_2 + N_3 - N_4 = \xi\eta$，中心处
+$\partial u/\partial\xi = \partial u/\partial\eta = 0$，即
+$\mathbf{B}(0,0)\,\mathbf{g} = \mathbf{0}$——中心应变恰好为零，
+\textbf{不产生任何应变能}：刚度矩阵对它们给出零特征值，矩阵
+\textbf{秩亏}。如果不加控制，求解器对它们没有任何阻力：位移解
+可以叠加上任意大的沙漏幅值而不改变能量，网格呈现出交替错动的
+"沙漏"变形（hourglass pattern），应力云图被污染。这就是 Abaqus
+文档中 CPS4R 必须配 \texttt{hourglass stiffness} 的原因。
+
+\textbf{注意区分}：型态 $[-1,+1,+1,-1]$（插值场 $u = \xi$）在中心
+处 $\partial u/\partial\xi = 1 \neq 0$——它是有能量的\textbf{线性
+（仿射）拉伸模式}，不是沙漏。沙漏的本质是\textbf{非仿射}。这从
+$2\times2$ 全积分一侧看得更清楚：全积分对 $\xi,\eta$ 的二次多项式
+精确（每维 2 点），双线性位移场的应变是双线性函数，故
+$\mathbf{B}^T\mathbf{D}\mathbf{B}$ 被精确积分；若 $\mathbf{u}_e$ 使
+$\mathbf{B}(\xi,\eta)\mathbf{u}_e \equiv \mathbf{0}$ 在单元内\textbf{处处}
+成立，则 $\mathbf{u}_e$ 只能是刚体运动（3 维）——\textbf{全积分 Q4
+没有沙漏}。单点积分把零能条件退化为"仅在中心成立"，解空间从
+3 维扩到 5 维，多出的 2 个 $\xi\eta$ 型模式就是沙漏：采样点越少，
+零能模式越多（$1\times1 \to 2$ 个；$2\times2 \to 0$ 个）。Q4R 走
+第三条路：保留单点积分的廉价与无锁定，用稳定项给这 2 个模式
+重新装上能量（见下）。
+
+\paragraph{稳定化公式}
+
+Q4R 刚度 = 单点积分刚度 + 稳定项（本实现为仿射补投影稳定，
+affine-projector stabilization）：
+
+\begin{equation}
+\mathbf{k} = \mathbf{k}_1 + \alpha\, \mathbf{H}\,(\mathbf{H}^T
+\mathbf{K}_{shear}\, \mathbf{H})\, \mathbf{H}^T
+\label{eq:q4r-stab}
+\end{equation}
+
+\textbf{三个组成部分的设计理由}：
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{$\mathbf{k}_1$——单点积分刚度}：只含仿射（线性）位移
+        模式的能量。弯曲不再被寄生剪切锁死，单元变软、对扭曲网格
+        稳健；
+  \item \textbf{$\mathbf{H}$——仿射补的零空间基}：$\mathbf{H}$ 的列张成
+        "所有仿射节点位移场的正交补"。平移、转动、三个常应变场
+        （共 6 个仿射模式）满足 $\mathbf{H}^T \mathbf{v}_{affine} =
+        \mathbf{0}$，因此稳定项对它们是\textbf{精确为零}——稳定化
+        不改变任何物理正确的结果，只"罚"掉非仿射的沙漏方向；
+  \item \textbf{$\mathbf{K}_{shear}$——仅剪切模量的参考刚度}：用
+        $2\times2$ 高斯点、\textbf{只含剪切模量}（$2\mu$ 对角）
+        的本构构造的参考刚度。选剪切模量而非完整 $\mathbf{D}$ 的
+        原因是：完整 $\mathbf{D}$ 会把体积（锁定）方向也稳定进刚度，
+        重新引入锁定；只有剪切项才能给稳定项正确的物理量纲
+        （$N/m$）而不加体积刚度。
+\end{enumerate}
+
+$\alpha$ 为\textbf{沙漏系数}（默认 $0.10$），是稳定项的强度旋钮：
+过大 $\to$ 单元重新变刚（接近全积分行为）；过小 $\to$ 沙漏未被
+充分抑制。
+
+\paragraph{几何感知的 $\mathbf{H}$ 构造（代码中的数学技巧）}
+
+\fem|q4r.py| 的 \fem|_affine_complement()| 用了一个优雅的代数技巧，
+\emph{不需要对每个单元做一次 QR 分解}：仿射位移场的四个分量
+$[1, x_i, y_i]^T$ 构成 $4\times3$ 矩阵，其零空间的标量基向量恰是
+$[1, x_i, y_i]^T$ 的\textbf{余子式}（cofactors）。对四个节点
+$i=1..4$ 排成循环序，该向量由\textbf{三角形两倍面积}（$\vec{ab} \times
+\vec{ac}$）直接给出：
+
+\begin{equation}
+h_i = \frac{1}{\|\mathbf{h}\|} \begin{cases}
+  2A(1,2,3) \\ -2A(0,2,3) \\ 2A(0,1,3) \\ -2A(0,1,2)
+\end{cases}
+\label{eq:q4r-cofactor}
+\end{equation}
+
+其中 $2A(a,b,c)$ 是以节点 $a,b,c$ 为顶点的三角形两倍面积（叉积）。
+与"完整 $8\times6$ QR 分解取正交补"数学上等价，但每单元只花
+$\sim$12 次乘加。这个技巧同时带来\textbf{几何感知}：$h_i$ 随单元形状
+变化，平行四边形单元给出精确的 $[1,-1,1,-1]$，扭曲单元自动调整
+方向——与"沙漏刚度必须随几何缩放"的工程经验一致。
+坐标居中/缩放只改变条件数，不改变仿射子空间本身。
+
+\paragraph{沙漏能量监控（求解器中的沙漏告警）}
+
+稳定项虽然抑制了沙漏，但\textbf{沙漏模式并未完全消失}——它现在携带
+小能量（$\sim \alpha$ 量级）。求解器必须监控它：\fem|hourglass_energy()|
+把位移投影到 $\mathbf{H}$ 上计算稳定能：
+
+\begin{equation}
+E_{HG}^{(e)} = \tfrac{1}{2}\, \mathbf{u}_e^T
+\left( \alpha\, \mathbf{H}\,\mathbf{H}^T \mathbf{K}_{shear}
+\mathbf{H}\,\mathbf{H}^T \right) \mathbf{u}_e
+\end{equation}
+
+两个实现细节值得注意：
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{材料指纹失效检查}：$\mathbf{H}^T \mathbf{K}_{shear}
+        \mathbf{H}$ 依赖 $E,\nu,plane$。若装配后改材料/平面态，几何
+        缓存不会自动失效——代码记录
+        \fem|(E, nu, thickness, plane_type)| 指纹，不匹配时按当前
+        材料重算（历史教训：plane 切换后沙漏能沿用旧 $\mathbf{D}$，
+        积分点应力相对差 $\sim 9\%$）；
+  \item \textbf{负能告警而非截零}：稳定项构造上半正定，负能量只可能
+        来自负系数或实现错误。代码对显著负能发 \fem|RuntimeWarning|
+        而不是静默 \fem|max(energy, 0)|——无条件截零会把实现错误
+        掩盖成"正常"（纪律：错误不会静默）。
+\end{itemize}
+
+求解完成后 \fem|solve()| 报告 \fem|hourglass_energy_ratio|（沙漏能/
+内能）。但注意——\textbf{沙漏能占比不是可靠性的判据}（实测：
+长宽比 $\ge 50$ 或单排网格下，稳定项主导时占比反而 $\sim 90\%$，
+而解已经严重过刚；中等长宽比下沙漏主导时占比也 $>90\%$）。判据
+改用\textbf{单元长宽比}在求解前告警（\fem|_q4r_aspect_ratio_warning()|，
+见 §6.8）。
+
+\paragraph{已知局限（诚实记录）}
+
+本实现的 compact 稳定公式（稳定尺度 $\mathbf{H}^T\mathbf{K}_{shear}
+\mathbf{H}$ 不随长宽比衰减，而单点弯曲刚度随 $(h/L)^3$ 衰减）：
+
+\begin{itemize}[leftmargin=*]
+  \item 长宽比 $\ge 50$ 或\textbf{单排网格}：稳定项主导 $\to$ 解严重
+        过刚（实测悬臂端挠度只有解析值的 2\%）；
+  \item 中等长宽比（$L/h \sim 10$、少排网格）：沙漏主导 $\to$ 过软
+        （实测 $\sim 5\times$ 解析挠度）；
+  \item 常规多排网格（长宽比 $< 10$）：分片试验、悬臂 $\sim 1.0$、
+        SCF、收敛率全部正确验证。
+\end{itemize}
+
+\textbf{薄板/细长模型优先选 Q4I}（无稳定项，见下）。商业软件用
+增强假设应变/自适应缩放后适用范围更宽——这是本实现 compact 公式
+的理论特性，不是编码错误。
+
+\paragraph{何时选 Q4 / Q4R / Q4I（工程决策表）}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{2.4cm}p{3.4cm}p{3.4cm}p{5.0cm}}
+\toprule
+\textbf{单元} & \textbf{积分} & \textbf{弯曲行为} & \textbf{适用场景} \\
+\midrule
+Q4 & $2\times2$ 全积分 & 粗网格剪切锁定（过刚） & 规则网格、教学基准、误差估计研究 \\
+Q4R & $1\times1$ + 稳定 & 锁定消失，细长网格失真 & 大型模型（快）、扭曲网格、粗网格工程分析 \\
+Q4I & $2\times2$ + 非协调 & 无锁定、无稳定项 & 薄板/细长弯曲问题（首选） \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Q4I——QM6 非协调单元}
+
+QM6（Taylor 1976，Bathe §5.5.1）在 Q4 位移场中加入\textbf{非协调模式}
+消除弯曲锁定的寄生剪切。非协调位移导数 $\mathbf{B}_{inc}$ 使单元刚度
+扩展为分块形式，内部自由度通过\textbf{静力凝聚}消除
+（Bathe Eq. 4.65 的静态凝聚流程）：
+\begin{equation}
+\begin{bmatrix} \mathbf{k}_{dd} & \mathbf{k}_{d\lambda} \\ \mathbf{k}_{\lambda d} & \mathbf{k}_{\lambda\lambda} \end{bmatrix}
+\begin{bmatrix} \mathbf{d} \\ \boldsymbol{\lambda} \end{bmatrix}
+= \begin{bmatrix} \mathbf{f} \\ \mathbf{0} \end{bmatrix}
+\quad\Longrightarrow\quad
+\mathbf{k}_{cond} = \mathbf{k}_{dd} - \mathbf{k}_{d\lambda}\,\mathbf{k}_{\lambda\lambda}^{-1}\,\mathbf{k}_{\lambda d}
+\end{equation}
+
+性质：在保持 Q4 简单性的同时大幅改善弯曲响应，是工程弯曲问题的
+首选四边形单元；实现复杂度最高（凝聚分块），见 \fem|element/q4i.py|。
+
+\subsection{边界条件施加}
+
+\subsubsection{消去法（elimination）——默认}
+
+将自由度划分为自由集 $a$ 与约束集 $b$（Bathe §4.2.2 Eq. 4.40）：
+\begin{equation}
+\begin{bmatrix} \mathbf{K}_{aa} & \mathbf{K}_{ab} \\ \mathbf{K}_{ba} & \mathbf{K}_{bb} \end{bmatrix}
+\begin{bmatrix} \mathbf{u}_a \\ \mathbf{u}_b \end{bmatrix}
+= \begin{bmatrix} \mathbf{F}_a \\ \mathbf{F}_b \end{bmatrix}
+\quad\Longrightarrow\quad
+\mathbf{u}_a = \mathbf{K}_{aa}^{-1}\left(\mathbf{F}_a - \mathbf{K}_{ab}\,\bar{\mathbf{u}}_b\right)
+\end{equation}
+
+约束自由度从系统中消去，反力由第二行回代求得：
+$\mathbf{R}_b = \mathbf{K}_{ba}\mathbf{u}_a + \mathbf{K}_{bb}\bar{\mathbf{u}}_b - \mathbf{F}_b$。
+实现为 \fem|bc.apply_elimination()|，支持 direct/cg/cg-block/ilu 四种
+线性求解器分支。\textbf{纯 Dirichlet 情形}（自由集为空）特判直接返回，
+不调用求解器。
+
+\subsubsection{罚方法（penalty）}
+
+约束自由度对角元加上罚刚度（\textbf{加法式}；历史教训：乘法式会把
+刚度平方，条件数灾难）：
+\begin{equation}
+K_{ii} \mathrel{+}= \alpha, \qquad
+\alpha = \max_i |K_{ii}| \times 10^{8} \quad(\text{自动}); \qquad
+F_i = \alpha\,\bar{u}_i
+\end{equation}
+
+罚因子下限受相对判据保护（$< \max|K_{ii}|\times 10^4$ 报错），
+溢出风险有显式守卫。约束是\textbf{近似}的（$10^{-8}$ 相对量级），
+用于教学对比；默认推荐消去法（精确 + 反力干净）。
+
+\subsubsection{刚体模态检查}
+
+求解前逐\textbf{连通分量}检查约束是否抑制全部刚体模态（2 平动 +
+1 转动，rank 检查）。约束矩阵用\textbf{中心化坐标}构造（逐分量
+中心化 + 归一化；历史教训：大坐标下直接 SVD 会误判）：
+\begin{equation}
+\mathbf{R}_i = \begin{bmatrix} 1 & 0 & -y_i' \\ 0 & 1 & x_i' \end{bmatrix},
+\qquad
+x_i' = x_i - \bar{x}, \quad y_i' = y_i - \bar{y}
+\end{equation}
+
+欠约束（rank $<$ 3）直接 \fem|RuntimeError| 拒绝求解，绝不静默给出
+无意义解。
+
+\subsection{应力计算与恢复}
+
+\subsubsection{单元应力}
+
+求解得节点位移 $\mathbf{u}$ 后，单元/积分点应力：
+\begin{equation}
+\boldsymbol{\sigma} = \mathbf{D}\,\mathbf{B}\,\mathbf{d}^{(e)}
+\end{equation}
+
+单元间应力\textbf{不连续}（弱形式只保证位移连续）。后处理提供三种
+"磨平"方案把单元应力恢复为连续节点场。
+
+\subsubsection{节点平均（nodal simple / weighted）}
+
+单元应力按算术平均或面积加权平均到节点。代价最低，但峰值被
+周围低值拉低（CST 磨平后峰值 $\sim$17\% 下降，属预期，文档有记录）。
+
+\subsubsection{SPR——超收敛点恢复}
+
+SPR（Zienkiewicz--Zhu 1992，Bathe §4.3.6）对每个节点的单元补丁做
+\textbf{局部最小二乘}拟合：
+\begin{equation}
+\boldsymbol{\sigma}^*(\mathbf{x}) = \mathbf{P}(\mathbf{x})\,\mathbf{a},
+\qquad \mathbf{P} = \begin{bmatrix} 1 & x & y \end{bmatrix},
+\qquad \mathbf{a} = \arg\min \sum_{e \in patch} \left\| \boldsymbol{\sigma}^h - \mathbf{P}\,\mathbf{a} \right\|^2
+\end{equation}
+
+恢复值取拟合多项式在节点处的值。\textbf{纪律}：必须先恢复分量
+$\sigma_x,\sigma_y,\tau_{xy}$，再从恢复分量计算 Mises/主应力——SPR
+是线性算子，与非线性函数不可交换（历史教训：SPR(f(Mises)) $\ne$
+f(SPR(Mises))）。
+
+\subsubsection{L2 投影}
+
+全局一致质量阵意义下的最小二乘投影：
+\begin{equation}
+\left(\int_\Omega \mathbf{N}^T \mathbf{N}\,d\Omega\right) \boldsymbol{\sigma}^*
+= \int_\Omega \mathbf{N}^T \boldsymbol{\sigma}^h\,d\Omega
+\end{equation}
+
+全局求解（解一致质量阵），精度最高、代价最大；已向量化（300k 单元
+12.8s $\to$ 4.2s，3 倍提速，逐位一致）。
+
+\subsection{误差估计}
+
+\subsubsection{Z2 能量误差估计器（简要）}
+
+Z2 估计器（Zienkiewicz--Zhu 1987，Bathe §4.3.6 Eq. 4.108）用恢复场
+$\boldsymbol{\sigma}^*$（SPR/L2）与有限元场 $\boldsymbol{\sigma}^h$ 之差
+的能量范数估计误差：
+
+\begin{equation}
+\eta = \frac{\left[ \int_\Omega \left(\boldsymbol{\sigma}^* - \boldsymbol{\sigma}^h\right)^T
+\mathbf{D}^{-1} \left(\boldsymbol{\sigma}^* - \boldsymbol{\sigma}^h\right) d\Omega \right]^{1/2}}
+{\|\boldsymbol{\sigma}^*\|} \times 100\%
+\end{equation}
+
+实现细节（恢复源选择、SPR 的组件先恢复纪律）见 §4.5 与 §6.9.1；
+h-加密效应指数 $\theta \approx 1$ 的验证见 §7.4 E3。误差估计不是
+本求解器的理论重心——它是\textbf{网格加密的指引工具}，不是精度
+保证。
+
+\subsubsection{应力跳跃——牵引跳跃}
+
+相邻单元应力不连续的正确度量是\textbf{内部边上的牵引跳跃}（Bathe
+Eq. 4.107 的直接推论）：
+\begin{equation}
+\llbracket \mathbf{t} \rrbracket = \left(\boldsymbol{\sigma}^+ - \boldsymbol{\sigma}^-\right)\mathbf{n}
+\label{eq:tres-jump}
+\end{equation}
+
+（分量差 $|\sigma_{x,1}-\sigma_{x,2}|$ 依赖坐标系取向且无物理意义，
+历史教训。）
+
+\fem|compute_traction_jumps()| 实现之，边界边用 Neumann
+牵引残差 $\boldsymbol{\sigma}\mathbf{n} - \bar{\mathbf{t}}$ 度量；
+归一化用 $|\Delta t|/\sigma_{ref}$ 避免过零虚高（$|s_1-s_2|/\max$ 公式
+在正负交界处饱和到 200\% 的教训）。
+
+\subsection{分片试验与收敛性}
+
+\textbf{分片试验}（patch test，Bathe §4.4.2）：构造满足常应变/刚体
+模态的位移场施加到任意网格，验证单元能否精确再现——线性完备性的
+标准检验。\fem|run_patch_test()| 对每个注册单元执行，是内核注册的
+必经门槛（实现走读见 §6.9.3）。
+
+再看\textbf{收敛性}：线性单元的能量范数误差 $\|\mathbf{e}\| \sim C h$
+（一阶）。
+
+\fem|run_cantilever_convergence()| 用光滑解（Timoshenko 抛物线剪流梁，
+无点载荷奇异性）做多层双向加密收敛研究，输出误差随 $h$ 的衰减率，
+拟合斜率应 $\approx 1$（与解析解包 E3 互相印证）。
+
+\paragraph{手算分片试验：扭曲 Q4 上的常应变精确再现}
+
+分片试验不必是抽象声明——一个扭曲四边形就能手算到底。取
+\textbf{梯形}单元（非平行四边形，故意破坏"规则几何"）：
+
+\begin{equation}
+\mathbf{x}_1=(0,0),\quad \mathbf{x}_2=(2,0),\quad
+\mathbf{x}_3=\left(\tfrac{5}{2},1\right),\quad \mathbf{x}_4=(0,1)
+\end{equation}
+
+施加单向拉伸常应变场 $u = x,\ v = 0$（$\varepsilon_x=1$，其余分量为
+零）。节点位移由场值直接给出：$u_e = [0,\ 2,\ 5/2,\ 0]^T$，$v_e =
+\mathbf{0}$。
+
+\textbf{第一步——插值精确性}。由线性完备性（形函数第三条性质），
+$u^h(\xi,\eta) = \sum_i N_i u_i = \sum_i N_i x_i = x(\xi,\eta)$，插值场
+与精确场在\textbf{每个点}相等。这一步不用任何数值：它就是
+"$\sum N_i x_i = x$ 恒成立"的直接代入。注意完备性对\textbf{任意
+扭曲四边形}成立——分片试验不要求单元是平行四边形。
+
+\textbf{第二步——应变恒为常数}。梯度由链式法则给出：
+\begin{equation}
+\begin{bmatrix} \partial u^h/\partial x \\ \partial u^h/\partial y \end{bmatrix}
+= \mathbf{J}^{-1}
+\begin{bmatrix} \partial u^h/\partial \xi \\ \partial u^h/\partial \eta \end{bmatrix}
+= \mathbf{J}^{-1}
+\begin{bmatrix} \partial x/\partial \xi \\ \partial x/\partial \eta \end{bmatrix}
+= \mathbf{J}^{-1} \mathbf{J}_{(:,\,1)} = \begin{bmatrix} 1 \\ 0 \end{bmatrix}
+\end{equation}
+
+第二列（$v^h = 0$）同理给出零梯度。关键的一步是
+$\mathbf{J}^{-1}\mathbf{J}_{(:,\,1)}$：\textbf{任意} $(\xi,\eta)$ 处、
+\emph{无论 $\mathbf{J}$ 怎么扭曲}，恒等于第一列单位向量——因此
+$\varepsilon = [1,\ 0,\ 0]^T$ 在单元内\textbf{每一点}精确成立，B 矩阵
+代入节点位移在 $2\times2$ 高斯点处给出完全相同的应变。这正是
+"B 矩阵在扭曲单元上随点变化、但 $\mathbf{B}\mathbf{u}_e$ 不变"
+的机理：\emph{对精确的线性场，B 的变化与位移插值的变化精确抵消}。
+
+\textbf{第三步——内力自平衡}。常应力 $\boldsymbol{\sigma} =
+\mathbf{D}\boldsymbol{\varepsilon}$ 对应的节点力
+$\mathbf{f}^{(e)} = \int \mathbf{B}^T \boldsymbol{\sigma}\,t\,dV$ 之和：
+由散度定理，$\sum_i \mathbf{f}_i^{(e)} = \int_\Gamma \boldsymbol{\sigma}
+\mathbf{n}\,t\,ds$——常应力在\textbf{闭合边界}上的积分恒为零（本
+例梯形四边上的面力相互抵消）。于是该场\textbf{无需任何外载即可
+保持平衡}：$K\mathbf{u}_e = \mathbf{f}^{(e)}$ 精确成立，内部节点（若
+剖分后存在）自动得到精确位移。
+
+\textbf{结论}：Q4 对任意扭曲几何\textbf{精确通过分片试验}——这正是
+"协调 + 完备"的联合效应：协调性保证跨边连续（§4.3.1 的证明），
+完备性保证常应变精确再现。本项目 \fem|run_patch_test()| 对每个
+注册单元数值验证的正是这件事；Q4I 等非协调单元通过分片试验
+（而非协调性）获得收敛性的理论依据，这是两类单元的根本区别。
+
+\subsection{网格质量指标}
+
+\fem|quality.py| 对网格单元做 bad/warn/ok 三级互斥分类（评分：
+角度 OK 比例 $\times 40$ + 长宽比 OK 比例 $\times 30$ + Jacobian
+OK 比例 $\times 30$，warn/bad 记 0 分，合计 100）：
+\textbf{互斥性}是硬要求——bad 与 warn 条件不得重叠，否则评分失真
+（历史教训：半开区间写错导致双重计数）。
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llll}
+\toprule
+\textbf{指标} & \textbf{bad} & \textbf{warn} & \textbf{ok} \\
+\midrule
+最小角 & $\le 15°$ & $(15°, 30°]$ & $> 30°$ \\
+最大角 & $\ge 150°$ & $[120°, 150°)$ & $< 120°$ \\
+长宽比 & $\ge 5$ & $[3, 5)$ & $< 3$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+输出 \fem|evaluate_mesh_quality()| 返回分类统计与加权评分，\newline
+\fem|report_mesh_quality()| 打印中文报告（质量等级 A/B/C）。
+实现走读见 §6.9.2。
+
+\subsection{载荷的有限元离散}
+
+四类载荷在弱形式 \eqref{eq:virtual} 中对应不同的积分项，
+装配实现由 \fem|loads_core.assemble()| 逐类完成：
+
+\subsubsection{集中力}
+
+节点集中力直接叠加到全局载荷向量的对应自由度
+（$\mathbf{F}_c = \sum_i \mathbf{N}(x_i)^T \mathbf{P}_i$——由于形函数
+的 Kronecker 性质，等价于在节点 i 的自由度上直接相加）。
+
+\subsubsection{边界分布面力与压力}
+
+边 $\Gamma$ 上的面力 $\bar{\mathbf{t}}$ 的等效节点载荷
+（Bathe Eq. 4.31 的边界项）：
+\begin{equation}
+\mathbf{F}_s^{(e)} = \int_{\Gamma^{(e)}} \mathbf{N}^T \bar{\mathbf{t}}\,d\Gamma
+\end{equation}
+
+沿边的线积分用边上的等参一维高斯积分（边 $L$ 上以弧长参数 $s$）：
+\begin{equation}
+\mathbf{F}_s^{(e)} = L \sum_{g} w_g\, \mathbf{N}(\xi_g)^T \bar{\mathbf{t}}(s(\xi_g))
+\end{equation}
+
+支持三类\textbf{分布 profile}（\texttt{--traction} 语法
+\texttt{edge:tx,ty[:p|l|n]}，见 §3.3）：
+线性（l）、抛物线（p）按边端点归一化坐标插值；法向压力（n）取
+$p$ 为压强，方向由单元外法向确定（\texttt{boundary\_outward\_normal()}，
+历史教训：法向必须从相邻单元 CCW 方向确定，不依赖调用者节点顺序）。
+
+\paragraph{实现走读：一条面力记录如何变成四个自由度上的力}
+
+\texttt{loads\_core.py} 的 \fem|assemble()| 把每条 \fem|surface_tractions|
+记录逐边处理，核心是\textbf{3 点一维 Gauss--Legendre}（模块 docstring
+写明：形函数沿直边退化为线性，常数/线性面力 2 点已精确，3 点是
+为将来二次分布保留精度余量）：
+
+\begin{lstlisting}
+LINE_GAUSS = [(5/9, -0.774596669241483),   # xi = -sqrt(3/5)
+              (8/9,  0.0),
+              (5/9,  0.774596669241483)]   # xi = +sqrt(3/5)
+\end{lstlisting}
+
+边的参数化与批量累积（\fem|_accumulate_surface_batch| 的核心三行）：
+
+\begin{lstlisting}
+dofs = np.stack([2*lo, 2*lo+1, 2*hi, 2*hi+1], axis=1)
+fe = thickness * _LGAUSS_W[None, :] * L[:, None] / 2.0
+np.add.at(F, np.repeat(dofs, 3, axis=0).ravel(), contrib.ravel())
+\end{lstlisting}
+
+数学上 \fem|fe = t * (L/2) * w_k * N_i(xi_k) * t_k|：\fem|(L/2)| 是弧长
+参数化的雅可比（\fem|ds = (L/2)dxi|），\fem|N_i| 是边两端形函数
+（\fem|(1±xi)/2|），三个 Gauss 点各贡献一次、按边两端 4 个自由度
+叠加。\textbf{求和顺序逐位一致}：批量路径按"记录序 × Gauss 点序 ×
+DOF 序"展开，与逐点路径的浮点求和顺序完全相同——P-$\delta$ 性能包
+的逐位断言锁定（\fem|tests/test_p_delta_loads_batch.py|），这是
+"向量化不得改变数值"纪律的实例。
+
+\textbf{压力法向不信任调用者}：\fem|is_pressure| 记录施加
+$\mathbf{t} = -p\mathbf{n}$，外法向由\textbf{相邻单元的局部 CCW 边}
+匹配得到（\fem|_pressure_normals_batch| 遍历 \fem|kernel.local_edges|，
+\fem|n = (dy/L, -dx/L)|）——调用者写 (a,b) 还是 (b,a) 都得到同一
+外法向（历史教训，§6.7.4 约定）。
+
+\textbf{每边四道校验}（\fem|_classify_edges_batch|）：① 节点 id 合法；
+② 该边必须是网格边（否则 "is not a mesh edge"）；③ 必须是\textbf{边界
+边}（内部边报 "interior edge shared by 2 elements"，面力只支持边界
+边——载荷加在内边上属于工况错误，必须响亮拒绝）；④ 退化边
+（长度 $\le 64\varepsilon\max|x|$ 判据，微尺度模型不会被误判，§10
+教训）。callable 面力逐 Gauss 点求值，NaN/Inf 带边号拒绝。
+
+\subsubsection{体力}
+
+体力 $\mathbf{f}(x,y)$ 的等效节点载荷：
+\begin{equation}
+\mathbf{F}_b^{(e)} = \int_{\Omega^{(e)}} \mathbf{N}^T \mathbf{f}(x,y)\,d\Omega
+= t \sum_{g} w_g\, \mathbf{N}(\xi_g)^T \mathbf{f}(x(\xi_g), y(\xi_g))\, \det\mathbf{J}(\xi_g)
+\end{equation}
+
+\fem|--body bx,by| 支持空间函数表达式（AST 白名单：变量 $x,y$，
+函数 sin, cos, tan, exp, sqrt, log, abs 与常量 $\pi$），在真实高斯点求值。
+
+\subsection{等应力带法（isoband）}
+
+应力不连续性的\textbf{定性}判读工具（Bathe §4.3.6 + Sussman--Bathe
+"stress band plots"）。三个关键实现要求：
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{带宽固定}（如 5 MPa）：不能随数据范围自动变化——
+        否则粗/细网格带宽不同无法比较；
+  \item \textbf{离散着色}：每带一个颜色，非连续渐变——否则色条与
+        离散单元着色不一致；
+  \item \textbf{定性判读}：带的不连续断裂程度反映网格误差，是目视
+        工具而非定量公式（定量用 Z2）。
+\end{enumerate}
+
+\fem|visualize| 的 isoband 输出即按此实现，与 Gouraud 连续云图互补
+（实现走读见 §6.9.4）。
+
+\subsection{一个完整的手算示例：CST 单单元拉伸}
+
+以最简单的模型演示全部公式：单位厚度正方形 [0,1]$\times$[0,1]，
+单个 CST 单元（节点 0=(0,0)、1=(1,0)、2=(0,1)），E=1、$\nu$=0，
+x 方向均匀拉伸 $\sigma_x = 1$（等价于 $u(1,0)$ 处施加 $F=0.5$）。
+
+\textbf{第一步——形函数}（面积 $A=0.5$，$2A=1$）：
+\begin{equation}
+N_0 = 1-x-y, \quad N_1 = x, \quad N_2 = y
+\end{equation}
+
+\textbf{第二步——B 矩阵}（$\partial N_i/\partial x$ 与
+$\partial N_i/\partial y$）：
+\begin{equation}
+\mathbf{B} = \begin{bmatrix}
+-1 & 0 & 1 & 0 & 0 & 0 \\
+0 & -1 & 0 & 0 & 0 & 1 \\
+-1 & -1 & 0 & 1 & 1 & 0
+\end{bmatrix}
+\end{equation}
+
+\textbf{第三步——本构}（$\nu=0$ 时 $\mathbf{D} = \mathrm{diag}(1,1,0.5)$），
+单元刚度 $\mathbf{k} = tA\,\mathbf{B}^T\mathbf{D}\mathbf{B}$（$t=1, A=0.5$）。
+
+\textbf{第四步——装配与求解}：约束 $u_{0x}=u_{0y}=u_{1y}=0$，
+施加 $F_{1x}=0.5$，消去法得 $u_{1x}=1$。
+
+\textbf{第五步——应力}：$\boldsymbol{\sigma} = \mathbf{D}\mathbf{B}\mathbf{u}
+= (1, 0, 0)^T$——精确恢复均匀应力场，这就是分片试验能通过的原因：
+CST 能精确再现常应力。
+
+此例可在源码中直接运行复现：
+\begin{lstlisting}[language=python]
+import numpy as np
+import fem2d
+nodes = np.array([[0.,0.],[1.,0.],[0.,1.]])
+elems = np.array([[0,1,2]])
+m = fem2d.Mesh(nodes, elems, E=1.0, nu=0.0, thickness=1.0)
+m.fix_node(0, "both")
+m.fix_node(1, "y")
+m.add_force(1, 0.5, 0.0)
+res = fem2d.solve(m)
+print(res["u"][2])          # u_x(1,0) = 1.0
+stress, _, _ = fem2d.compute_stresses(m, res["u"])
+print(stress)               # [[1., 0., 0.]]  (sigma_x, sigma_y, tau_xy)
+\end{lstlisting}
+
+\subsection{手算示例：Q4 协调单元（2\texorpdfstring{$\times$}{x}2 高斯积分）}
+
+与 §4.11 的 CST 相对照，本小节把 Q4 单元的完整计算过程逐步行算一遍。
+模型同样是单位厚度（$t=1$）正方形 $[0,1]\times[0,1]$，节点 0=(0,0)、
+1=(1,0)、2=(1,1)、3=(0,1)（逆时针），材料 E=1、$\nu=0$，
+平面应力（$\mathbf{D}=\mathrm{diag}(1,1,0.5)$），x 方向均匀拉伸。
+
+\textbf{第一步——等参映射与 Jacobian}。双线性形函数
+（$\xi,\eta\in[-1,1]$）：
+\begin{equation}
+N_i = \tfrac{1}{4}(1+\xi_i\xi)(1+\eta_i\eta),\qquad
+\mathbf{x}(\xi,\eta) = \sum_{i=1}^{4} N_i\,\mathbf{x}_i
+\end{equation}
+对单位正方形，$\mathbf{x}_i=(0,0),(1,0),(1,1),(0,1)$，
+几何映射为
+\begin{equation}
+x = \tfrac{1}{2}(1+\xi),\qquad y = \tfrac{1}{2}(1+\eta)
+\;\Longrightarrow\;
+\mathbf{J} = \begin{bmatrix} \frac{1}{2} & 0 \\ 0 & \frac{1}{2} \end{bmatrix},\qquad
+\det\mathbf{J} = \tfrac{1}{4} \equiv \text{常数}
+\end{equation}
+矩形单元是仿射映射，Jacobian 在单元内恒定——这是与任意四边形
+（$\mathbf{J}$ 随 $\xi,\eta$ 变化）的唯一区别，令本手算大幅简化。
+
+\textbf{第二步——高斯点与形函数导数}。2$\times$2 高斯规则：
+积分点 $(\xi_q,\eta_q) \allowbreak = (\pm 1/\sqrt{3}, \pm 1/\sqrt{3}) \allowbreak
+\approx (\pm 0.5774, \pm 0.5774)$，
+每个积分点权重 $w_q = 1$（合计 4，等于参数域面积）。四个高斯点处
+$N_i$ 对自然坐标的导数：
+
+\begin{center}\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{c|cccc|cccc}
+& \multicolumn{4}{c|}{$\partial N_i/\partial\xi$} &
+\multicolumn{4}{c}{$\partial N_i/\partial\eta$} \\
+$q$ ($\xi_q,\eta_q$) & $N_1$ & $N_2$ & $N_3$ & $N_4$ & $N_1$ & $N_2$ & $N_3$ & $N_4$ \\ \hline
+0 ($-$0.5774, $-$0.5774) & $-$0.3943 & 0.3943 & 0.1057 & $-$0.1057 & $-$0.3943 & $-$0.1057 & 0.1057 & 0.3943 \\
+1 (+0.5774, $-$0.5774) & $-$0.3943 & 0.3943 & 0.1057 & $-$0.1057 & $-$0.1057 & $-$0.3943 & 0.3943 & 0.1057 \\
+2 (+0.5774, +0.5774) & $-$0.1057 & 0.1057 & 0.3943 & $-$0.3943 & $-$0.1057 & $-$0.3943 & 0.3943 & 0.1057 \\
+3 ($-$0.5774, +0.5774) & $-$0.1057 & 0.1057 & 0.3943 & $-$0.3943 & $-$0.3943 & $-$0.1057 & 0.1057 & 0.3943 \\
+\end{tabular}}
+\end{center}
+
+\textbf{第三步——B 矩阵}。$\mathbf{J}^{-1} = 2\mathbf{I}$，故
+$\partial N_i/\partial x = 2\,\partial N_i/\partial\xi$、
+$\partial N_i/\partial y = 2\,\partial N_i/\partial\eta$。
+以 $q=0$ 为例（其余点按高斯点符号交替，见下表）：
+\begin{equation}
+\mathbf{B}(\xi_0,\eta_0) = \begin{bmatrix}
+-0.7887 & 0 & 0.7887 & 0 & 0.2113 & 0 & -0.2113 & 0 \\
+0 & -0.7887 & 0 & -0.2113 & 0 & 0.2113 & 0 & 0.7887 \\
+-0.7887 & -0.7887 & -0.2113 & 0.7887 & 0.2113 & 0.2113 & 0.7887 & -0.2113
+\end{bmatrix}
+\end{equation}
+四点的应变矩阵行 1（对应 $\partial N_i/\partial x$）依次为
+\begin{equation*}
+(-0.7887,\ 0.7887,\ 0.2113,\ -0.2113),\quad
+(-0.7887,\ 0.7887,\ 0.2113,\ -0.2113),
+\end{equation*}
+\begin{equation*}
+(-0.2113,\ 0.2113,\ 0.7887,\ -0.7887),\quad
+(-0.2113,\ 0.2113,\ 0.7887,\ -0.7887)
+\end{equation*}
+——只有 $\xi$ 方向的符号分布不同，这就是矩形单元 B 矩阵的结构规律。
+
+\textbf{第四步——2$\times$2 高斯求和}。单元刚度
+\begin{equation}
+\mathbf{k} = \sum_{q=1}^{4} w_q\,t\,\det\mathbf{J}\,
+\mathbf{B}(\xi_q,\eta_q)^T \mathbf{D}\, \mathbf{B}(\xi_q,\eta_q)
+= \tfrac{1}{4}\sum_{q=1}^{4} \mathbf{B}_q^T \mathbf{D} \mathbf{B}_q
+\end{equation}
+四项之和（数值已由程序验证，读者可自行核对其中 $q=0$ 项：
+$0.25\,\mathbf{B}_0^T\mathbf{D}\mathbf{B}_0$ 对角元
+$0.2333,\,0.2333,\,0.1611,\,0.0889,\,0.0167,\,0.0167,\,0.0889,\,0.1611$）：
+{\small\begin{equation}
+\mathbf{k}_{\mathrm{Q4}} = \begin{bmatrix}
+0.5 & 0.125 & -0.25 & -0.125 & -0.25 & -0.125 & 0 & 0.125 \\
+0.125 & 0.5 & 0.125 & 0 & -0.125 & -0.25 & -0.125 & -0.25 \\
+-0.25 & 0.125 & 0.5 & -0.125 & 0 & -0.125 & -0.25 & 0.125 \\
+-0.125 & 0 & -0.125 & 0.5 & 0.125 & -0.25 & 0.125 & -0.25 \\
+-0.25 & -0.125 & 0 & 0.125 & 0.5 & 0.125 & -0.25 & -0.125 \\
+-0.125 & -0.25 & -0.125 & -0.25 & 0.125 & 0.5 & 0.125 & 0 \\
+0 & -0.125 & -0.25 & 0.125 & -0.25 & 0.125 & 0.5 & -0.125 \\
+0.125 & -0.25 & 0.125 & -0.25 & -0.125 & 0 & -0.125 & 0.5
+\end{bmatrix}
+\end{equation}}
+特征值：$\{0, 0, 0,\ 0.5, 0.5,\ 1, 1, 1\}$（程序验证 $\mathrm{rank}=5$）。
+三个零对应刚体平动 x、平动 y、转动——协调单元必然保留的三个零能模态。
+特别留意特征值 0.5 的两个特征向量：
+\begin{equation}
+\mathbf{v}_1 = \tfrac{1}{2}[1,0,-1,0,1,0,-1,0]^T,\qquad
+\mathbf{v}_2 = \tfrac{1}{2}[0,1,0,-1,0,1,0,-1]^T
+\end{equation}
+这是交替符号的 zigzag（折叠）模态：节点位移 $+1,-1,+1,-1$ 交错。
+它们在 2$\times$2 全积分下具有正刚度 0.5——下一节的单点积分将证明，
+正是这两个模态在降阶积分下会丢失刚度。
+
+\textbf{第五步——约束消去与求解}。约束 $u_{0x}=u_{0y}=u_{2y}=u_{3x}=0$
+（节点 0 全固、节点 1 锁 y、节点 3 锁 x），自由度为
+$[u_{1x}, u_{2x}, u_{2y}, u_{3y}]$，载荷
+$F_{1x}=F_{2x}=0.5$（右边界合力为 1，对应 $\sigma_x=1$）。
+缩减刚度
+{\small\begin{equation}
+\mathbf{k}_{ff} = \begin{bmatrix}
+0.5 & 0 & -0.125 & 0.125 \\
+0 & 0.5 & 0.125 & -0.125 \\
+-0.125 & 0.125 & 0.5 & 0 \\
+0.125 & -0.125 & 0 & 0.5
+\end{bmatrix},\qquad
+\kappa(\mathbf{k}_{ff}) = 3
+\end{equation}}
+解 $\mathbf{u}_{ff} = [1, 1, 0, 0]^T$，即
+$\mathbf{u} = [0,0,\;1,0,\;1,0,\;0,0]^T$。
+
+\textbf{第六步——应力}。任意高斯点处
+$\boldsymbol{\sigma} = \mathbf{D}\mathbf{B}(\xi_q)\mathbf{u}$。
+程序验证四个高斯点全部给出
+\begin{equation}
+\boldsymbol{\sigma} = [\sigma_x,\sigma_y,\tau_{xy}]^T = [1, 0, 0]^T
+\end{equation}
+与解析解逐位一致——Q4 通过分片试验，能精确再现常应力场
+（这正是 §4.8 中 Q4 常应力精确性的出处）。
+
+\subsection{手算示例：Q4R 单点积分与沙漏控制}
+
+现在对同一单元改用单点积分，并逐步演示沙漏失稳与稳定化的完整
+数值过程——这是本软件 Q4R 单元（\fem|fem2d/element/q4r.py|）的真实公式
+逐项复算，不是简化版本。
+
+\textbf{第一步——单点运动学}。单点规则取单元中心
+$(\xi,\eta)=(0,0)$，权重 $w_0=4$（等于参数域面积）。中心点应变矩阵
+\begin{equation}
+\mathbf{B}_0 = \begin{bmatrix}
+-0.5 & 0 & 0.5 & 0 & 0.5 & 0 & -0.5 & 0 \\
+0 & -0.5 & 0 & -0.5 & 0 & 0.5 & 0 & 0.5 \\
+-0.5 & -0.5 & -0.5 & 0.5 & 0.5 & 0.5 & 0.5 & -0.5
+\end{bmatrix}
+\end{equation}
+单点刚度（$\det\mathbf{J}_0=1/4$，故 $w_0\,t\,\det\mathbf{J}_0 = 1$）：
+{\small\begin{equation}
+\mathbf{k}_0 = \mathbf{B}_0^T \mathbf{D} \mathbf{B}_0 = \begin{bmatrix}
+0.375 & 0.125 & -0.125 & -0.125 & -0.375 & -0.125 & 0.125 & 0.125 \\
+0.125 & 0.375 & 0.125 & 0.125 & -0.125 & -0.375 & -0.125 & -0.125 \\
+-0.125 & 0.125 & 0.375 & -0.125 & 0.125 & -0.125 & -0.375 & 0.125 \\
+-0.125 & 0.125 & -0.125 & 0.375 & 0.125 & -0.125 & 0.125 & -0.375 \\
+-0.375 & -0.125 & 0.125 & 0.125 & 0.375 & 0.125 & -0.125 & -0.125 \\
+-0.125 & -0.375 & -0.125 & -0.125 & 0.125 & 0.375 & 0.125 & 0.125 \\
+0.125 & -0.125 & -0.375 & 0.125 & -0.125 & 0.125 & 0.375 & -0.125 \\
+0.125 & -0.125 & 0.125 & -0.375 & -0.125 & 0.125 & -0.125 & 0.375
+\end{bmatrix}
+\end{equation}}
+特征值：$\{0, 0, 0, 0, 0,\ 1, 1, 1\}$（$\mathrm{rank}=3$）。
+
+\textbf{第二步——沙漏模态：五个零能模态中的两个是假的}。
+五个零特征值中，三个是刚体模态（正常），另外两个是
+\begin{equation}
+\mathbf{h}_x = [1,0,-1,0,1,0,-1,0]^T,\qquad
+\mathbf{h}_y = [0,1,0,-1,0,1,0,-1]^T
+\end{equation}
+交替符号 zigzag 模态——正是上一节 Q4 全积分下特征值 0.5 的那两个
+特征向量（仅差归一化常数）。它们零能量的原因是
+$\mathbf{B}_0\,\mathbf{h}_x = \mathbf{B}_0\,\mathbf{h}_y = \mathbf{0}$：
+zigzag 位移在单元中心处不产生任何应变（中心点是应变采样点），因此
+\begin{equation}
+\mathbf{k}_0\,\mathbf{h}_x = \mathbf{0},\qquad
+\mathbf{k}_0\,\mathbf{h}_y = \mathbf{0}
+\end{equation}
+同一模态的刚度对比：2$\times$2 全积分 0.5 → 单点积分 0。单点积分
+丢掉了 zigzag 模态的全部弯曲刚度——这就是沙漏失稳的根源。
+
+\textbf{第三步——失稳后果：解直接失败}。对 §4.12 相同的四个约束
+$\{u_{0x}, u_{0y}, u_{2y}, u_{3x}\}$，单点刚度缩减后仍奇异
+（程序验证 \fem|np.linalg.LinAlgError: Matrix is singular|）。原因：
+约束只能消除与约束方向相交的零能模态，而这里零能模态共 5 个
+（3 刚体 + 2 沙漏），4 个约束不够。即使换一组约束恰好锁住全部
+零能模态，解也会在微小扰动下爆炸——单点刚度在 zigzag 方向
+"看不见"任何抗力，网格的任何载荷成分都可能激发它。这就是为什么
+单点积分单元必须配备沙漏控制（否则要么解不出，要么给出无物理意义
+的折叠位移场）。
+
+\textbf{第四步——仿射补投影稳定化}（本软件实际公式）。稳定项
+\begin{equation}
+\mathbf{k}_{hg} = \alpha\,\mathbf{H}\,
+(\mathbf{H}^T \mathbf{k}_{shear} \mathbf{H})\, \mathbf{H}^T,
+\qquad \alpha = 0.10
+\end{equation}
+其中 $\mathbf{H}$（8$\times$2）的列张成所有仿射节点位移场（刚体 +
+常应变）的正交补。单位正方形上，
+\fem|_affine_complement| 的余因子技巧给出
+$\mathbf{h} = \tfrac{1}{2}[1,-1,1,-1]$（与 $\mathbf{h}_x$ 相同的
+zigzag 型向量、已归一化），
+\begin{equation}
+\mathbf{H} = \begin{bmatrix} \mathbf{h} & \mathbf{0} \\ \mathbf{0} & \mathbf{h} \\ \mathbf{h} & \mathbf{0} \\ \mathbf{0} & \mathbf{h} \end{bmatrix}
+\;\Longrightarrow\;
+\mathbf{H}^T\mathbf{H} = \mathbf{I}_2
+\end{equation}
+$\mathbf{k}_{shear}$ 是用纯剪切模量 $\mathbf{D}_{shear} = \mathrm{diag}(2\mu, 2\mu, \mu)$
+（$\mu = E/[2(1+\nu)]$）做 2$\times$2 高斯积分得到的 8$\times$8 参考刚度——
+只用剪切项避免给稳定化引入体积锁定。单位正方形数值：
+\begin{equation}
+\mathbf{H}^T \mathbf{k}_{shear} \mathbf{H} = \begin{bmatrix} 0.5 & 0 \\ 0 & 0.5 \end{bmatrix}
+\end{equation}
+\begin{equation}
+\resizebox{\textwidth}{!}{$\displaystyle
+\mathbf{k}_{hg} = 0.10 \cdot 0.5 \cdot \mathbf{H}\mathbf{H}^T
+= 0.0125 \begin{bmatrix} 1 & 0 & -1 & 0 & 1 & 0 & -1 & 0 \\
+0 & 1 & 0 & -1 & 0 & 1 & 0 & -1 \\
+-1 & 0 & 1 & 0 & -1 & 0 & 1 & 0 \\
+0 & -1 & 0 & 1 & 0 & -1 & 0 & 1 \\
+1 & 0 & -1 & 0 & 1 & 0 & -1 & 0 \\
+0 & 1 & 0 & -1 & 0 & 1 & 0 & -1 \\
+-1 & 0 & 1 & 0 & -1 & 0 & 1 & 0 \\
+0 & -1 & 0 & 1 & 0 & -1 & 0 & 1 \end{bmatrix}$}
+\end{equation}
+两个结构性保证值得注意：(1) 由于 $\mathbf{H}$ 与仿射场正交，
+稳定项对刚体模态和常应变场贡献恒为零——不影响精确性，补丁试验
+仍通过；(2) $\mathbf{H}$ 的构造只用余因子（三角形两倍面积技巧），
+不需要每单元一次 LAPACK 分解（见 §6.4.1 仿射补：余因子技巧）。
+
+\textbf{第五步——稳定后的谱与求解}。稳定刚度 $\mathbf{k} = \mathbf{k}_0 + \mathbf{k}_{hg}$：
+\begin{equation}
+\lambda(\mathbf{k}) = \{0, 0, 0,\ 0.05, 0.05,\ 1, 1, 1\},\qquad \mathrm{rank} = 5
+\end{equation}
+两个 zigzag 模态从零能量恢复到 0.05（$\alpha \times 0.5$）——正值即稳定，
+但只有全积分刚度 0.5 的十分之一，这就是 Q4R 弯曲偏柔的谱证据。
+同一约束与载荷下 $\kappa(\mathbf{k}_{ff}) = 21$（全积分 Q4 为 3，量级正常），
+解仍精确为 $\mathbf{u} = [0,0,1,0,1,0,0,0]^T$、$\boldsymbol{\sigma} = [1,0,0]^T$。
+
+\textbf{小结}。三个刚度矩阵的特征谱对照（E=1、$\nu=0$、单位正方形）：
+\begin{center}\small
+\begin{tabular}{lcc}
+& 零特征值 & zigzag 模态特征值 \\ \hline
+Q4 全积分（2$\times$2 高斯） & 3（刚体） & 0.5, 0.5 \\
+Q4R 单点（无稳定） & 5（3 刚体 + 2 沙漏） & 0, 0 \\
+Q4R 单点 + 稳定（$\alpha=0.10$） & 3（刚体） & 0.05, 0.05 \\
+\end{tabular}
+\end{center}
+$\alpha$ 是沙漏控制的唯一旋钮（\fem|HOURGLASS_COEFFICIENT|，默认 0.10）：
+过小则稳定不足（接近失稳），过大则过度刚化（弯曲解偏刚）。
+本实现有两条已知局限（q4r.py 文档字符串已如实记录，非编码错误）：
+稳定项尺度 $\mathbf{H}^T\mathbf{k}_{shear}\mathbf{H}$ 不随长宽比衰减，
+而单点弯曲刚度按 $(h/L)^3$ 衰减——薄板 / 少排网格上两者失衡，
+长宽比 $\ge 50$ 时稳定项主导导致明显过刚；多排常规网格（长宽比
+$< 10$）验证正常。细长模型建议改用 Q4I（CPS4I，无稳定项）。
+
+两个手算示例可用源码直接复现（与 §4.11 的 CST 示例组成三单元对照）：
+\begin{lstlisting}[language=python]
+import numpy as np
+from fem2d.element.q4 import element_stiffness
+from fem2d.element.q4r import element_stiffness as q4r_stiffness
+
+coords = np.array([[0.,0.],[1.,0.],[1.,1.],[0.,1.]])
+K_q4  = element_stiffness(coords, 1.0, 0.0, t=1.0, plane="stress")
+K_q4r = q4r_stiffness(coords, 1.0, 0.0, t=1.0, plane="stress")
+print(np.linalg.eigvalsh(K_q4))   # [0, 0, 0, 0.5, 0.5, 1, 1, 1]
+print(np.linalg.eigvalsh(K_q4r))  # [0, 0, 0, 0.05, 0.05, 1, 1, 1]
+\end{lstlisting}
+
+%══════════════════════════════════════════════════════════════
+\section{代码结构}
+%══════════════════════════════════════════════════════════════
+
+本章是静态结构地图（模块/函数以符号引用标注，免疫行号漂移）。数值行为
+由金标准/漂移门锁定，结构变动需同步更新 \fem|docs/CODE_MAP.md|。
+
+\subsection{顶层结构}
+
+\begin{lstlisting}[language=bash]
+run.py                 纯转发 → runner.main（编码安全网在 main 内）
+run_demo.py            demo_complex 示例（椭圆孔内压+顶部压力+自重），直接复用正式 API
+fem2d/                 主包（30 顶层模块 + element/ + boundary/ 两个子包）
+scripts/               工具层（打包/探针/fuzz/漂移门/geo_spec 等 12+ 脚本）
+tests/                 143 文件，~1649 test 函数
+docs/                  api_contract / boundary_plugins / ci / coverage / performance
+models/                示例模型；tools/ 捆绑 Gmsh 4.15.2
+\end{lstlisting}
+
+\subsection{五阶段数据流}
+
+单入口 \fem|run.py| $\to$ \fem|runner.main|，一次分析固定走五个阶段
+（本项目可维护性的第一支柱——单一主线、无旁路入口）：
+
+\begin{lstlisting}[language=bash]
+阶段1 _resolve_input        runner._resolve_input() — .spec/.geo/.txt/.msh 统一分派
+   `- input_source.resolve_input_file()   .spec 键值 / .geo @FEM:注释 / .txt 中文几何 / .msh 直读
+阶段2 _build_model          runner._build_model() — 网格导入校验 + @FEM 合并 + 边界模型
+   |- gmsh_adapter.generate_from_geo()    执行 .geo → 网格 + 语义区域（API 路径）
+   |- gmsh_adapter.import_msh()           打开已有 .msh（子进程路径共用 _extract_mesh()）
+   |- preprocess.validate_mesh()          重复节点/单元、零边、退化、孤立、非流形 全家桶
+   `- boundary.build_boundary_segments    naming.build_boundary_segments() — 优先级：
+                                          RegionRegistry → edge_labels → 纯拓扑 detect
+阶段3 _apply_conditions     runner._apply_conditions() — bc_apply.apply_bcs()
+                                          （fix/traction/force/body 四类）
+阶段4 _analyze_and_report   runner._analyze_and_report() — solver.solve() +
+                                          error_est.estimate() + 中文报告
+阶段5 _plot                 runner._plot() — visualize（云图/isoband/交互）
+\end{lstlisting}
+
+\subsection{模块职责表}
+
+\subsubsection{element/（内核注册协议——行为冻结区）}
+
+\begin{longtable}{p{4.0cm}p{11.4cm}}
+\toprule
+\textbf{模块} & \textbf{职责} \\
+\midrule
+base.py & \fem|ElementKernel| ABC（协议）+ 注册表（\fem|register_element|/\fem|get_element_kernel|）\\
+cst.py & 常应变三角：显式形状函数/B 矩阵/刚度；自检 completeness + 刚体模态 \\
+q4.py & 双线性四边形（$2\times2$ 积分），batch 运动学 \\
+q4i.py & QM6 非协调模式：incompatible\_derivatives + 静力凝聚（\_condensation\_blocks） \\
+q4r.py & 单点积分稳定：affine complement + 沙漏系数 + hourglass\_energy \\
+\bottomrule
+\end{longtable}
+
+Mesh 构造时浅拷贝 kernel（Q4R hourglass\_coefficient 是可变类属性，
+防跨 Mesh 污染）。
+
+\subsubsection{boundary/（识别管线——识别算法冻结，只加插件/标签）}
+
+\begin{longtable}{p{4.0cm}p{11.4cm}}
+\toprule
+\textbf{模块} & \textbf{职责} \\
+\midrule
+topology.py & 邻接图 → 闭环分解(\_decompose\_loops) → 嵌套定向(\_validate\_and\_nest\_loops) → 曲率分割 → 自交检测 \\
+geometry.py & 曲率(双边滤波)/锐角断点/直线椭圆拟合(fit\_closed\_ellipse) \\
+naming.py & \fem|build_boundary_segments()| 总入口；段命名/边名解析(parse\_edge\_name()) \\
+detectors/ & 插件识别体系：Detector 基类 + Registry（首个非 None 胜出，GeneralCurveDetector 兜底恒返回） \\
+plugins/ & 轮2 示例插件：arc\_curvature / circle\_label / ellipse\_group\_label \\
+segment\_builder / segment\_utils & 段构建 + 纯函数助手（segment\_sort\_key 等） \\
+physical\_mapping.py & PhysicalEdgeMapper（A 轮已标记弃用） \\
+registry\_mapping.py & RegionBoundaryMapper：RegionRegistry → 边界映射（新主线） \\
+selectors.py & BoundarySelector + resolve\_boundary\_selector \\
+conic\_merge.py & 兼容 CAD 圆锥曲线合并（组级椭圆标签） \\
+model / validation / predicates & 诊断模型 / schema 验证 / orient2d \\
+\bottomrule
+\end{longtable}
+
+\subsubsection{核心数值（冻结区）}
+
+\begin{longtable}{p{4.0cm}p{11.4cm}}
+\toprule
+\textbf{模块} & \textbf{职责} \\
+\midrule
+mesh.py & Mesh 容器：数据不可变（只读 setter + replace\_* + 缓存失效）；外法向由相邻单元 CCW 确定 \\
+assembly.py & 4 条路径：assemble\_sparse / assemble\_sparse\_vectorized / assemble\_lil\_reference(教学参考) / assemble\_expand \\
+solver.py & \fem|solve()| 完整流程；奇异守卫/平衡校验/沙漏监控 \\
+bc.py & apply\_elimination()（Bathe §4.2.2 消去，direct/cg/ilu）+ apply\_penalty() \\
+bc\_apply.py & apply\_bcs() 四类载荷施加（fix/traction/force/body） \\
+loads\_core.py & assemble()（F=Rc+$\Sigma$Rs+$\Sigma$Rb）；parse\_traction/parse\_vec2/make\_edge\_profile\_func；\_compile\_expr（AST 白名单） \\
+loads.py & 兼容层 facade，纯 re-export loads\_core \\
+\bottomrule
+\end{longtable}
+
+\subsubsection{后处理}
+
+\begin{longtable}{p{4.0cm}p{11.4cm}}
+\toprule
+\textbf{模块} & \textbf{职责} \\
+\midrule
+stress.py & compute\_stresses / principal\_stresses / nodal\_average / nodal\_L2\_projection / stress\_at\_point \\
+spr.py & SPR 恢复：节点补丁稀疏结构(\_node\_patch\_csr) + 局部最小二乘(\_fit\_node\_block) \\
+error\_est.py & estimate()（SPR/L2/weighted）；compute\_traction\_jumps()；element\_refinement\_indicator()（Z2 指示器） \\
+visualize.py & plot\_contour / plot\_three / interactive\_plot / isoband（Bathe 等应力带）/ Gouraud / traction jumps 图 \\
+reporting.py & 中文结果摘要（位移模长 np.hypot 等） \\
+\bottomrule
+\end{longtable}
+
+\subsubsection{验证与辅助}
+
+\begin{longtable}{p{4.0cm}p{11.4cm}}
+\toprule
+\textbf{模块} & \textbf{职责} \\
+\midrule
+convergence.py & 收敛研究（run\_cantilever\_convergence()） \\
+verification.py & run\_plane\_verification() \\
+patch\_test.py & 分片试验 \\
+quality.py & 网格质量指标（bad/warn/ok 互斥分类） \\
+wizard.py & 交互建模向导（无参数 + 终端时自动） \\
+regions.py / topology\_core.py & 区域注册表 / 矢量化拓扑原语 \\
+checks.py / errors.py & 预检项 / 错误类型体系 \\
+\bottomrule
+\end{longtable}
+
+\subsection{solver.solve 内部流程（Bathe §4.2）}
+
+\begin{lstlisting}[language=bash]
+ 0. validate_state           构造后字段可重写 → 求解前快速失败
+ 1. 拓扑 + Jacobian 报告     无效单元先于组装抛错（inverted/degenerate）
+ 2. _partition_dofs          约束划分 + 逐连通分量刚体模态检查（rank<3 禁止求解）
+                             + Q4R 长宽比告警
+ 3. assemble_sparse + assemble_loads
+ 4. _solve_linear_system     纯 Dirichlet（空矩阵特判）/ 消去 / 罚 三分支
+     _solve_with_singular_guard()  秩警告→异常，非秩警告转发
+     _check_solution_finite  NaN/Inf 快速失败
+ 4'. 残差                    后向误差 ||r||∞/(||K||∞||u||∞+||F||∞)（Bathe §8.2.6）
+ 5. 应力响应                 单元/积分点应变应力 + von Mises
+ 5'. 沙漏监控                内能有限性 + Q4R 沙漏能占比
+ 5.5 全局平衡检查            ΣR+ΣF/ΣM，tol_rel 相对尺度（无绝对阈值）
+ 6. 小变形 + 结果有限性检查；条件数可选（默认关）
+\end{lstlisting}
+
+\subsection{冻结区与契约}
+
+\begin{longtable}{p{3.0cm}p{11.8cm}}
+\toprule
+\textbf{区域} & \textbf{规则} \\
+\midrule
+element/ 内核公式、solver 数值逻辑、error\_est 公式 & 只改入口校验；先金标准 → 逐位一致 → 回归 0.0 \\
+边界识别管线（boundary/） & 只加插件/标签/输入，识别算法冻结 \\
+段 schema & 金标准锁定（boundary\_golden），不得新增键 \\
+von\_mises / principal\_stresses 对 (n,3) 输出 & 逐位不变 \\
+apply\_penalty 有限输入 & 数值逐位不变 \\
+cg\_rtol & 必须 1e-10（实测 1e-8 污染支反力，被平衡检查误杀） \\
+DOF 约定 & x $\to$ 2n、y $\to$ 2n+1 \\
+gmsh & 必须 -nt N -2；.geo 视为"可信可执行输入"（SystemCall 拦截净化） \\
+禁绝对阈值 & 相对尺度 / np.finfo(float).tiny（微尺度 1e-150 模型是硬指标） \\
+\bottomrule
+\end{longtable}
+
+\subsection{错误处理体系}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{错误类型}：用户误用 $\to$ \fem|ValueError| / \fem|TypeError| /
+        \fem|CliError(exit_code)| 带参数上下文；禁止裸 IndexError/KeyError/
+        AttributeError 冒出
+  \item \textbf{消息格式}：\fem|函数名: 参数名=值 — 原因, 期望|
+        （阶段 2 统一为共享 helper 的格式）
+  \item \textbf{NaN/Inf}：一律拒绝（有限性），不允许静默传播或静默夹值
+  \item \textbf{布尔掩码}：\fem|[True, False]| 是布尔掩码，一律拒绝
+        （禁止折叠成 DOF 0/1）
+  \item \textbf{多余分量}：静默忽略 = 最危险错误；必须报错
+  \item \textbf{微尺度/大坐标}：1e-150 几何 / 1e12 坐标 / 1e-310 载荷
+        必须保持有限，禁止绝对阈值
+\end{itemize}
+
+%══════════════════════════════════════════════════════════════
+\section{代码深度解析}
+%══════════════════════════════════════════════════════════════
+
+本章是全书的重心：展示\textbf{真实源码}，并解释\textbf{每一处安排
+背后的理由}。所有代码片段取自 \fem|fem2d/|（行号随版本漂移，代码以
+\fem|docs/CODE_MAP.md| 的符号索引为准）。读者将看到三个核心设计决策
+如何在代码中落地：\textbf{协议驱动}（内核注册表）、\textbf{冻结区}
+（数值公式不改）、\textbf{插件体系}（识别器/命名器可扩展）。
+
+\subsection{设计哲学：为什么代码这样安排}
+
+先给总览，再逐模块展开。四个支柱性决策：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3.2cm}p{5.6cm}p{6.2cm}}
+\toprule
+\textbf{决策} & \textbf{收益} & \textbf{代价} \\
+\midrule
+单入口 + 五阶段 & 数据流唯一，任何路径可复现 & 旁路需求只能走主流程 \\
+内核注册协议 & 新单元 = 新文件 + 注册一行，Mesh/装配/后处理零改动 & 协议必须稳定，改动影响所有内核 \\
+冻结区（金标准锁） & 数值行为永不被"顺手优化"破坏 & 冻结区内部重构成本高 \\
+插件体系（识别器） & 边界语义可扩展，首个非 None 胜出 & 顺序敏感，需兜底探测器 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{单元内核协议（element/base.py）}
+
+\subsubsection{为什么需要协议层}
+
+早期版本把单元类型写死在 \fem|Mesh|、装配和应力恢复里：每个新单元
+要改 3 个模块。引入 \fem|ElementKernel| 抽象基类后，\textbf{单元的所有
+专属行为}（几何缓存、刚度、应力响应、形状函数反演、验证）都归
+内核所有，外部模块只消费协议。模块 docstring 明确声明：
+
+\begin{lstlisting}[language=python]
+"""Finite-element kernel protocol and registry.
+
+The solver operates on a homogeneous element block.  A kernel owns all
+topology-specific and interpolation-specific operations; Mesh, assembly and
+stress recovery only consume this protocol.
+
+Adding a new displacement element therefore requires:
+
+1. implement ElementKernel in a new module;
+2. register one kernel instance with register_element.
+"""
+\end{lstlisting}
+
+\subsubsection{协议的核心方法}
+
+\begin{lstlisting}[language=python]
+class ElementKernel(ABC):
+    """Protocol implemented by a homogeneous 2-D displacement element."""
+
+    name: str
+    aliases: tuple[str, ...]
+    nodes_per_element: int
+    local_edges: tuple[tuple[int, int], ...]
+    recovery_family: str | None = None
+
+    @property
+    def dofs_per_element(self) -> int:
+        return 2 * self.nodes_per_element
+
+    def matches(self, elem_type: str) -> bool:
+        key = str(elem_type).strip().upper()
+        return key == self.name.upper() or key in {
+            alias.upper() for alias in self.aliases
+        }
+
+    @abstractmethod
+    def build_geometry(self, nodes, elements) -> dict[str, np.ndarray]:
+        """Return standard and element-specific geometry caches."""
+
+    @abstractmethod
+    def stiffness_batch(self, mesh, element_slice=None) -> np.ndarray:
+        """Return local stiffness matrices as (ne_batch, ndofe, ndofe).
+
+        Kernels should honor a slice/index array so large meshes can be
+        assembled in bounded-memory chunks.
+        """
+
+    @abstractmethod
+    def jacobian_determinants(self, mesh) -> np.ndarray:
+        """Return det(J) samples shaped (n_element, n_sample)."""
+
+    @abstractmethod
+    def body_force_vector(self, mesh, eid, body_force):
+        """Return the local consistent body-force vector."""
+
+    @abstractmethod
+    def shape_values_at(self, coords, x, y, tol=1e-12):
+        """Return shape values for an interior point, or None if outside."""
+
+    @abstractmethod
+    def verify_mesh(self, mesh, verbose=True) -> bool:
+        """Run element completeness/rigid-body verification."""
+\end{lstlisting}
+
+\textbf{为什么这些方法是抽象的}：它们恰好是单元与几何/材料/载荷交互
+的全部触点。\fem|stiffness_batch| 接受 \fem|element_slice| 参数是刻意
+设计——大网格按 5 万分批组装（§6.6），内核必须支持分块而不是一次
+算完全部（否则 30 万单元的 (300k,8,8) 中间数组也要 1.4 GB）。
+
+\subsubsection{注册表：import 顺序的防呆}
+
+\begin{lstlisting}[language=python]
+_REGISTRY: dict[str, ElementKernel] = {}
+
+
+def register_element(kernel: ElementKernel) -> ElementKernel:
+    """Register a kernel and all of its aliases.
+
+    Duplicate keys are rejected unless they point to the same kernel
+    instance; this prevents import order from silently changing element
+    behavior.
+    """
+    if not isinstance(kernel, ElementKernel):
+        raise TypeError("register_element expects an ElementKernel instance")
+    keys: Iterable[str] = (kernel.name, *kernel.aliases)
+    for raw_key in keys:
+        key = str(raw_key).strip().upper()
+        if not key:
+            raise ValueError("Element type names cannot be empty")
+        existing = _REGISTRY.get(key)
+        if existing is not None and existing is not kernel:
+            raise ValueError(
+                f"Element type '{key}' is already registered by "
+                f"{existing.__class__.__name__}.")
+        _REGISTRY[key] = kernel
+    return kernel
+
+
+def get_element_kernel(elem_type: str) -> ElementKernel:
+    """Resolve an Abaqus/internal element name to its registered kernel."""
+    key = str(elem_type).strip().upper()
+    kernel = _REGISTRY.get(key)
+    if kernel is None:
+        supported = ", ".join(sorted(_REGISTRY))
+        raise ValueError(
+            f"Unsupported element type '{elem_type}'. "
+            f"Registered element types: {supported or '(none)'}.")
+    return kernel
+\end{lstlisting}
+
+\textbf{设计要点}：重复键冲突\textbf{抛错而非静默覆盖}——若两个模块
+恰好注册了同名别称（如 Abaqus 的 CPS4 被两个内核都认领），覆盖会让
+单元行为随 import 顺序悄悄改变。这里宁可让用户显式解决冲突。
+\fem|get_element_kernel| 的报错列出全部已注册类型——把"查询失败"
+变成教学信息。
+
+\subsubsection{Jacobian 检查：逐单元尺度容差}
+
+\fem|jacobian_report()| 是组装前的第一道防线，其容差设计体现了本项目
+的"相对尺度"纪律：
+
+\begin{lstlisting}[language=python]
+scale_per = np.max(np.abs(det_j), axis=1)
+tol_per = np.maximum(1e-15 * scale_per, np.finfo(float).tiny)
+inverted_mask = np.any(det_j < -tol_per[:, None], axis=1)
+degenerate_mask = (~inverted_mask
+                   & np.any(np.abs(det_j) <= tol_per[:, None], axis=1))
+# 形状退化检查: 内核可选提供无量纲指标 (面积/最长边²),
+# 数学塌缩级 (< 1e-8) 判退化, 与单元绝对尺寸无关
+measure = self.degeneracy_measure(mesh)
+if measure is not None:
+    degenerate_mask |= (~inverted_mask & (measure < 1e-8))
+\end{lstlisting}
+
+\textbf{为什么不用全局容差}：多尺度模型里小单元（面积 $10^{-8}$）的
+$|\det J|$ 天然小于大单元的容差——全局 \fem|max| 容差会误杀合法小
+单元。逐单元尺度容差 + 无量纲退化度量（面积/最长边²）使检查与
+绝对尺寸无关。
+
+\subsubsection{载荷求值统一校验}
+
+\begin{lstlisting}[language=python]
+def evaluate_vector_field(field, x, y):
+    """Evaluate a constant/callable two-component vector field.
+
+    统一校验 (体力/面力/压力共用): callable 返回值必须为 (bx, by)
+    二元组; 分量必须可转 float 且有限。错误带求值点坐标 —
+    曾裸 IndexError/TypeError/静默 NaN。
+    """
+    if callable(field):
+        value = field(x, y)
+        if isinstance(value, np.ndarray):
+            ok = value.ndim == 1 and value.shape == (2,)
+        else:
+            ok = isinstance(value, (tuple, list)) and len(value) == 2
+        if not ok:
+            raise ValueError(...)   # 带求值点坐标 (x,y) 的上下文消息
+    ...
+    if not (np.isfinite(bx) and np.isfinite(by)):
+        raise ValueError(
+            f"载荷分量 NaN/Inf 在 ({x:.4g},{y:.4g})")
+    return bx, by
+\end{lstlisting}
+
+\textbf{为什么}：体力/面力/压力三处载荷代码共用同一个求值器，错误
+消息带求值点坐标——用户写错表达式时能立刻定位到"哪个单元哪个
+高斯点"，而不是收到裸 \fem|IndexError|。
+
+\subsection{Q4 内核代码解析（element/q4.py）}
+
+\subsubsection{形函数：教科书公式的直接翻译}
+
+\begin{lstlisting}[language=python]
+_G = 1.0 / np.sqrt(3.0)
+GAUSS_POINTS = np.array([
+    [-_G, -_G], [_G, -_G], [_G, _G], [-_G, _G],
+])
+
+
+def shape_values(xi, eta):
+    """Bilinear shape values [N1,N2,N3,N4]."""
+    return 0.25 * np.array([
+        (1.0 - xi) * (1.0 - eta),
+        (1.0 + xi) * (1.0 - eta),
+        (1.0 + xi) * (1.0 + eta),
+        (1.0 - xi) * (1.0 + eta),
+    ])
+
+
+def shape_derivatives(xi, eta):
+    """Natural derivatives shaped (2,4): rows d/dxi and d/deta."""
+    return 0.25 * np.array([
+        [-(1.0 - eta),  (1.0 - eta),
+          (1.0 + eta), -(1.0 + eta)],
+        [-(1.0 - xi),  -(1.0 + xi),
+          (1.0 + xi),   (1.0 - xi)],
+    ])
+\end{lstlisting}
+
+节点顺序遵循 Abaqus CPS4/CPE4 约定（1$\to$2$\to$3$\to$4 逆时针）——
+\textbf{与外部工具链对齐是刻意的}：.inp 导入、Gmsh 导出、商业软件
+对比三者共享同一约定，避免"顺时针单元在别的软件里是负面积"的
+经典事故。\fem|GAUSS_POINTS| 是 $2\times2$ 高斯点（$\pm 1/\sqrt{3}$），
+作为模块级常量被标量路径与批量路径共用——\textbf{两份实现不能各写
+一遍数值}（重复实现是静默分歧的温床）。
+
+\subsubsection{B 矩阵：链式法则}
+
+\begin{lstlisting}[language=python]
+def B_matrix(coords, xi, eta):
+    """Return (B, detJ) for one Q4 element and natural point."""
+    coords = np.asarray(coords, dtype=float)
+    dN_nat = shape_derivatives(xi, eta)
+    jacobian = dN_nat @ coords
+    det_j = float(np.linalg.det(jacobian))
+    if abs(det_j) <= np.finfo(float).tiny:
+        raise ValueError("Q4 Jacobian is singular")
+    gradients = np.linalg.solve(jacobian, dN_nat)
+    B = np.zeros((3, 8))
+    B[0, 0::2] = gradients[0]        # eps_x 行: dN_i/dx
+    B[1, 1::2] = gradients[1]        # eps_y 行: dN_i/dy
+    B[2, 0::2] = gradients[1]        # gamma_xy 行: dN_i/dy (x 分量)
+    B[2, 1::2] = gradients[0]        # gamma_xy 行: dN_i/dx (y 分量)
+    return B, det_j
+\end{lstlisting}
+
+\textbf{B 矩阵的行分配}是三行三应变与八列（4 节点 $\times$ 2 DOF）的
+交错布局：\fem|B[0, 0::2]| 是 $\varepsilon_x$ 对每个节点 x-位移的
+贡献，\fem|B[2, 0::2]| 是 $\gamma_{xy}$ 对 x-位移的贡献。这种布局
+对应全局 DOF 编号约定 \fem|2n|（x）、\fem|2n+1|（y）——\textbf{全项目
+唯一定义，装配与后处理共享}（历史教训：DOF 布局写反时，非对称
+检查会抓住它，见 §6.6）。
+
+\subsubsection{批量运动学：为什么缓存、为什么局部坐标}
+
+\begin{lstlisting}[language=python]
+def _batch_kinematics(coords, sample_points):
+    """Return batched shape values, B matrices and Jacobian determinants.
+
+    Jacobian 基于局部坐标 (每单元以其第一个节点为原点) — 形函数导数
+    行和为零, 平移数学上不变, 但绝对坐标的浮点乘加会引入 ~ulp(原点)
+    误差, 大坐标原点下刚度相对变化实测 ~9e-5。
+    """
+    ne = coords.shape[0]
+    nq = len(sample_points)
+    N_all = np.zeros((nq, 4))
+    B_all = np.zeros((ne, nq, 3, 8))
+    det_all = np.zeros((ne, nq))
+    local = coords - coords[:, :1, :]      # 每单元以其首节点为原点
+    for q, (xi, eta) in enumerate(sample_points):
+        N_all[q] = shape_values(xi, eta)
+        dN_nat = shape_derivatives(xi, eta)
+        jac = np.einsum("ai,eib->eab", dN_nat, local)
+        det = (jac[:, 0, 0] * jac[:, 1, 1]
+               - jac[:, 0, 1] * jac[:, 1, 0])
+        det_all[:, q] = det
+        ...  # 非奇异单元一次性批量解链式法则
+\end{lstlisting}
+
+\textbf{两个设计理由}：
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{批量优先}：\fem|build_geometry()| 一次算完全部单元的
+        B 矩阵与 Jacobian，存入 Mesh 的\textbf{几何缓存}
+        （\fem|q4_N_gauss|/\fem|q4_B_gauss|/\fem|q4_detJ_gauss| 等 9 个
+        键），\fem|stiffness_batch| 只是 \fem|einsum| 的线性组合——
+        300k 单元组装 1.5 秒（vs 逐单元 Python 循环的分钟级）。
+        缓存带失效纪律：材料/几何改动必须 \fem|replace_*| API
+        显式换新（Mesh 数据不可变约定，见 §5.4）；
+  \item \textbf{局部坐标}：每个单元平移到自己首节点为原点。绝对
+        坐标在 $10^{12}$ 偏移下，\fem|np.einsum| 的浮点乘加引入
+        $\sim \mathrm{ulp}(\text{原点})$ 误差——实测刚度相对变化
+        $\sim 9\times 10^{-5}$，对"大坐标小单元"模型（如微电子封装，
+        全局原点在远处）这是必须的处理。
+\end{enumerate}
+
+\subsubsection{刚度批量组装：先加权再二次型}
+
+\begin{lstlisting}[language=python]
+def stiffness_batch(self, mesh, element_slice=None):
+    selector = slice(None) if element_slice is None else element_slice
+    B_gauss = mesh.q4_B_gauss[selector]
+    det_gauss = mesh.q4_detJ_gauss[selector]
+    D = material.D_matrix(mesh.E, mesh.nu, mesh.plane_type)
+    Ke = np.zeros((len(B_gauss), 8, 8))
+    for q in range(4):
+        B = B_gauss[:, q]
+        # 先加权再二次型: B~ = sqrt(t*detJ)*B, Ke = B~^T D B~ —
+        # 先算 B^T D B ~ E/L^2 中间量会在微尺度几何 (L~1e-150) 下溢出
+        # Inf, 再乘 detJ 已来不及。数学等价,
+        # 中间量尺度 O(√t·D) 不随 L 发散。
+        if np.any(det_gauss[:, q] <= 0.0):
+            raise ValueError(...)   # 显式拒绝负 Jacobian
+        w = (np.sqrt(mesh.thickness) * np.sqrt(det_gauss[:, q]))[:, None, None]
+        Bw = B * w
+        Ke += np.einsum("eai,eaj->eij", Bw, np.einsum(
+            "ab,ebj->eaj", D, Bw))
+    return 0.5 * (Ke + np.transpose(Ke, (0, 2, 1)))
+\end{lstlisting}
+
+\textbf{先加权再二次型的数学理由}：直接算 $\mathbf{B}^T\mathbf{D}
+\mathbf{B} \sim E/L^2$，在微尺度几何（$L \sim 10^{-150}$）下中间量
+溢出 \fem|Inf|，再乘 $\det\mathbf{J} \sim L^2$ 已经来不及。先乘
+$\sqrt{t\,\det J}$ 再二次型，中间量尺度 $O(\sqrt{t}\,D)$ 不随 $L$
+发散——数学等价，数值却从"必炸"变成"安全"。这就是为什么微尺度
+模型（1e-150）在全链路必须保持有限是硬指标。
+
+\subsubsection{单元级自检：单位分解 + 刚体模态}
+
+\begin{lstlisting}[language=python]
+for eid, conn in enumerate(mesh.elements):
+    coords = mesh.nodes[conn]
+    for q, N in enumerate(mesh.q4_N_gauss):
+        max_partition = max(max_partition, abs(np.sum(N) - 1.0))
+        B = mesh.q4_B_gauss[eid, q]
+        center = coords.mean(axis=0)
+        modes = (
+            np.tile([1.0, 0.0], 4),                    # 刚体平移 x
+            np.tile([0.0, 1.0], 4),                    # 刚体平移 y
+            np.column_stack([-(coords[:, 1] - center[1]),
+                             coords[:, 0] - center[0]]).ravel(),  # 转动
+        )
+        for mode in modes:
+            rb = float(np.linalg.norm(B @ mode))
+            # 相对判据: B ~ 1/h 且旋转模态幅值 ~ h, 绝对比较会被
+            # 坐标偏移 (eps*|x0|/h) 放大; 连模态范数一起除 (||B||*||mode||)
+            # 后彻底无量纲
+            denom = b_norm * mode_norm
+            if denom > np.finfo(float).tiny:
+                max_rb = max(max_rb, rb / denom)
+ok = max_partition < 1e-12 and max_rb < 1e-10
+\end{lstlisting}
+
+\textbf{为什么自检必须存在}：单元公式"看起来对"和"真的对"是两回事。
+\fem|verify_mesh()| 把理论性质（§4.3.2 的三条性质 + 刚体模态零应变）
+变成数值断言——任何形函数/符号错误都会让 \fem|max_partition| 或
+\fem|max_rb| 超阈。这是\textbf{判别性自检}：不是冒烟测试，而是
+"放回旧错误实现必失败"的守卫。
+
+%══════════════════════════════════════════════════════════════
+% [代码深度解析 · 第二部分 续]
+\subsection{Q4R 沙漏控制代码解析（element/q4r.py）}
+
+Q4R 是本求解器在单元层面最"硬核"的模块：理论（§4.3.3）里的三个
+设计决策——仿射补、仅剪切模量参考刚度、几何感知——全部落在
+\fem|_affine_complement()| 与 \fem|stiffness_batch()| 中。
+
+\subsubsection{仿射补：余因子技巧}
+
+\begin{lstlisting}[language=python]
+def _affine_complement(coords):
+    """Return an orthonormal basis for non-affine nodal displacements.
+
+    coords is shaped (ne, 4, 2) and the result (ne, 8, 2).
+    Centring/scaling changes conditioning only; it does not change the
+    affine subspace.
+    """
+    ne = coords.shape[0]
+    shifted = coords - coords.mean(axis=1, keepdims=True)
+    scale = np.max(np.linalg.norm(shifted, axis=2), axis=1)
+    scale = np.maximum(scale, np.finfo(float).tiny)
+    xy = shifted / scale[:, None, None]
+
+    def triangle_twice_area(a, b, c):
+        ab = b - a
+        ac = c - a
+        return ab[:, 0] * ac[:, 1] - ab[:, 1] * ac[:, 0]
+
+    # Cofactors of [1, x_i, y_i]^T give its one-dimensional nullspace.
+    # The two displacement hourglass modes are that scalar vector in the
+    # x- and y-DOFs respectively. This is exactly the same affine complement
+    # as a complete 8x6 QR, without one LAPACK factorization per element.
+    h = np.column_stack([
+        triangle_twice_area(xy[:, 1], xy[:, 2], xy[:, 3]),
+        -triangle_twice_area(xy[:, 0], xy[:, 2], xy[:, 3]),
+        triangle_twice_area(xy[:, 0], xy[:, 1], xy[:, 3]),
+        -triangle_twice_area(xy[:, 0], xy[:, 1], xy[:, 2]),
+    ])
+    norm = np.linalg.norm(h, axis=1)
+    if np.any(norm <= 100.0 * np.finfo(float).eps):
+        raise ValueError(
+            "Q4R affine projector is singular; check element geometry")
+    h /= norm[:, None]
+    bases = np.zeros((ne, 8, 2), dtype=float)
+    bases[:, 0::2, 0] = h          # x-DOFs 的沙漏模式
+    bases[:, 1::2, 1] = h          # y-DOFs 的沙漏模式
+    return bases
+\end{lstlisting}
+
+\textbf{代码逐行讲解}：
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{居中+归一化}：坐标平移到单元形心并除以特征尺寸——
+        "只影响条件数，不改变仿射子空间"。归一化后
+        \fem|triangle_twice_area| 的量级 $\sim O(1)$，数值稳定；
+  \item \textbf{余因子}：仿射位移矩阵 $[1, x_i, y_i]^T$（$4\times3$）
+        的零空间基向量，恰好是"去掉某行后的 $3\times3$ 矩阵行列式"
+        ——即三角形两倍面积。四个符号交替的 $2A$ 正是式
+        \eqref{eq:q4r-cofactor}。注释里写明\textbf{为什么不是 QR}：
+        每单元一次 $8\times6$ QR 的 LAPACK 调用换成 $\sim$12 次乘加，
+        30 万单元省下的时间可观；
+  \item \textbf{几何感知}：$h_i$ 随单元形状自动调整——平行四边形给
+        出教科书 $[1,-1,1,-1]$，扭曲单元自动修正方向；
+  \item \textbf{奇异守卫}：范数退化（塌缩单元）时明确报错，不静默
+        除以零；
+  \item \textbf{两方向}：\fem|bases| 的 8 列 = x-DOFs 一个沙漏向量 +
+        y-DOFs 一个沙漏向量（4 节点 $\times$ 2 DOF）。
+\end{enumerate}
+
+\subsubsection{稳定刚度：单点积分 + 仅剪切参考刚度}
+
+\begin{lstlisting}[language=python]
+def element_stiffness(coords, E, nu, t=1.0, plane="stress",
+                      hourglass_coefficient=HOURGLASS_COEFFICIENT):
+    """Return one stabilized one-point Q4 stiffness matrix."""
+    coords = np.asarray(coords, dtype=float)
+    if coords.shape != (4, 2):
+        raise ValueError("Q4R coordinates must have shape (4, 2)")
+    validate_hourglass_coefficient(hourglass_coefficient)
+    _, B0_all, det0_all = _batch_kinematics(
+        coords[None, :, :], np.array([[0.0, 0.0]]))   # 单点 (0,0)
+    _, B_gp_all, det_gp_all = _batch_kinematics(
+        coords[None, :, :], GAUSS_POINTS)             # 2x2 参考点
+    ...
+    B0 = B0_all[0, 0]
+    D = material.D_matrix(E, nu, plane)
+    w0 = 2.0 * np.sqrt(t) * np.sqrt(det0)      # 单点高斯权重 2×2=4
+    B0w = w0 * B0
+    K_reduced = B0w.T @ D @ B0w                # 式 (4.33) 第一项: 单点刚度
+
+    mu = E / (2.0 * (1.0 + nu))
+    D_shear = np.diag([2.0 * mu, 2.0 * mu, mu])   # 仅剪切模量!
+    K_shear = np.zeros((8, 8))
+    for q in range(4):
+        B = B_gp_all[0, q]
+        w = np.sqrt(t) * np.sqrt(det_gp[q])
+        Bw = w * B
+        K_shear += Bw.T @ D_shear @ Bw          # 2x2 点上的参考刚度
+
+    H = _affine_complement(coords[None, :, :])[0]
+    reduced_hg = H.T @ K_shear @ H
+    K_hourglass = hourglass_coefficient * H @ reduced_hg @ H.T
+    K = K_reduced + K_hourglass                # 式 (4.33)
+    return 0.5 * (K + K.T)
+\end{lstlisting}
+
+\textbf{三处细节的工程理由}：
+
+\begin{enumerate}[leftmargin=*]
+  \item \texttt{D\_shear = diag(2$\mu$, 2$\mu$, $\mu$)}——\textbf{为什么只有剪切模量}：
+        若用完整 $\mathbf{D}$，稳定项会把常体积应变方向也"罚"进
+        刚度，重新引入体积锁定（§4.3.2 的代价）。只保留剪切项，
+        稳定能量正确量纲（$N/m$）且不加重锁定；
+  \item \fem|w0 = 2·√(t·det0)|——单点高斯权重为 $2\times2=4$，
+        开方后恰为 2。这个权重在批量路径（§6.4.3）中以
+        \fem|(2.0 * np.sqrt(...) * np.sqrt(det0))| 出现，两处必须一致
+        （同一常量不得各写一遍——重复实现纪律）；
+  \item \fem|0.5*(K+K.T)| 对称化——浮点累加产生的毫埃级非对称
+        在此抹平，配合装配层的对称性检查（§6.6）双保险。
+\end{enumerate}
+
+\subsubsection{批量路径与材料指纹}
+
+批量版 \fem|stiffness_batch| 是标量版的向量化重写，额外做了两件事：
+
+\begin{lstlisting}[language=python]
+if mesh.q4r_reduced_hourglass is None:
+    mesh.q4r_reduced_hourglass = np.full(
+        (mesh.n_elements, 2, 2), np.nan, dtype=float)
+mesh.q4r_reduced_hourglass[selector] = reduced_hg
+# reduced_hg 依赖 D(E,nu,plane) — 记录材料指纹, hourglass_energy
+# 据此检测装配后改材料/平面态导致的静默过期
+mesh._q4r_hourglass_material = (
+    mesh.E, mesh.nu, mesh.thickness, mesh.plane_type)
+K_hourglass = self.hourglass_coefficient * np.einsum(
+    "eia,eab,ejb->eij", H, reduced_hg, H)
+K = K_reduced + K_hourglass
+\end{lstlisting}
+
+\textbf{缓存 + 失效}：\fem|H^T K_{shear} H|（每个单元 $2\times2$）被
+缓存进 Mesh，但\textbf{缓存带材料指纹}——$E/\nu/t/plane$ 任一变化
+（\fem|Mesh.replace_material| 或直接改属性），\fem|hourglass_energy|
+检测到指纹不匹配就按当前材料重算。这是几何缓存 vs 材料相关量的
+经典冲突：几何缓存（B 矩阵）不随材料失效，而沙漏稳定阵随材料变——
+\textbf{用指纹标记而不是无条件失效}，既保性能又不静默过期
+（历史教训：plane 切换后沙漏能沿用旧 $\mathbf{D}$，积分点应力相对
+差 $\sim 9\%$，曾实测复现）。
+
+\subsubsection{沙漏能量监控：负能告警而非截零}
+
+\begin{lstlisting}[language=python]
+def hourglass_energy(self, mesh, u_e):
+    """Return non-negative stabilization energy for each element."""
+    if (mesh.q4r_reduced_hourglass is None
+            or not np.all(np.isfinite(mesh.q4r_reduced_hourglass))
+            or getattr(mesh, "_q4r_hourglass_material", None)
+            != (mesh.E, mesh.nu, mesh.thickness, mesh.plane_type)):
+        self.stiffness_batch(mesh)          # 材料指纹不匹配 → 重算
+    generalized = np.einsum("eia,ei->ea", mesh.q4r_hourglass_basis, u_e)
+    energy = 0.5 * np.einsum(
+        "ea,eab,eb->e",
+        generalized,
+        self.hourglass_coefficient * mesh.q4r_reduced_hourglass,
+        generalized,
+    )
+    # K_hourglass is positive semidefinite by construction.  Remove only
+    # signed round-off at its exact affine nullspace (e.g. -1e-29 J).
+    # 显著负能量 = 负系数或实现错误 — 无条件截零会掩盖问题。
+    neg_mask = energy < -1e-12 * max(
+        float(np.max(np.abs(energy))), 1.0)
+    if np.any(neg_mask):
+        warnings.warn(
+            f"Q4R hourglass energy 显著为负 (min={...:.3e} J) — "
+            "沙漏系数必须为正或存在实现错误", RuntimeWarning)
+    return np.maximum(energy, 0.0)
+\end{lstlisting}
+
+\textbf{为什么负能要告警而不是直接截零}：稳定项构造上\textbf{半正定}，
+负能量只可能来自负沙漏系数（用户错误）或实现错误。\fem|max(energy, 0)|
+只抹掉仿射零空间上的符号舍入（$-10^{-29}$ 级），显著负值原样告警
+——\textbf{错误不会静默}是本项目的铁律之一。
+
+\subsubsection{Q4R 自检：3 个零模 + 仿射泄漏}
+
+\begin{lstlisting}[language=python]
+Ke = self.stiffness_batch(mesh)
+eig = np.linalg.eigvalsh(Ke)
+scale = np.maximum(np.max(np.abs(eig), axis=1), np.finfo(float).tiny)
+n_zero = np.sum(np.abs(eig) <= 1e-9 * scale[:, None], axis=1)
+negative = np.any(eig < -1e-10 * scale[:, None], axis=1)
+...
+for mode in affine_modes:      # 6 个仿射模式逐一检查
+    denom = kh_scale * mode_norm
+    if denom > np.finfo(float).tiny:
+        max_affine_leak = max(max_affine_leak,
+                              float(np.linalg.norm(Kh @ mode) / denom))
+ok = (np.all(n_zero == 3) and not np.any(negative)
+      and max_affine_leak < 1e-10)
+\end{lstlisting}
+
+三个断言恰好对应理论三性质：\textbf{恰 3 个零特征值}（2 平动 + 1
+转动——沙漏已被稳定项"充满"，不产生额外零模）、\textbf{无负特征值}
+（半正定）、\textbf{仿射泄漏 $<10^{-10}$}（稳定项对 6 个仿射模式
+$\mathbf{K}_{HG}\,\mathbf{v}_{affine} \approx \mathbf{0}$——稳定化不
+污染任何物理正确的解）。注意仿射泄漏的判据是\textbf{无量纲}的：
+只除 $\|\mathbf{K}_{HG}\|$ 会让泄漏量带长度量纲（$10^6$ 单元尺寸
+时误报 FAIL），连模态范数一起除后彻底无量纲（注释中记录了这
+个教训）。
+
+\subsection{CST 与 Q4I 内核要点}
+
+\subsubsection{CST（element/cst.py）：最简内核的完整形态}
+
+CST 是内核协议的"最小完备实现"，代码三块结构清晰：
+
+\begin{lstlisting}[language=python]
+def _shape_coeffs(xi, yi, xj, yj, xk, yk):
+    """CST 形函数系数 (a, b, c) 和单元面积.
+
+    Bathe §5.3.2 Eq (5.43):
+      a_1 = x2*y3 - x3*y2,  b_1 = y2 - y3,  c_1 = x3 - x2  (循环置换)
+    """
+    a = np.array([xj * yk - xk * yj,
+                  xk * yi - xi * yk,
+                  xi * yj - xj * yi])
+    b = np.array([yj - yk, yk - yi, yi - yj])
+    c = np.array([xk - xj, xi - xk, xj - xi])
+    area = 0.5 * ((xj - xi) * (yk - yi) - (xk - xi) * (yj - yi))
+    return a, b, c, area
+\end{lstlisting}
+
+\textbf{循环置换}：三个节点的系数由同一个公式轮转下标得到——面积
+坐标（§4.3.1）的直接翻译，比显式写三遍公式更不易出错。
+\fem|_B_matrix| 按模板\newline
+\fem|B = (1/2A)*[b1 0 b2 0 b3 0; ...]| 构造（§4.3.1 循环置换）；
+\fem|_element_stiffness| 用
+\fem|K_e = t·A·B^T D B|（1 点积分精确，CST 刚度是常数阵）。
+
+\textbf{面积判据的尺度纪律}（\fem|_element_stiffness| 内）：
+
+\begin{lstlisting}[language=python]
+# 面积判据基于单元自身尺寸 (最大边长), 不是坐标绝对值 —
+# 绝对 1e-30 会拒纳米单元; 改用 max|x_i,y_i| 又误拒远离原点的
+# 合法单元 (1e7 偏移的单位三角形, 面积 0.5 < 1.42 判据)
+scl = max(np.hypot(xj - xi, yj - yi), np.hypot(xk - xj, yk - yj),
+          np.hypot(xi - xk, yi - yk), np.finfo(float).tiny)
+if abs(area) <= 64.0 * np.finfo(float).eps * scl * scl:
+    raise ValueError(f"Element area {area:.3e} ~= 0 - degenerate triangle")
+\end{lstlisting}
+
+注释记录了这条判据的\textbf{两代错误设计}：绝对阈值误杀纳米单元、
+全局坐标误拒远原点单元——最终用"单元自身最大边长"做尺度，与
+绝对位置/绝对尺寸都无关。这是本项目"禁绝对阈值"纪律的缩影：
+每一处数值判据都写明\textbf{为什么}这个尺度是对的。
+
+\subsubsection{Q4I（element/q4i.py）：静力凝聚}
+
+Q4I 在 Q4 基础上加两个非协调模式（QM6，Bathe §5.5.1），代码量
+集中在两处：
+
+\begin{lstlisting}[language=python]
+# (示意 — 完整实现见 fem2d/element/q4i.py)
+def _condensation_blocks(...):
+    """组装凝聚分块 K_dd, K_dl, K_ll, K_ld.
+
+    Bathe Eq (4.65): k_cond = k_dd - k_dl * k_ll^-1 * k_ld
+    """
+    ...
+\end{lstlisting}
+
+\textbf{为什么非协调模式不破坏协调性}：非协调位移在单元边界上不
+连续，但弱形式里它们以"内部自由度 $\boldsymbol{\lambda}$"身份出现，
+只在单元内求解（静力凝聚把它们消去）——边界上不贡献任何自由度，
+装配后的全局位移场依然是协调的。这就是"非协调但收敛"（满足
+patch test 即可）的理论依据。\fem|q4i.py| 的
+\fem|incompatible_derivatives| 提供 $\mathbf{B}_{inc}$ 导数项，
+\fem|_condensation_blocks| 实现凝聚公式——两处都是冻结区，改前
+必须金标准逐位验证。
+
+\subsection{装配代码（assembly.py）}
+
+\subsubsection{为什么有四条路径}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3.2cm}p{4.0cm}p{3.2cm}p{3.8cm}}
+\toprule
+\textbf{路径} & \textbf{实现} & \textbf{用途} & \textbf{定位} \\
+\midrule
+assemble\_sparse & = 向量化路径别名 & 生产默认 & 主入口 \\
+\texttt{assemble\_sparse\_\newline vectorized} & COO 广播 + 分块 & 生产（大批量） & 主实现 \\
+\texttt{assemble\_lil\_\newline reference} & LIL 逐单元累加 & 教学/交叉验证 & 参考实现 \\
+assemble\_expand & $K = \sum L^T K_e L$ 稠密展开 & 教学 & 参考实现 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{保留参考实现是刻意的}：LIL 逐单元循环与向量化路径\textbf{逐位
+对比}是装配 bug 的终极仲裁（历史教训：向量化 COO 的 rows/cols 顺序
+写反时，对称矩阵数值不变、第三方非对称内核才暴露——参考实现
+就是那个"第三方"）。两条参考路径 docstring 都带 $\triangle$ 标注，防止
+生产误用。
+
+\subsubsection{向量化路径：一次 COO 转换}
+
+\begin{lstlisting}[language=python]
+def assemble_sparse_vectorized(mesh, batch_elements=ASSEMBLY_BATCH_ELEMENTS):
+    """Vectorized COO scatter with bounded temporary memory."""
+    mesh.build_connectivity()
+    ne = mesh.n_elements
+    nd = mesh.n_dof
+    dofs = mesh.element_dofs          # (ne, nldof) 全局 DOF 编号
+    nldof = dofs.shape[1]
+
+    total = ne * nldof * nldof
+    # 行/列索引由 element_dofs 广播而来 — 一次性生成 (int32 省内存)
+    rows = np.broadcast_to(
+        dofs[:, :, None], (ne, nldof, nldof)).reshape(-1)
+    cols = np.broadcast_to(
+        dofs[:, None, :], (ne, nldof, nldof)).reshape(-1)
+    data = np.empty(total, dtype=float)
+    off = 0
+    for start in range(0, ne, batch_elements):
+        stop = min(start + batch_elements, ne)
+        Ke = np.asarray(stiffness_batch(mesh, slice(start, stop)), dtype=float)
+        _check_local_symmetry(Ke, ...)      # scatter 前全量检查
+        block = (stop - start) * nldof * nldof
+        data[off:off + block] = Ke.ravel()
+        off += block
+    K = coo_matrix((data, (rows, cols)), shape=(nd, nd)).tocsr()
+    K.sum_duplicates()                      # 共享边 DOF 的叠加
+    K.eliminate_zeros()
+    return _check_symmetry(K)               # 全局抽样兜底
+\end{lstlisting}
+
+\textbf{四个设计点}：
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{COO 一次转换}：所有单元刚度按 (rows, cols, data) 三元组
+        一次性 \fem|tocsr()|——O(nnz) 而非 O(batches × nnz)。峰值内存
+        $\approx$ 最终矩阵 + 一个批次（预分配替代全批次同时驻留的
+        concat 拷贝）；
+  \item \textbf{rows/cols 广播}：\fem|dofs[:, :, None]|（j 维）对应
+        rows、\fem|dofs[:, None, :]|（k 维）对应 cols。注释明确警告
+        写反的后果：对称矩阵数值不变，非对称内核得到转置——所以
+        \fem|_check_local_symmetry| 必须在 scatter 前跑；
+  \item \textbf{分块}：默认 5 万一批（\fem|ASSEMBLY_BATCH_ELEMENTS|），
+        配合内核的 \fem|element_slice| 协议（§6.2）——30 万单元的内存
+        峰值从"全部 Ke 同时驻留"降到"一批 + 最终矩阵"；
+  \item \textbf{双对称检查}：\fem|_check_local_symmetry|（scatter 前，
+        Ke 级全量）$\to$ \fem|_check_symmetry|（全局抽样 256 行）。
+        为什么抽样就够：组装错位（索引 bug）破坏\textbf{所有}行，
+        抽样足以捕获；而全量 $K-K^T$ 的转置+相减在 10 万 DOF 级
+        峰值内存翻倍，不可接受。
+\end{enumerate}
+
+\subsubsection{对称检查里的 NaN/Inf 守卫}
+
+\begin{lstlisting}[language=python]
+if K.nnz and not np.all(np.isfinite(K.data)):
+    # 装配溢出 (微尺度几何 B^T D B ~ E/L^2 中间量 Inf) 会透传到 splu,
+    # 误报 "Factor is exactly singular"; NaN > tolerance 恒 False,
+    # 对称检查也放行 — 显式拒绝
+    n_bad = int(np.count_nonzero(~np.isfinite(K.data)))
+    raise ValueError(
+        f"Assembled stiffness contains {n_bad} NaN/Inf entries — "
+        "element stiffness overflow (check geometry scale / E / t)")
+\end{lstlisting}
+
+\textbf{为什么这个守卫必要}：\fem|NaN > tolerance| 恒为 \fem|False|，
+`NaN > tolerance` 的比较语义让溢出条目\textbf{静默通过}对称检查——
+如果没有这个显式检查，微尺度溢出会一路透传到 SuperLU，被误报为
+"Factor is exactly singular"（指向完全错误的排查方向）。注释
+记录的正是这个误导链。
+
+%══════════════════════════════════════════════════════════════
+% [代码深度解析 · 第三部分 续]
+\subsection{边界拓扑识别代码（boundary/）}
+
+边界识别是"从网格拓扑还原几何语义"的管线，也是本项目\textbf{最
+容易踩坑、因此最谨慎}的部分（历史教训：闭环漏边、法向依赖调用者
+顺序、自交误判——详见 §9.1）。核心思路一句话：\textbf{从邻接图出发
+恢复有序闭环，再做几何分类}。
+
+\subsubsection{总入口：detect() 的五步管线}
+
+\begin{lstlisting}[language=python]
+def detect(mesh):
+    """Detect validated, oriented geometric segments on every mesh loop."""
+    mesh.build_connectivity()
+    adjacency = _boundary_adjacency(mesh.boundary_edges)
+    if not adjacency:
+        return []
+    node_loops = _decompose_loops(adjacency)
+    if not node_loops:
+        return []
+    scale = mesh_scale(mesh.nodes)
+    loops = _validate_and_nest_loops(mesh.nodes, node_loops, scale)
+    segments = [
+        segment
+        for loop_id, loop in enumerate(loops)
+        for segment in _segment_loop(mesh.nodes, loop, loop_id, scale)
+    ]
+    segments = _merge_adjacent_lines(segments, mesh.nodes, scale)
+    _orient_closed_segments(segments)
+    segments.sort(key=lambda segment: (
+        int(segment.get("info", {}).get("loop_depth", 0)),
+        int(segment.get("info", {}).get("loop_id", 0)),
+        -len(segment["nodes"]),
+    ))
+    return segments
+\end{lstlisting}
+
+五步：\textbf{邻接图}（边界边 $\to$ 无向图）$\to$ \textbf{闭环分解}
+（图遍历还原有序边界环）$\to$ \textbf{校验+嵌套}（自交检测、面积
+容差、洞的深度）$\to$ \textbf{分段}（曲率断点切分）$\to$ \textbf{合并+
+定向+排序}。每一步都有对应的失败语义（见下），管线末尾的输出是
+\textbf{段列表}（type/nodes/coords/label/info），被载荷链（面力、
+压力）直接消费。
+
+\subsubsection{闭环分解：度检查 + 图遍历}
+
+\begin{lstlisting}[language=python]
+def _decompose_loops(adj):
+    """边界邻接图 → 有序闭环列表.
+
+    Returned loops contain each vertex once; closure is a topological fact
+    verified by returning to ``start``, not a duplicated coordinate sample.
+    """
+    invalid_degrees = {
+        int(node): len(neighbors)
+        for node, neighbors in adj.items()
+        if len(neighbors) != 2
+    }
+    if invalid_degrees:
+        preview = ", ".join(...)
+        raise ValueError(
+            "Open or non-manifold boundary topology: every node of a 2-D "
+            f"domain boundary must have degree 2; found {preview}.")
+
+    visited = set()
+    loops = []
+    for start in sorted(adj):
+        if start in visited:
+            continue
+        if len(adj[start]) == 0:
+            visited.add(start)
+            continue
+        loop = [start]
+        visited.add(start)
+        cur = list(adj[start])[0]
+        prev = start
+        while cur != start:
+            if cur in visited:
+                break
+            loop.append(cur)
+            visited.add(cur)
+            nxt = None
+            for nb in adj[cur]:
+                if nb != prev:
+                    nxt = nb
+                    break
+            if nxt is None:
+                break
+            prev, cur = cur, nxt
+        if cur != start:
+            raise ValueError(
+                "Open or non-manifold boundary component encountered near "
+                f"mesh node {int(cur)}; ...")
+        if len(loop) >= 3:
+            loops.append(np.array(loop, dtype=int))
+    return loops
+\end{lstlisting}
+
+\textbf{两个前置校验是刻意的前置}：
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{度检查}：二维域边界上每个节点的度\textbf{必须为 2}。
+        度 $\ne 2$ = 开放边界（度 1）或非流形接触（度 3+，如两个域
+        的角点相接）——提前报错，而不是在图遍历里产出残缺环；
+  \item \textbf{闭合由拓扑证明}：注释强调"closure is a topological
+        fact verified by returning to start"——闭环的闭合性由
+        \fem|while cur != start| 的遍历证明，\textbf{不是}在节点列表
+        末尾重复首节点坐标（历史教训：用 \fem|zip(ns, ns[1:])| 遍历
+        闭环会漏掉最后一条边 $n_{last} \to n_0$，压力净合力因此
+        非零——闭环必须显式补回首节点，见 §9.1）。
+\end{enumerate}
+
+\subsubsection{校验与嵌套：自交检测 + 洞深度}
+
+\begin{lstlisting}[language=python]
+def _validate_and_nest_loops(nodes, node_loops, scale):
+    loops = []
+    area_tolerance = (
+        np.finfo(float).eps * max(float(scale) ** 2, np.finfo(float).tiny)
+        * 128.0)
+    for loop_id, node_ids in enumerate(node_loops):
+        coords = nodes[node_ids]
+        if has_boundary_self_intersection(coords):
+            raise ValueError(
+                "Self-intersecting, touching or overlapping domain boundary "
+                f"detected in loop {loop_id}; repair the Gmsh geometry ...")
+        area = abs(_signed_loop_area(coords))
+        if not np.isfinite(area) or area <= area_tolerance:
+            raise ValueError(
+                f"Boundary loop {loop_id} has zero or numerically "
+                f"degenerate enclosed area ({area:.6g}); ...")
+        probe = _loop_probe_point(coords[:, 0], coords[:, 1])
+        loops.append(BoundaryLoop(node_ids, area, probe))
+    # 不同环之间不得相交/相切/重叠
+    intersecting_pair = _intersecting_boundary_loop_pair(...)
+    if intersecting_pair is not None:
+        raise ValueError(
+            "Distinct domain boundary loops intersect, touch or overlap: "
+            f"loops {first} and {second}. ...")
+    # 嵌套深度: 环内点被多少更大的环包含 (偶数 = 外边界, 奇数 = 洞)
+    for index, loop in enumerate(loops):
+        px, py = loop.probe
+        loop.depth = sum(
+            _point_in_loop(px, py, ...)
+            for other_index, container in enumerate(loops)
+            if other_index != index and loop.area < container.area)
+    _orient_loops(nodes, loops)
+    return loops
+\end{lstlisting}
+
+\textbf{四层防线}：环内自交（\fem|has_boundary_self_intersection|）、
+零面积退化、\textbf{环间}相交（\fem|_intersecting_boundary_loop_pair|，
+两个洞相切/相交时各自"合法"但整体非法）、嵌套深度（洞的判定）。
+\textbf{洞深度 = 偶奇规则}：探针点（环内一点）被多少个更大的环包含，
+偶数=外边界、奇数=洞——这是教科书 point-in-polygon 的射线法推广，
+容差全用相对尺度（\fem|scale| 来自 \fem|mesh_scale|，随模型尺度
+缩放，不设绝对阈值）。
+
+\subsubsection{定向：材料 CCW、洞 CW}
+
+\begin{lstlisting}[language=python]
+def _orient_loops(nodes, loops):
+    """Orient full loops before segmentation: material CCW, holes CW."""
+    for loop in loops:
+        is_ccw = _signed_loop_area(nodes[loop.node_ids]) > 0.0
+        if loop.is_outer != is_ccw:
+            loop.node_ids = loop.node_ids[::-1].copy()
+\end{lstlisting}
+
+\textbf{为什么定向必须在这里完成}：后续所有段的法向计算（压力载荷）
+依赖"材料在左手侧"的方向约定。若依赖调用者传入的节点顺序，
+同一模型两次运行（邻接图遍历起点不同）可能得到不同方向——历史
+教训（§9.1）：压力法向必须从\textbf{相邻单元 CCW 方向}确定，不依赖
+调用者节点顺序。这里的统一定向让下游永远拿到一致的环方向。
+
+\subsubsection{插件识别体系：首个非 None 胜出}
+
+分段之后，每段交给识别器判定几何类型（直线/圆弧/椭圆弧/一般
+曲线）。设计是\textbf{插件注册表}：
+
+\begin{lstlisting}[language=python]
+class Detector:
+    """识别器基类 — 点链 + 可选原生实体信息 + 尺度 → Detection 或 None."""
+
+    name: str = "detector"
+
+    def detect(self, points, *, scale, is_outer, closed,
+               native_entities=()):
+        raise NotImplementedError(f"{type(self).__name__}.detect 未实现")
+
+
+class DetectorRegistry:
+    """有序识别器注册表 — 首个返回非 None 的探测器胜出.
+
+    兜底 GeneralCurveDetector 恒返回, 故 classify 永不落空;
+    注册表被清空/兜底缺失 → 响亮报错而非静默返回.
+    """
+
+    def add(self, detector: Detector) -> None:
+        if not isinstance(detector, Detector):
+            raise TypeError(...)
+        if any(existing.name == detector.name for existing in self._detectors):
+            raise ValueError(
+                f"register_detector: 识别器名 {detector.name!r} 已注册 "
+                "— 插件名必须全局唯一")
+        self._detectors.append(detector)
+
+    def classify(self, coords, scale, is_outer, closed=None,
+                 *, native_entities=()):
+        for detector in self._detectors:
+            detection = detector.detect(coords, scale=scale,
+                                        is_outer=is_outer,
+                                        closed=is_closed,
+                                        native_entities=...)
+            if detection is not None:
+                return detection.type, detection.label, dict(detection.params)
+        raise AssertionError(
+            "识别器注册表空转: 兜底 GeneralCurveDetector 未注册, "
+            "classify 必须恒有结果")
+\end{lstlisting}
+
+\textbf{三个设计约束与理由}：
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{顺序敏感 + 兜底}：首个返回非 None 的探测器胜出；
+        \fem|GeneralCurveDetector|（一般曲线拟合）恒返回，故
+        \fem|classify| 永不落空——语义是"最具体的先试，最一般的最
+        后兜底"。注册表被清空/兜底缺失时 \fem|AssertionError|
+        响亮报错，绝不静默返回；
+  \item \textbf{名字全局唯一}：插件名冲突抛错——两个插件同名会让
+        移除/覆盖语义混乱；
+  \item \fem|native_entities| 透传：Gmsh 的物理实体信息（原生几何
+        标签）原样传给每个探测器——\textbf{语义信息与几何猜测并存}，
+        探测器可以"先用原生信息、几何做校验"（插件示例：
+        circle\_label / ellipse\_group\_label，见
+        \fem|boundary/plugins/|）。
+\end{enumerate}
+
+\subsubsection{语义优先级：命名总入口}
+
+\begin{lstlisting}[language=python]
+def build_boundary_segments(mesh, *, registry=None, edge_labels=None,
+                            geo_path=None, diagnostics=None, strict=False):
+    """Build one validated boundary model from topology and Gmsh semantics.
+
+    The mesh topology is always authoritative for edge existence,
+    connectivity, loop orientation, inner/outer depth and geometric
+    classification. Gmsh Physical Curves are authoritative for names and
+    exact edge membership.
+
+    Priority:
+      1. in-memory Gmsh RegionRegistry (full command-language semantics);
+      2. edge-label map (原 ELSET 语义的等价接口);
+      3. topology/geometry-only detection for unlabelled external meshes.
+    """
+    segments = None
+    if registry is not None and (registry.curves or ...):
+        segments = segments_from_region_registry(mesh, registry, ...)
+    elif edge_labels is not None:
+        segments = segments_from_physical_curves(mesh, edge_labels, ...)
+    if segments is None:
+        segments = detect(mesh)          # 纯拓扑兜底
+    # 段 schema 稳定化: 管线出口的段必须完整 (type/nodes/coords/
+    # label/info) — 残缺段会在载荷链中被静默消费, 先于覆盖检查拒绝.
+    validate_segment_schema(segments)
+    validate_boundary_segments(mesh, segments)
+    ...
+    return segments
+\end{lstlisting}
+
+\textbf{语义与拓扑的分工}（docstring 里一句话说清）：拓扑对\textbf{存在性/
+连通性/方向/嵌套}权威，Gmsh 物理曲线对\textbf{名称/精确边归属}权威。
+优先级 1→2→3 是"信息越完整越优先"：有 RegionRegistry 用语义，
+没有就纯几何探测。出口处两道校验（schema 完整性 + 覆盖检查）
+保证"每条边界边恰好被消费一次"——残缺段在载荷链里被静默消费
+之前就被拒绝。
+
+\subsubsection{优缺点分析（诚实评估）}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{4.4cm}p{5.6cm}p{5.0cm}}
+\toprule
+\textbf{方案} & \textbf{优点} & \textbf{缺点} \\
+\midrule
+纯拓扑探测（detect） & 无需 Gmsh 语义；任何网格可用 & 曲率断点对噪声敏感；尖角/圆弧分类有歧义 \\
+Gmsh Physical Curves & 名称精确、边归属明确 & 依赖 .geo 里的语义定义，外部 .msh 无此信息 \\
+RegionRegistry & 全命令语义，可带参数 & 与 Gmsh API 强耦合，维护双路径成本（§10） \\
+插件识别器 & 新几何类型 = 新文件注册，不动主链 & 顺序敏感，需兜底；插件质量参差 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{为什么保留三条路径}：教学场景覆盖"带语义的 Gmsh 模型"与
+"裸 .inp/.txt 网格"两端——任何一端放弃都会让另一半用户无解。
+代价是双路径同步维护（安全净化、配置语义两处都要改），已在
+§10 记为已知弱项。
+
+\subsubsection{拓扑识别的实战判读（优缺点实证）}
+
+优缺点表不是抽象说辞——用两个真实测试场景看它们如何在运行中
+显现（对应 §9.10 逐行走读的同一份测试）。
+
+\paragraph{例一：细分的正多边形——"弦线还是圆弧"的分歧}
+
+把正 24 边形的每条边再细分 9 段（测试辅助 \fem|_subdivide_chords|），
+得到 216 个严格落在同一圆周上的节点。纯拓扑探测器按
+"逐点曲率断点"工作：曲率处处相等 $\Rightarrow$ 无断点 $\Rightarrow$
+判为一条\textbf{圆弧}，并拟合出半径 $8.0$（误差 $<10^{-12}$，
+\fem|classify| 的 \fem|info["radius"]|）；而真正的正六边形（曲率集中
+在 6 个顶点）被干净地判为 6 条\textbf{直线}。两个判断都正确，但
+\textbf{依据完全不同}——这是纯拓扑的强项：不需要任何外部语义，
+纯几何即可完成分类。
+
+它的代价在同一测试里看得见：\fem|classify()| 的判据依赖特征尺度
+\fem|scale|。尺度错 10 倍，曲率容差跟着错 10 倍，细圆弧可能被误判
+成多段直线——这正是优缺点表里"曲率断点对噪声敏感"的量化含义。
+而 Gmsh 语义路径下 \fem|$PhysicalCurve| 的名字直接给出"这条边是
+什么"，绕开几何推断，这类歧义根本不产生。
+
+\paragraph{例二：带孔的环——内外环定向只能靠拓扑}
+
+外 12 边形 + 内 12 边形孔（CPS4 网格）只来自裸节点表：没有 Gmsh
+物理组。探测器必须自己判定哪条闭环是外边界（外法向朝外）、
+哪条是孔（外法向朝内）。\fem|detect_boundaries| 用\textbf{有向面积
+符号}区分：外环逆时针（面积 $>0$）、孔顺时针（面积 $<0$），结果
+标注在 \fem|info["is_outer"]|。压力载荷沿边界施加时，法向由相邻
+三角形 CCW 方向确定（§6.7.4 的定向约定），内外环的法向因此自动
+正确——不需要用户在 .geo 里写任何东西。这是纯拓扑路径不可替代
+的价值：\emph{任何}合法网格都能识别，哪怕来源只是一张节点表。
+
+\paragraph{取舍的工程化形态}
+
+两条路径的不可覆盖之处正好互补：语义路径对裸网格无信息可用，
+纯拓扑路径对"高精度圆弧判读"依赖尺度与容差。本项目的选择不是
+二选一，而是\textbf{优先级链}：有语义用语义（准确），无语义用
+拓扑（通用），两路径出口统一为同一段结构
+（\fem|type/coords/info|），下游载荷链只认段结构、不认来源。
+这样"优缺点"被消化成一条确定性规则——这也是 §9.10 测试里
+"同一出口结构、两路径结果一致"被锁定的原因。
+
+
+\subsection{求解器主流程（solver.py）}
+
+\fem|solve()| 是五阶段管线（§5.2）中"求解"一段的实现，也是全书
+交叉引用最密集的单体函数：§4 的单元/载荷/误差估计、§6.3--6.6 的
+内核与装配都在这里汇合。四个小节按"主流程 $\rightarrow$ 数值守卫
+$\rightarrow$ 语义防线 $\rightarrow$ 契约"展开。
+
+\subsubsection{阶段化主流程}
+
+\fem|solve()| 是"教科书流程 + 防御性检查"的逐行实现，主流程分为
+8 个阶段（docstring 与代码注释同步编号）：
+
+\begin{lstlisting}[language=python]
+def solve(mesh, method="elimination", verbose=True,
+          check_condition=False, linear_solver="auto"):
+    log = print if verbose else (lambda *a, **k: None)
+    if not (hasattr(mesh, "validate_state") and hasattr(mesh, "n_dof")):
+        # 非 Mesh (dict/None/标量) 会冒裸 AttributeError — 类型契约前置
+        raise TypeError(
+            f"solve: mesh 必须是 fem2d.Mesh 实例, got {type(mesh).__name__}")
+
+    # 0. 状态校验: 构造后字段可被重写, 求解前快速失败而非静默错解
+    mesh.validate_state()
+    # 1. 拓扑 + Jacobian 检查 (组装前, 快速失败)
+    mesh.build_connectivity()
+    jac = mesh.element_kernel.jacobian_report(mesh)
+    if not jac.ok:
+        raise RuntimeError(
+            f"Mesh contains {len(jac.bad)} invalid ... elements: "
+            f"{jac.inverted} inverted, {jac.degenerate} degenerate ...")
+    # 2. 约束划分 + 刚体模态检查 + Q4R 长宽比告警
+    fixed_dofs, prescribed, free_dofs = _partition_dofs(mesh, method, ...)
+    _check_rigid_body_constraints(mesh)     # rank<3 禁止求解
+    _q4r_aspect_ratio_warning(mesh)
+    # 3. 组装 (验证全部通过后才进行)
+    K = assemble_sparse(mesh)
+    F = assemble_loads(mesh, n_dof)
+    # 4. 求解 + 解有限性检查
+    (u, reactions, K_mod, F_mod, info, dirichlet_only) = _solve_linear_system(...)
+    Ku = K.dot(u)                           # K·u 只算一次, 各消费者共享
+    _check_solution_finite(u, reactions, method)
+    # 4'. 残差 (Bathe §8.2.6 backward error)
+    residual, _ = _compute_residual(K, F, K_mod, F_mod, u, free_dofs, ...)
+    # 5. 应力响应 + 沙漏监控
+    u_e = u[mesh.element_dofs]
+    stress, strain, vm, ... = _compute_element_response(mesh, u_e)
+    internal_energy, hg, hg_elem, hg_ratio = _hourglass_monitor(mesh, ...)
+    # 5.5 全局平衡检查 (残差小 != 载荷方向/厚度正确)
+    balance_data = _global_balance_check(mesh, K, F, u, reactions, ...)
+    # 6. 小变形 + 结果有限性 + 条件数 (可选)
+    small_deformation_ok = _small_deformation_check(mesh, u)
+    _check_result_finite(stress, strain, vm)
+    result = { ... }        # 固定键集, 条件项按参数附加
+    return result
+\end{lstlisting}
+
+\textbf{阶段划分的动机}：每个 \fem|raise| 都发生在"最不浪费计算"的
+位置——Jacobian 检查在组装前（无效单元先于组装抛错）、约束检查在
+组装前（无效 BC 不触发无意义求解）、结果有限性在返回前（NaN 不
+出主流程）。阶段注释给出教材出处（Bathe §4.2/§8.2.6），代码即
+文档。
+
+\subsubsection{奇异守卫：秩警告转异常}
+
+\begin{lstlisting}[language=python]
+def _solve_with_singular_guard(fn, *args, **kwargs):
+    """Run a sparse solve, converting MatrixRankWarning into a loud error."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        result = fn(*args, **kwargs)
+    # catch_warnings 捕获即吞 — 非秩警告必须在块外原样转发
+    for wi in w:
+        if not issubclass(wi.category, MatrixRankWarning):
+            warnings.warn_explicit(wi.message, wi.category,
+                                   wi.filename, wi.lineno)
+    for wi in w:
+        if issubclass(wi.category, MatrixRankWarning):
+            raise RuntimeError(
+                "Linear system is singular or ill-conditioned. "
+                "Check boundary constraints, isolated nodes, "
+                "degenerate elements, and disconnected components."
+            ) from None
+    return result
+\end{lstlisting}
+
+\textbf{为什么要这个守卫}：SciPy 的 \fem|spsolve| 对近奇异矩阵可能
+\textbf{不抛} \fem|MatrixRankWarning| 而返回全零/NaN——调用方拿着
+NaN 继续画云图、做误差估计，所有输出全废（历史教训：欠约束模型
+必须抛异常，不能返回 NaN 或零解）。守卫把秩警告转成带排查方向的
+\textbf{RuntimeError}，且\textbf{只转秩警告}——其他警告（如 spsolve
+的近奇异 RuntimeWarning）原样转发，不选择性吞掉（注释解释了
+catch\_warnings 块内转发的自增长陷阱）。
+
+\subsubsection{平衡检查：残差之外的语义防线}
+
+\begin{lstlisting}[language=python]
+# 5.5 全局力/力矩平衡检查 (Bathe §4.2.2)
+# 残差小只说明线性方程解得准, 不代表载荷方向/厚度/边界正确
+balance_data = _global_balance_check(mesh, K, F, u, reactions,
+                                     fixed_dofs, _dirichlet_only, log)
+\end{lstlisting}
+
+\textbf{为什么残差检查还不够}：后向残差 $\|r\|_\infty / (\|K\|_\infty
+\|u\|_\infty + \|F\|_\infty)$ 只证明"线性方程组解得准"，不证明"方程
+组本身是对的"——压力方向反了、厚度忘设了，残差照样小。全局
+$\Sigma F$、$\Sigma M$ 平衡检查（相对尺度 \fem|tol_rel|，无绝对阈值）
+抓的是\textbf{物理层错误}。判据消息共享同一分母（
+\fem|_balance_failure_message| 独立成函数使判据与消息不漂移）。
+
+\subsubsection{返回契约：固定键集}
+
+\fem|solve()| 的返回 dict 有\textbf{固定键集}（约 20 个键，完整清单
+见 §7.11）：位移场、支反力、全局平衡、沙漏诊断各归其位；
+条件性键（\fem|condition_info|、\fem|hourglass_energy_elem|）
+按参数附加。
+\textbf{为什么契约必须固定}：下游（报告/后处理/测试）不检查键存在
+就消费——键漂移 = 静默崩溃（KeyError 是最温和的情况）。金标准
+逐位锁（§9.2）连\textbf{键集合}都锁定：多一个键、少一个键都红。
+
+\subsection{关键数值模块代码解析（patch\_test / quality / error\_est / visualize）}
+
+本章最后补四个\textbf{教学重心}模块的实现走读：分片试验
+（patch\_test.py，223 行）、网格质量（quality.py，105 行）、
+Z2 误差估计（error\_est.py，863 行）与等应力带绘制
+（visualize.py + runner.py）。它们的共同哲学与 §6.3--6.6 一致：
+\textbf{先校验、后计算、再归一化}——把教科书公式（Bathe §5.3.3、
+§4.3.6）写成防微尺度、防大尺度、防静默错误的代码。"单元边界
+向量"（面力/压力的等效节点力向量）已在 §4.9.2 走读，B 矩阵实现
+见 §6.3.2 链式法则——两者是"把连续量离散到节点"这一哲学的两种
+形态。
+
+\subsubsection{Z2 估计器的实现（error\_est.py）}
+
+\fem|estimate()| 的入口契约先于一切计算：
+
+\begin{lstlisting}[language=python]
+if not isinstance(result, dict) or "stress" not in result:
+    raise ValueError(
+        "estimate_error: result 必须是 solve() 的返回 dict 且含 "
+        "'stress' 键, got ...")
+stress = np.asarray(result["stress"], dtype=float)
+if not np.all(np.isfinite(stress)):
+    raise ValueError("estimate: result['stress'] 包含 NaN/Inf ...")
+\end{lstlisting}
+
+理由：非 \fem|solve()| 输出的 dict 会冒裸 \fem|KeyError|；NaN/Inf 会让
+SPR 恢复在坏数据上白跑（审查 2026-08-06 加的前置拒绝——非法数据
+不得静默，§10 教训：拿着 NaN 继续画云图全废）。
+
+\textbf{恢复源三选一}（对应 §4.5 的三种恢复法）：
+\fem|method="SPR"| $\rightarrow$ \fem|spr_recovery|（局部最小二乘，\textbf{组件
+先恢复纪律}：先恢复分量再从分量算 Mises/主应力，§4.5.3）；
+\fem|"L2"| $\rightarrow$ \fem|nodal_L2_projection|（全局一致质量阵投影，
+§4.5.4）；\fem|"weighted"| $\rightarrow$ \fem|nodal_weighted|（传统面积加权）。
+
+\textbf{柔度归一化}——能量内积的权重矩阵：
+
+\begin{lstlisting}[language=python]
+D = D_matrix(mesh.E, mesh.nu, mesh.plane_type)
+D_inv = np.linalg.inv(D)
+d_scale = max(float(np.max(np.abs(D_inv))), np.finfo(float).tiny)
+D_inv = D_inv / d_scale
+\end{lstlisting}
+
+理由：不归一化时中间量 $t\,dA\,\mathbf{D}^{-1}\boldsymbol{\sigma}^2$ 在极端
+材料/几何尺度下溢出/下溢，$\eta$ 静默跳到 100\%/0\%——归一化后三项
+乘积全部 $O(1)$。
+
+对\textbf{逐单元能量误差}：走 \fem|_element_energy_errors| 的批量路径。
+
+按 \fem|ASSEMBLY_BATCH_ELEMENTS| 分块，保证内存有界：
+
+\begin{lstlisting}[language=python]
+shape = kernel.recovery_shape_matrix(mesh)   # (n_q, 4) 恢复形函数
+weights = kernel.recovery_weights(mesh)      # (ne, n_q) detJ 积分权
+maxw = float(np.max(np.abs(weights)))
+norm_w = weights / maxw                      # 全局尺度下 O(1) 权重
+s_star_pt = np.einsum("qn,enc->eqc", shape, s_star[conn])
+error_density = np.einsum("...i,ij,...j->...", diff_n, D_inv, diff_n)
+elem_err_sq[start:stop] = np.sum(norm_w * error_density, axis=1)
+\end{lstlisting}
+
+两个注释写明、不踩就会错的坑：① \fem|weighted| 方法的 $\boldsymbol{\sigma}^*$
+来自单元均值恢复，与积分点原始应力\textbf{量纲语义不可比}——混用会
+让精确线性场报 $\sim$14\% 虚假误差；② Q4 的恢复积分点是 $2\times2$
+Gauss 点，\fem|stress_qp| 形状不符即报错（契约，不静默）。
+
+\textbf{尺度乘回（对数空间）}——物理量恢复只影响报告绝对值，不
+影响 $\eta$ 比值：
+
+\begin{lstlisting}[language=python]
+log_factor = (np.log(s_scale) + np.log(vol_sqrt) + 0.5*np.log(d_scale))
+if log_factor > np.log(np.finfo(float).max):  factor = np.inf
+elif log_factor < np.log(np.finfo(float).tiny): factor = 0.0
+else: factor = float(np.exp(log_factor))
+\end{lstlisting}
+
+三个因子跨度可达 $\pm$300 阶，连乘必存在一种先溢出/下溢的顺序——
+对数相加再 exp 诚实给出 0/inf；\fem|math.exp| 在越界时抛
+\fem|OverflowError|（E=1e-150/t=1e150/$\sigma$=1e308 复现过的全有限输入
+崩溃），用显式分支代替。
+
+\textbf{全局量与判读}：$\eta$ 与逐单元贡献百分比都在\textbf{归一化
+空间}计算（比值尺度无关；乘回后微尺度下 $\sim 10^{-308}$ 次正规求和
+失真）。输出三段建议：$\eta > 20\%$ 全局加密；$>10\%$ 局部加密；
+$<10\%$ OK 但奇点/集中载荷/约束角仍要人工核（输出里的
+[ADVICE]/[NOTE]/[OK]）。
+
+\subsubsection{网格质量评分的实现（quality.py，105 行）}
+
+\fem|_compute()| 五组指标全向量化、无逐单元循环。先看"面积、长宽比、
+内角"三组几何指标：
+
+\begin{lstlisting}[language=python]
+polygon = mesh.nodes[mesh.elements]
+following = np.roll(polygon, -1, axis=1)      # 下一条边
+lengths = np.linalg.norm(following - polygon, axis=2)
+ratio = lengths.max(axis=1) / (lengths.min(axis=1) + np.finfo(float).tiny)
+\end{lstlisting}
+
+\textbf{内角计算的手性安全}（最容易写错的一行）：
+
+\begin{lstlisting}[language=python]
+turn = np.degrees(np.arctan2(cross, dot))     # 外转角（带符号）
+ccw = (np.asarray(mesh.signed_areas, dtype=float) > 0.0)[:, None]
+interior = np.where(ccw, 180.0 - turn, 180.0 + turn)
+interior = np.where(interior <= 0.0, interior + 360.0, interior)
+\end{lstlisting}
+
+\textbf{外转角} = 相邻边 incoming/outgoing 的叉积/点积反正切；CCW 单元
+内角 = $180° - turn$，CW（负面积）单元 = $180° + turn$——只按 CCW 公式
+会把\textbf{手性反转}单元的内角算成补角（矩形 CW 单元报 $270°$ 而非
+$90°$，注释写明的坑）；$180°$ 附近的内角先做 $\le 0$ 修正再取 min/max。
+
+\textbf{Jacobian 指标走内核共享容差}：\fem|jacobian_determinants| +
+\fem|jacobian_report| 直接来自 \fem|element_kernel|——与求解器拦截
+（§6.8.1 第 1 阶段）\textbf{共享同一容差}，两处实现分叉会静默不一致
+（历史教训）；detJ 原始数组只用于 \fem|jacobian_min| 统计。
+
+\textbf{互斥分类}（§4.8 的硬要求，bad/warn/ok 严格互斥）：
+
+\begin{lstlisting}[language=python]
+ang_bad_mask = (min_ang <= 15) | (max_ang >= 150)
+ang_warn_mask = (((min_ang > 15) & (min_ang <= 30))
+                 | ((max_ang >= 120) & (max_ang < 150)))
+ang_warn = int(np.sum(ang_warn_mask & ~ang_bad_mask))
+ang_ok = n - ang_bad - ang_warn
+\end{lstlisting}
+
+warn 掩码再与 \fem|~ang_bad_mask| 求与——计数之和恒等于单元总数
+（历史教训：半开区间写错导致双重计数、评分权重被稀释，§10.1 表）。
+
+\textbf{评分与等级}：$score = a\_ok/n \cdot 30 + r\_ok/n \cdot 30 +
+ang\_ok/n \cdot 40$（$a\_ok$ = 通过 Jacobian 检查的单元数，即
+$n - jacobian\_neg$；角度权重最高——它最直观反映形状质量）；
+等级 A $>95$ / B $>85$ / C $>70$ / D；\fem|inverted| 或
+\fem|degenerate| 大于零\textbf{一票否决} → F（反向/退化单元没有
+讨论质量的空间）。分类统计三组权重合计恰好 100，评分可读作
+"OK 比例加权平均"。
+
+\subsubsection{分片试验的实现（patch\_test.py）}
+
+\fem|run_patch_test()| 的四个要素（对应 §4.7 的理论）：
+
+\textbf{① 不规则 patch 网格}——内部节点\textbf{偏离中心}，规则网格
+"刚好能过"会掩盖缺陷：
+
+\begin{lstlisting}[language=python]
+nodes = np.array([[0.3, 0.2],    # 0 内部节点（偏离中心）
+                  [0.0,-1.0], [1.2,-0.3], [0.8,1.2], [-0.9,0.4]])
+elements = np.array([[0,1,2], [0,2,3], [0,3,4], [0,4,1]])
+\end{lstlisting}
+
+Q4 版为 9 节点 4 单元（内部节点偏移 0.12, 0.08）。
+
+\textbf{② 三个独立常应力状态}（Bathe：平面问题必须测三个）：
+$\sigma_{xx}=1$ / $\sigma_{yy}=1$ / $\tau_{xy}=1$。
+
+\textbf{③ 位移场按平面态分支}（Hooke 逆变换 + 刚体位移取零）：
+
+\begin{lstlisting}[language=python]
+if plane == "stress":
+    ex = (sx - nu*sy) / E;  ey = (sy - nu*sx) / E
+else:   # plane strain: 用 (1-nu^2) 修正
+    ex = ((1-nu**2)*sx - nu*(1+nu)*sy) / E
+    ey = ((1-nu**2)*sy - nu*(1+nu)*sx) / E
+gxy = txy / G
+# u = ex*x + 0.5*gxy*y ;  v = 0.5*gxy*x + ey*y
+\end{lstlisting}
+
+\textbf{④ 边界节点全约束 + 三判据}——边界节点全部施加精确位移
+（\fem|fix_node| x/y），内部节点自由：检验"内部节点自动得到精确
+位移"。
+
+\begin{lstlisting}[language=python]
+u_rel = u_error / (u_ref + np.finfo(float).tiny)   # 无条件相对化
+s_rel = s_error / (s_ref + np.finfo(float).tiny)
+qp_rel = qp_error / (s_ref + np.finfo(float).tiny) # 全部 2x2 Gauss 点
+passed = u_rel < tol and s_rel < tol and qp_rel < tol
+\end{lstlisting}
+
+三个细节（注释写明，都是历史教训）：\fem|u_ref| 极小（$<10^{-15}$）
+时退回绝对误差——微尺度位移模型下相对误差 50\% 也能过检验（静默
+错误）；\textbf{Q4 的单元代表应力会掩盖单个积分点错误}——分片检验
+必须覆盖全部 $2\times2$ Gauss 点（\fem|stress_qp|），CST 同走此检查
+（单点等价）；判据三条全 $< 10^{-10}$ 才 PASS，否则响亮 FAIL。
+\fem|run_patch_test| 对\textbf{每个注册单元}执行 = 内核注册的必经门槛
+（§6.2 协议层）。
+
+\subsubsection{等应力带法的实现（visualize.py + runner.py）}
+
+§4.10 的三个关键要求加上两个实现细节（浮点整除坑、超界告警）
+在代码里的落点：
+
+\textbf{① 带宽固定}——runner 层数计算（校验已由 config.validate 统一
+拦截，这里只算层数）：
+
+\begin{lstlisting}[language=python]
+ratio = (config.band_max - config.band_min) / config.band_step
+n_bands = int(round(ratio))                    # 浮点整除坑: round 而非 floor
+isoband_levels = config.band_min + np.arange(n_bands + 1)*config.band_step
+isoband_levels[-1] = config.band_max           # 尾部浮点误差归位
+\end{lstlisting}
+
+浮点整除坑（注释写明）：\fem|0.3/0.1 = 2.99999...|，floor 截断会
+\textbf{少一个带、末带静默加宽一倍}（0..0.3@0.1 生成 [0, 0.1, 0.3]，
+末带宽 0.2）——用 round + 尾部归位。
+
+\textbf{② 水平等距硬校验}——\fem|_validate_isoband_levels|：1D / 至少
+2 值 / 全有限 / 严格递增 / 等距（\fem|allclose| rtol 1e-10）。"带宽
+固定"被实现为\textbf{入口校验}：非法水平直接报错，而不是画一张
+"看起来对"的图。
+
+\textbf{③ 离散着色}——BoundaryNorm + 自定义离散 colormap：
+
+\begin{lstlisting}[language=python]
+band_rgba = CMAP(np.linspace(0.05, 0.95, n_bands))
+band_cmap = ListedColormap(band_rgba, name='isoband')
+band_norm = BoundaryNorm(band_levels, ncolors=n_bands, clip=True)
+tpc = ax.tripcolor(tri, facecolors=values, cmap=band_cmap,
+                   norm=band_norm, shading='flat')
+\end{lstlisting}
+
+每带一色、带边界精确落在水平值上；\fem|shading='flat'| = 单元代表
+值（\fem|is_element| 位置）。
+
+\textbf{④ 不画网格线}——Sussman--Bathe 的全部信息量在"带边界在单元
+边处\textbf{断裂}"，满屏网格线会让断裂与网格线无法区分（Bathe
+§4.3.6 Fig 4.15，代码注释原文）。
+
+\textbf{⑤ 超界警告}——值超出固定水平的单元计数打印：
+
+\begin{lstlisting}[language=python]
+below = int(np.count_nonzero(values < band_levels[0]))
+above = int(np.count_nonzero(values > band_levels[-1]))
+if below or above:
+    print(f'  isoband warning: {below} elems below min=...')
+\end{lstlisting}
+
+\fem|clip=True| 会把超界值\textbf{静默夹到首末带}——固定水平
+[0, 30MPa] 而孔边峰值 40MPa 时，不提醒用户会误读云图。色条附带
+\fem|[bands: 带宽 wide, N bands]| 标注——与 Gouraud 连续云图
+（§4.5 磨平）互补：连续图看趋势，等应力带看断裂。
+
+\subsection{设计理由总结：为什么代码这样安排}
+
+把本章的"为什么"收拢成一张对照表：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{5.2cm}p{5.8cm}p{4.0cm}}
+\toprule
+\textbf{代码安排} & \textbf{理由} & \textbf{反面代价} \\
+\midrule
+单元公式全部进内核类 & 新单元零改外部模块；公式只出现一次 & 协议变更波及所有内核 \\
+几何缓存进 Mesh & 30 万单元组装 1.5s；数学前置在 build 一次完成 & 缓存失效纪律（指纹机制） \\
+局部坐标计算 & 大坐标/微尺度鲁棒（$10^{12}$ 偏移 / $10^{-150}$ 尺寸） & 所有公式都要考虑平移不变性 \\
+向量化路径 + 参考路径并存 & 教学可读 + 性能仲裁（逐位对比） & 双份实现要同步演进 \\
+冻结区 + 金标准 & 数值行为永不被"顺手优化"破坏 & 冻结区内重构成本高（§10） \\
+五阶段单主线 & 任何结果可复现、可定位 & 旁路需求只能走主流程 \\
+识别器插件注册表 & 新几何类型可插拔 & 顺序敏感，需兜底探测器 \\
+错误全部带上下文 & 用户误用定位快；错误不会静默 & 消息字符串是隐式契约（探针锁定） \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{一句话总结}：本求解器的代码安排服务于三个目标——
+\textbf{公式可溯源}（每行都有教材出处）、\textbf{行为可验证}（每个
+数值行为都有测试锁定）、\textbf{错误不静默}（每个误用路径都有带
+上下文的报错）。三者互相支撑：可溯源让代码好审查，可验证让
+重构安全，不静默让失败可定位。
+
+%══════════════════════════════════════════════════════════════
+% [代码深度解析 · 完]
+\section{API 参考}
+%══════════════════════════════════════════════════════════════
+
+本章为全部公开 API 的输入/输出/异常契约，来源于 \fem|docs/api_contract.md|
+（契约表与代码实测三方一致，探针 151 项断言全过）。状态图例：
+$\checkmark$ = 已达标（全部误用路径有带上下文的领域错误）；$\triangle$ = 有缺口（列明）；
+$-$ = 不适用/内部。
+
+\subsection{全局约定}
+
+\begin{longtable}{p{3.0cm}p{11.8cm}}
+\toprule
+\textbf{约定} & \textbf{内容} \\
+\midrule
+错误类型 & 用户误用 $\to$ ValueError / TypeError / CliError(exit\_code) 带参数上下文 \\
+消息格式 & \fem|函数名: 参数名=值 — 原因, 期望| \\
+DOF 编号 & 节点 i $\to$ x=2i, y=2i+1（Bathe Eq 4.18） \\
+NaN/Inf & 一律拒绝（有限性），不允许静默传播或静默夹值 \\
+布尔掩码 & [True, False] 一律拒绝（禁止折叠成 DOF 0/1） \\
+多余分量 & 静默忽略 = 最危险错误；必须报错 \\
+微尺度/大坐标 & 1e-150 几何 / 1e12 坐标 / 1e-310 载荷必须保持有限 \\
+\bottomrule
+\end{longtable}
+
+\subsection{Mesh 类}
+
+\subsubsection{构造器}
+
+\begin{lstlisting}[language=python]
+Mesh(nodes, elements, thickness=1.0, E=210e9, nu=0.3,
+     plane_type="stress", fixed_dofs=None, prescribed_vals=None,
+     body_force=None, surface_tractions=None,
+     concentrated_forces=None, elem_type="CPS3")
+\end{lstlisting}
+
+\begin{longtable}{p{3.8cm}p{3.4cm}p{5.2cm}p{1.2cm}}
+\toprule
+\textbf{参数} & \textbf{合法形状} & \textbf{误用清单 $\to$ 应有错误} & \textbf{现状} \\
+\midrule
+nodes & (n\_nodes,2) 有限实数数组；非空 & 标量/1-D/3-D → ValueError(形状)；NaN/Inf → ValueError；空 → ValueError & $\checkmark$ \\
+elements & (n\_elem,npe) 整数索引；非空；npe 与 elem\_type 匹配 & 形状错 → ValueError；浮点索引 → ValueError(拒绝截断)；负/越界 → ValueError；NaN → ValueError；重复单元 → ValueError & $\checkmark$ \\
+\texttt{thickness/\newline E/nu} & 有限正标量 / nu$\in$(-1,0.5) & NaN/Inf → ValueError；t$\leq$0/E$\leq$0 → ValueError；nu 越界 → ValueError；非数值(str) → TypeError & $\checkmark$ \\
+plane\_type & "stress" 或 "strain" & 其他字符串 → 构造期未查（validate\_state 兜底） & $\checkmark$ 有意决策 \\
+fixed\_dofs & (n\_fixed,) 整数 DOF 索引 & 布尔掩码 → TypeError；浮点非整数 → ValueError；负/越界 → ValueError；重复 → 去重（幂等合法） & $\checkmark$ \\
+\texttt{prescribed\_\newline vals} & dict\{DOF int → 有限值\} & 键不在 fixed\_dofs → ValueError；值 NaN/Inf → ValueError & $\checkmark$ \\
+body\_force & None | callable | (bx,by) & 1/3 分量 → ValueError；NaN → ValueError；标量 → ValueError & $\checkmark$ \\
+\texttt{surface\_\newline tractions} & list of dict & 非 dict/缺键/节点非法/内部边/形状错 → ValueError & $\checkmark$ \\
+\texttt{concentrated\_\newline forces} & list of dict & 同上；分量 callable → ValueError & $\checkmark$ \\
+elem\_type & 已注册单元类型 & 未注册 → ValueError(带注册表)；构造后赋值 → AttributeError(只读) & $\checkmark$ \\
+\bottomrule
+\end{longtable}
+
+\subsubsection{节点索引 API（所有 nid/ni/nj 共用契约）}
+
+\textbf{契约}：整数（接受"恰为整数"的浮点如 1.0，拒绝 bool）；范围
+[0, n\_nodes)；越界/负/布尔 → 带函数名的 ValueError/TypeError。
+
+\begin{longtable}{p{4.2cm}p{4.0cm}p{6.0cm}}
+\toprule
+\textbf{API} & \textbf{签名} & \textbf{误用清单 $\to$ 应有错误} \\
+\midrule
+fix\_node & (nid, dof="both", value=0.0) & nid 非整数/布尔 → TypeError；越界 → ValueError；dof $\notin$ \{x,y,both\} → ValueError；value NaN → ValueError；非数值 → TypeError \\
+fix\_nodes\_func & (node\_list, func) & 标量传入 → ValueError(需列表)；越界 → ValueError；func 返回 3+ 分量/NaN → ValueError；不可迭代 → TypeError \\
+add\_force & (nid, fx=0.0, fy=0.0) & nid 非法/越界 → TypeError/ValueError；fx/fy NaN → ValueError；非数值 → TypeError \\
+add\_traction & (ni, nj, tx, ty) & 同上；内部边 → ValueError；零长边 → ValueError(ULP 相对判据) \\
+add\_pressure & (ni, nj, p) & 同上；p NaN → ValueError；非数值 → TypeError；callable 不预调用 \\
+\texttt{boundary\_outward\_\newline normal} & (ni, nj) & 非法/越界 → TypeError/ValueError；内部边/零长边 → ValueError \\
+\bottomrule
+\end{longtable}
+
+\subsubsection{结构修改与查询}
+
+\begin{longtable}{p{3.8cm}p{3.7cm}p{6.9cm}}
+\toprule
+\textbf{API} & \textbf{签名} & \textbf{契约要点} \\
+\midrule
+replace\_nodes & (new\_nodes) & 形状$\neq$原 → ValueError(保持节点数)；NaN → ValueError \\
+replace\_elements & (new\_elements) & 形状/空/浮点/越界/重复 → ValueError（与构造器同族） \\
+nodes\_on\_edge & (axis, edge, tol=None) & axis $\notin$ \{x,y\}/edge $\notin$ \{min,max\} → ValueError；tol=None → span×1e-8 自动（微尺度 tiny 兜底） \\
+info & () & 内部 check\_jacobian 异常可冒泡（网格已校验） \\
+validate\_state & () & 材料/BC/载荷/缓存一致性全查 → ValueError/TypeError \\
+check\_jacobian & () & 返回 (ok, bad) \\
+\texttt{check\_rigid\_body\_\newline constraints} & () & 返回 issues list；逐连通分量中心化+归一化 \\
+\bottomrule
+\end{longtable}
+
+\subsection{求解与 BC}
+
+\begin{longtable}{p{4.2cm}p{4.0cm}p{6.0cm}}
+\toprule
+\textbf{API} & \textbf{签名} & \textbf{误用清单 $\to$ 应有错误} \\
+\midrule
+solve & (mesh, method="elimination", verbose=True, check\_\allowbreak condition=False, linear\_solver="auto") & method 非法 → ValueError；linear\_solver 非法 → ValueError；penalty×cg/ilu/cg-block → ValueError("Penalty constraints currently require the direct solver")；mesh 非 Mesh → TypeError；欠约束 → RuntimeError(刚体模态)；奇异 → RuntimeError；NaN 解 → RuntimeError \\
+estimate\_condition & (K, method="auto") & K 非数组/非方阵 → ValueError "K 必须为方阵"；method 非法 → ValueError；奇异 → dict\{condition\_number: inf/None, status\} \\
+apply\_elimination & (K, F, free\_dofs, fixed\_dofs, prescribed\_vals, linear\_solver="direct", cg\_rtol=1e-10, cg\_maxiter=None, return\_info=False) & 形状/NaN/布尔掩码/重叠/遗漏/重复/长度不等 → ValueError；重复约束不同值 → ValueError；cg 不收敛 → RuntimeError \\
+apply\_penalty & (K, F, fixed\_dofs, prescribed\_vals=None, penalty=None) & 同上；penalty None=自动 max|K\_ii|×1e8；penalty 非法/超限 → ValueError(相对判据)；自动罚因子溢出 → OverflowError \\
+estimate\_error & (mesh, result, method="SPR", verbose=True) & method 非法 → ValueError；result 非 dict/缺 "stress" → ValueError；形状与 n\_elem 不符 → ValueError \\
+\bottomrule
+\end{longtable}
+
+\subsection{载荷}
+
+\begin{longtable}{p{4.2cm}p{4.0cm}p{6.0cm}}
+\toprule
+\textbf{API} & \textbf{签名} & \textbf{误用清单 $\to$ 应有错误} \\
+\midrule
+assemble\_loads & (mesh, n\_dof) & n\_dof $\neq$ 2×节点数 → ValueError "n\_dof 必须等于 2×节点数"；callable 求值失败 → ValueError(带边/高斯点)；零长边 → ValueError \\
+parse\_vec2 & (s: str) & 非 str → ValueError 带类型；分量数$\neq$2 → ValueError；全角逗号 → 归一化接受；NaN/Inf 字面 → ValueError；溢出(1e999) → ValueError；语法错误 → ValueError(带表达式) \\
+parse\_traction & (s: str) & 非 str → ValueError；无 ':' → (None,0,0,None) 由调用方处理；3+ 段 → ValueError；profile 非法 → ValueError \\
+\bottomrule
+\end{longtable}
+
+\subsection{应力与误差估计}
+
+\begin{longtable}{p{4.2cm}p{4.0cm}p{6.0cm}}
+\toprule
+\textbf{API} & \textbf{签名} & \textbf{误用清单 $\to$ 应有错误} \\
+\midrule
+compute\_stresses & (mesh, u) & u 形状错 → ValueError(带期望)；u NaN/Inf → ValueError "u contains NaN/Inf" \\
+nodal\_simple / nodal\_weighted & (mesh, elem\_stress) & 形状错 → ValueError；孤立节点 → ValueError；NaN → ValueError \\
+nodal\_L2\_projection & (mesh, elem\_stress) & ndim $\notin$ \{2,3\} → ValueError；首维$\neq$n\_elem → ValueError；采样数$\neq$nqp → ValueError；孤立节点 → ValueError；NaN → ValueError \\
+principal\_stresses & (stress) & 形状 (n,2)/(n,)/(标量) → ValueError 带期望形状；NaN → ValueError；\textbf{(3,) 单向量} → 返回 4 标量元组 ($\sigma_1,\sigma_2,\tau_{\mathrm{max}},\theta$) \\
+stress\_at\_point & (mesh, result, x, y, mode) & mode 非法 → ValueError；点不在网格 → ValueError；缺键 → ValueError；x/y NaN → ValueError(带坐标) \\
+point\_in\_element & (mesh, x, y) & 返回 -1（不在网格）；NaN/Inf/复数 → ValueError \\
+spr\_recovery & (mesh, elem\_stress) & 首维 $\neq$ n\_elem → ValueError；NaN → ValueError；孤立节点 → 回退平均 \\
+\texttt{element\_refinement\_\-indicator} & (mesh, result) & result 非 dict/缺 "stress" → ValueError（曾裸 KeyError，已修） \\
+\texttt{compute\_traction\_\newline jumps} & (mesh, elem\_stress, sigma\_ref=None) & sigma\_ref 非数值 → TypeError；NaN/Inf/0/负 → ValueError；校验先于空数据快速返回 \\
+\bottomrule
+\end{longtable}
+
+\subsection{输入链}
+
+\begin{longtable}{p{4.2cm}p{4.0cm}p{6.0cm}}
+\toprule
+\textbf{API} & \textbf{签名} & \textbf{契约要点} \\
+\midrule
+resolve\_input\_file & (fp, config, ask=None) & 扩展名不支持 → CliError(exit 1)；.inp → CliError(exit 1)；.msh 导入失败 → CliError(exit 1)；.spec 网格不存在 → CliError(exit 1) \\
+resolve\_geo / resolve\_txt & (fp, config, ask=None) & gmsh 生成失败 → CliError(exit 1)；quad 验证失败 → GmshTopologyError；.txt 解析失败 → CliError \\
+\texttt{resolve\_spec\_\newline overrides} & (fp, config) & 格式错误 → ValueError(带行号)；键值无法转 float → ValueError(带键名)；plane 非法 → CliError；未知键 → WARN \\
+\texttt{physical\_point\_\newline from\_geo} & (geo\_path, name, mesh) & 无源 .geo → "no\_geo\_source"；gmsh 不可用 → "gmsh\_unavailable"；未找到/歧义/域外 → 区分 reason \\
+\texttt{generate\_geo\_with\_\-topology} & (geo\_path, *, quad=False, ...) & gmsh 缺失/失败 → (None, None)；拓扑验证失败 → 抛异常；quad 混合 → GmshTopologyError \\
+generate\_from\_geo & (geo\_path, *, quad=False, ...) & 文件不存在 → FileNotFoundError；gmsh 不可用 → GmshUnavailableError；无单元/混合/非平面 z → GmshTopologyError \\
+import\_msh & (msh\_path, *, require\_quads=False, ...) & 文件不存在 → FileNotFoundError(前置)；无 PhysicalNames → WARN；2-D 单元缺失 → GmshTopologyError \\
+read\_geo\_groups & (geo\_path, *, gmsh\_module=None) & 文件不存在 → None（设计）；API 失败 → 文本解析回退 \\
+parse\_spec\_config & (filepath) & 缺 =/空值 → ValueError(行号)；BOM → 自动剥离 \\
+validate\_mesh & (nodes, elements, ...) & 负索引/重复单元/孤立节点/非流形边/退化单元/零长边 → MeshValidationError(分类报告) \\
+\bottomrule
+\end{longtable}
+
+\subsection{材料与单元注册}
+
+\begin{longtable}{p{4.2cm}p{4.0cm}p{6.0cm}}
+\toprule
+\textbf{API} & \textbf{签名} & \textbf{误用清单 $\to$ 应有错误} \\
+\midrule
+D\_matrix & (E, nu, plane\_type="stress") & E$\leq$0/NaN → ValueError；nu 越界 → ValueError；plane 非法 → ValueError；非数值 → TypeError \\
+von\_mises & (stress, plane\_type="stress", nu=0.3) & plane 非法 → ValueError；标量/1-D/末维$\neq$3 → ValueError；NaN → ValueError；\textbf{(3,) 单向量} → 返回标量 float \\
+get\_element\_kernel & (elem\_type: str) & 未注册 → ValueError(带注册表列表)；None → ValueError \\
+register\_element & (kernel: ElementKernel) & 非实例 → TypeError；空名 → ValueError；重复键不同内核 → ValueError \\
+verify\_all\_elements & (mesh, verbose=True) & 委托内核校验 \\
+\bottomrule
+\end{longtable}
+
+\subsection{边界识别}
+
+\begin{longtable}{p{4.2cm}p{4.0cm}p{6.0cm}}
+\toprule
+\textbf{API} & \textbf{签名} & \textbf{契约要点} \\
+\midrule
+detect\_boundaries & (mesh, ...) & 微尺度/大坐标已相对化；椭圆轴比 tiny 兜底；闭合环验证 \\
+\texttt{build\_boundary\_\newline segments} & (mesh, ...) & 无网格 → ValueError \\
+\texttt{validate\_boundary\_\-segments} & (mesh, segments) & 缺段/闭合缺失 → ValueError 带统计（missing/extra/duplicated 计数，调用链硬校验） \\
+describe\_geometry / print\_segments / parse\_edge\_name & (segments) / (segments) / (name, segs) & 非法 name → ValueError(解析器) \\
+register\_detector & (detector: Detector) & 非 Detector → TypeError；name 重复 → ValueError \\
+default\_registry & () & 顺序 = 插件优先 + line→circle→ellipse→general \\
+\_resolve\_edge\_indices & (edge\_str, segs, region\_registry=None) & "@组名" 不存在 → ValueError；编号+@混用 → ValueError；无注册表 → ValueError \\
+\bottomrule
+\end{longtable}
+
+\subsection{配置与质量}
+
+\begin{longtable}{p{4.2cm}p{4.0cm}p{6.0cm}}
+\toprule
+\textbf{API} & \textbf{签名} & \textbf{契约要点} \\
+\midrule
+\texttt{AnalysisConfig.\newline validate} & () & E$\leq$0/nu 越界/t$\leq$0/lc$\leq$0 → ValueError；\\ & & plane/solver/error\_method 非法 → ValueError；band 三参数不齐/非整除/超限 → ValueError \\
+\texttt{AnalysisConfig.\newline from\_dict} & (data: dict) & 未知键 → WARN 忽略（前向兼容，文档化） \\
+\texttt{AnalysisConfig.\newline from\_args} & (args) & 无 args 字段 → 跳过（保持默认） \\
+\texttt{evaluate\_mesh\_\newline quality / report\_\newline mesh\_quality} & (mesh) & 空网格不可构造（Mesh 构造器拒绝 n\_elem=0） \\
+run\_patch\_test & (E=210e9, nu=0.3, plane="stress", tol=1e-10, verbose=True, elem\_type="CPS3") & E/nu/plane 非法 → D\_matrix ValueError；elem\_type 非法 → ValueError \\
+\bottomrule
+\end{longtable}
+
+\subsection{装配与其他导出}
+
+\begin{longtable}{p{4.2cm}p{4.0cm}p{6.0cm}}
+\toprule
+\textbf{API} & \textbf{签名} & \textbf{契约要点} \\
+\midrule
+assemble\_sparse & (mesh) & 非对称内核 → RuntimeError(对称性检查)；奇异/NaN → 诊断 \\
+\texttt{assemble\_sparse\_\newline vectorized} & (mesh, ...) & 同上；形状错 → ValueError \\
+\texttt{run\_cantilever\_\newline convergence} & (L, H, nx, ny, ...) & elem\_type 非法 → ValueError（惰性导出，见 \_\_init\_\_ \_\_getattr\_\_） \\
+GmshUnavailableError / GmshTopologyError & — & 领域异常类型 \\
+\bottomrule
+\end{longtable}
+
+\subsection{Python 编程接口示例}
+
+除命令行外，fem2d 作为 Python 包可直接编程使用。一个完整的
+"网格构建 → 求解 → 应力 → 误差估计 → 输出"流程：
+
+\begin{lstlisting}[language=python]
+import numpy as np
+import fem2d
+
+# ---- 1. 构建网格（2x2 Q4 单元正方形板）--------------------------------
+n = 3   # 每边节点数
+x = np.linspace(0, 1, n); y = np.linspace(0, 1, n)
+xx, yy = np.meshgrid(x, y)
+nodes = np.column_stack([xx.ravel(), yy.ravel()])
+elems = []
+for j in range(n-1):
+    for i in range(n-1):
+        a = j*n + i
+        elems.append([a, a+1, a+n+1, a+n])
+elems = np.array(elems)
+
+# ---- 2. 定义模型 -------------------------
+m = fem2d.Mesh(nodes, elems, E=2.1e11, nu=0.3,
+               thickness=0.01, elem_type="Q4")
+m.fix_node(0, "both")          # 左下角全约束 (dof 只能取 'x'/'y'/'both')
+m.fix_node(1, "y")             # 右下角竖向约束
+m.add_force(n*n-1, 0.0, -1e4)  # 右上角集中力 (向下)
+m.add_pressure(0, n, 1e6)      # 左边下段 1 MPa 内压
+m.add_pressure(n, 2*n, 1e6)    # 左边上段 1 MPa 内压
+
+# ---- 3. 求解（默认消去法）-----------------------------------------------------
+res = fem2d.solve(m, verbose=True)
+
+# ---- 4. 应力与误差估计 -------------------
+stress, strain, _ = fem2d.compute_stresses(m, res["u"])  # 三元组解包
+nodal  = fem2d.nodal_weighted(m, stress)      # 面积加权节点恢复
+spr    = fem2d.spr_recovery(m, stress)        # SPR 恢复
+eta    = fem2d.estimate_error(m, res, method="SPR")
+from fem2d.error_est import compute_traction_jumps   # 子模块接口
+jumps  = compute_traction_jumps(m, stress)    # 内部边牵引跳跃列表
+
+# ---- 5. 导出量 -------------------------
+vm = fem2d.von_mises(stress)                      # (n_elem,) 单元 Mises
+s1, s2, tmax, theta = fem2d.principal_stresses(stress[0])  # (3,) → 4 标量
+print("max|u| =", np.abs(res["u"]).max())
+print("Z2 eta  =", round(eta["eta"], 2), "%")   # 2x2 粗网格偏大, 加密收敛
+\end{lstlisting}
+
+\textbf{逐接口讲解}（输出形状均为 2$\times$2 Q4 网格实测）：
+
+\begin{center}\small
+\begin{tabular}{p{4.9cm}p{7.0cm}p{2.8cm}}
+\textbf{调用} & \textbf{语义} & \textbf{返回形状} \\ \hline
+\fem|fem2d.Mesh(...)| &
+构造模型；\fem|elem_type| 取 \fem|"CPS3"|/\fem|"Q4"|/\fem|"Q4R"|/\fem|"Q4I"|（或 CPS 系别名） &
+--- \\
+\fem|m.fix_node(nid, mode)| & 位移约束；mode 取 \fem|"x"|/\fem|"y"|/\fem|"both"|；错误写法 \fem|"uy"| 抛 ValueError &
+--- \\
+\fem|m.add_force(nid, fx, fy)| & 节点集中力 &
+--- \\
+\fem|m.add_pressure(ni, nj, p)| & 边 $(n_i,n_j)$ 法向压力，方向由单元外法向确定 &
+--- \\
+\fem|fem2d.solve(m)| & 求解；返回完整结果字典 &
+dict（约 20 个键） \\
+\fem|compute_stresses(m, u)| & 单元代表应力/应变/Mises 三件套 &
+\texttt{(stress, strain, vm)}，各 (n\_elem, 3) \\
+\fem|nodal_weighted| /\newline \fem|spr_recovery| & 节点应力恢复（面积加权 / 超收敛点） &
+(n\_nodes, 3) \\
+\fem|von_mises(stress)| & 单元 Mises 等效应力 &
+(n\_elem,) \\
+\texttt{principal\_stresses\newline (stress[0])} & 单向量 → 4 个标量；\fem|(n,3)| 批量 → 四元组各 (n,) &
+4 标量 / 四元组 \\
+\texttt{estimate\_error\newline (m, res, ...)} & 误差估计；键 \fem|eta| 为 Z2 相对误差百分比 &
+dict \\
+\texttt{compute\_traction\_\newline jumps} & 内部边牵引跳跃（§4.9 定义） &
+list[dict] \\
+\end{tabular}
+\end{center}
+
+\fem|res| 字典的键（求解报告的所有量都在这里）：
+\begin{itemize}[leftmargin=*]
+\item \fem|u|（位移）；
+\item \fem|stress|/\fem|strain|/\fem|vm_stress|（单元级）；
+\item \fem|reactions|/\fem|reaction_vector|/\fem|reaction_dofs|（支反力）；
+\item \fem|external_force_vector|、\fem|internal_energy|、\fem|residual|；
+\item \fem|force_balance|/\fem|moment_balance|/\fem|balance_ok|（全局平衡，§6.8.3）；
+\item \fem|linear_solver|；
+\item \fem|hourglass_energy|/\fem|hourglass_energy_ratio|（Q4R 沙漏监控，§6.4.4）；
+\item \fem|small_deformation_ok|。
+\end{itemize}
+
+\textbf{拓扑识别 API}——\fem|build_boundary_segments()| 是边界模型总入口
+（§6.7 管线：邻接图 → 闭环分解 → 定向 → 曲率分类），纯 Python 网格即可用，
+不需要 gmsh：
+\begin{lstlisting}[language=python]
+segs = fem2d.build_boundary_segments(m)   # 方形板 -> 4 段
+print(segs[0]["type"])       # 'line' (或 'arc'/'ellipse' 等)
+print(segs[0]["nodes"])      # [0, 1, 2] 段上的节点链
+print(segs[0]["label"])      # 自动命名, 如 "底 直线 (0,0)-(1,0)"
+print(fem2d.describe_geometry(segs))      # "矩形板 | 1.00x1.00m"
+\end{lstlisting}
+每段是一个 dict：\fem|type|（几何分类）、\fem|nodes|（节点链）、
+\fem|coords|（坐标数组）、\fem|label|（自动段名）、\fem|info|（起终点/
+曲率等元数据）。\fem|detect_boundaries(mesh)| 是纯几何检测入口（无 gmsh
+物理组语义时由 \fem|GeneralCurveDetector| 兜底），"首个非 None 胜出"
+的插件体系保证外部网格也能得到完整边界模型（§6.7.5）。
+
+\textbf{错误路径}——所有误用都在调用点抛出带上下文的异常，不会静默：
+\begin{lstlisting}[language=python]
+m.fix_node(1, "uy")
+# ValueError: fix_node: dof='uy' -- 必须为 'x', 'y' 或 'both'
+
+m.add_pressure(0, 2, 1e6)     # (0,2) 跨节点不是网格边, solve 时校验
+# ValueError: Edge (0,2) is not a mesh edge -- nodes must be connected
+#             by an element side.
+\end{lstlisting}
+统一的错误语言是项目契约的一部分（探针 151 项断言覆盖）：形状/类型/
+NaN/越界/布尔掩码各有一致的异常类型与消息模板，教学场景下排错成本
+极低（§10.1 错误消息速查）。
+
+要点：
+\begin{itemize}[leftmargin=*]
+  \item 所有 API 的误用路径（形状/类型/NaN/越界/布尔掩码）都会得到
+        带上下文的 ValueError/TypeError，不会静默出错
+  \item 构造后不可直接改 \fem|nodes/elements|（只读 setter）
+  \item 改网格须用 \fem|replace_nodes()|/\fem|replace_elements()|，
+        二者触发缓存失效
+  \item 求解前 \fem|validate_state()| 自动做材料/BC/载荷一致性全查；
+        欠约束在求解时被刚体模态检查拦截
+  \item 可编程调用 \fem|run_patch_test()|、\fem|run_cantilever_convergence()|
+        进行单元与求解器验证
+\end{itemize}
+
+\subsection{缺口修复历史（K1--K13）}
+
+\begin{longtable}{p{1.4cm}p{7.9cm}p{5.3cm}}
+\toprule
+\textbf{编号} & \textbf{缺口} & \textbf{位置} \\
+\midrule
+K1 & 标量有限性检查对非数值类型冒裸 TypeError & mesh/solver/checks.py 共享 helper \\
+K2 & fix\_nodes\_func: 标量 node\_list / func 多余分量静默忽略 & mesh.py \\
+K3 & principal\_stresses: 形状未校验 → 裸 IndexError & stress.py \\
+K4 & estimate\_error/stress\_at\_point: result 缺键 → 裸 KeyError & error\_est.py / stress.py \\
+K5 & solve: mesh 非 Mesh → 裸 AttributeError & solver.py \\
+K6 & parse\_vec2/parse\_traction: 非 str → 裸 AttributeError & loads\_core.py \\
+K7 & import\_msh: 文件不存在 → gmsh 异常冒泡 & gmsh\_adapter.py \\
+K8 & compute\_stresses/spr/nodal\_*: NaN 静默传播 & stress.py / spr.py \\
+K9 & DOF 数组校验三处重复 & mesh.py / bc.py → checks.py \\
+K10 & 载荷记录节点整数校验重复 & mesh.py \\
+K11 & 材料参数校验重复 & mesh.py \\
+K12 & von\_mises: 形状/NaN 裸错误（fuzz 发现） & material.py \\
+K13 & bc\_apply 解包绕开 schema & bc\_apply.py \\
+\bottomrule
+\end{longtable}
+
+每个修复都附\textbf{判别性测试}（放回旧实现必须失败），契约映射见\newline
+\fem|docs/api_contract.md| §M2。
+
+%══════════════════════════════════════════════════════════════
+\section{验证与质量保障}
+%══════════════════════════════════════════════════════════════
+
+本项目把"验证"做成了制度：不是跑一次算例就声称正确，而是每一层数值
+行为都有独立机制锁定，任何改动都逃不过。
+
+\subsection{六层测试体系}
+
+\begin{longtable}{p{2.0cm}p{6.4cm}p{6.2cm}}
+\toprule
+\textbf{层次} & \textbf{机制} & \textbf{作用} \\
+\midrule
+1. 金标准 & boundary\_golden 段 schema + solve\_refactor\_lock 逐位锁 & 边界段结构、求解输出逐位不变 \\
+2. 漂移门 & scripts/regression\_compare.py，基线 7ee65fc，6 项指标相对差 < 1e-9 & 数值行为跨平台逐位一致 \\
+3. 探针 & scripts/audit\_contract\_probe.py，151 项契约断言 0 FAIL & 契约表与代码实测一致 \\
+4. fuzz & scripts/fuzz\_api.py 500（固定种子）+ combo\_fuzz & 随机输入不冒裸异常 \\
+5. 分支锁 & \texttt{test\_\{solver,...\}\_branches.py} & 关键分支行为锁定 \\
+6. 解析解 & E1 悬臂梁 / E2 Kirsch / E3 Z2 效应指数（见 §7.4） & 数值解 vs 理论解对标 \\
+\bottomrule
+\end{longtable}
+
+\subsection{统一验收入口 verify\_all}
+
+\fem|scripts/verify_all.py| 是每次改动的门禁：
+
+\begin{lstlisting}[language=bash]
+python scripts/verify_all.py --fast    pytest 全量 + 探针 + 漂移门
+python scripts/verify_all.py --full    九阶段（+ lint 全命令 + 无 gmsh 模拟）
+python scripts/verify_all.py --no-gmsh 模拟无 gmsh 环境全量回归
+python scripts/verify_all.py --stage <名>  单阶段
+python scripts/verify_all.py --fake-fail    红侧自证
+\end{lstlisting}
+
+退出码：0 = 全绿；1 = 用法错误；2 = test 组 FAIL；3 = lint 组 FAIL。
+lint 与漂移门命令与 \fem|.github/workflows/ci.yml| 双处同步。
+
+\textbf{漂移门 6 个基线值}（钉死，相对差必须 0.000e+00）：
+
+\begin{lstlisting}[language=bash]
+max|u|=4.8551138165e-06  energy=2.2668188447e-02  eta=1.5523972662e+01
+sxmax =1.0279627164e+06  symax=2.9161118509e+05  txymax=2.7962716378e+04
+\end{lstlisting}
+
+\subsection{契约测试}
+
+契约表配套判别性测试（6 文件）锁定行为：每个 $\checkmark$ 有"放回旧实现必须
+失败"的测试在场。测试分组：contract / boundary / regression\_audit\_2026080\{2,3a-e\}
+/ usability / analytic / structure。fuzz 曾抓到真实缺口
+（estimate\_condition K 非数组 → 裸 AttributeError，已修 + 补判别性测试）。
+
+\subsection{解析解验证（E1/E2/E3）}
+
+三个案例补齐"数值解没有解析解对标"的理论盲区——全部确定性（结构化
+网格 + elimination 直接求解，无随机数），CI 无 gmsh 的 test-core job
+同样可跑。
+
+\subsubsection{E1 悬臂梁（Euler--Bernoulli 梁理论）}
+
+$$w_{max} = \frac{PL^3}{3EI}, \qquad \sigma_x(x,y) = \frac{P(L-x)\,y}{I}$$
+
+模型：L=5 m、H=0.5 m（细长，剪切贡献 $\sim$0.4\%）、E=210 GPa、$\nu$=0.3、
+端部中点集中力 P=1000 N。加密序列 nx=16/32/64/128。
+
+\textbf{端部挠度相对误差（\%）}：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+nx & 16 & 32 & 64 & 128 \\
+\midrule
+CST & 32.49 & 10.50 & 2.46 & \textbf{0.17} \\
+Q4 & 12.93 & 3.20 & 0.377 & \textbf{0.377} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{根部应力相对误差（\%）}（根列上半单元平均，排除角点邻接单元——
+固支角点应力奇异性随加密发散，属已知物理解）：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+nx & 16 & 32 & 64 & 128 \\
+\midrule
+CST & 34.99 & 12.63 & 4.94 & \textbf{3.08} \\
+Q4 & 13.91 & 5.19 & 3.10 & \textbf{2.89} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+门槛 5\%：最细层 0.17\%/0.377\%（挠度）与 3.08\%/2.89\%（应力）全过，
+且严格单调下降（测试断言）。
+
+\subsubsection{E2 Kirsch 圆孔（应力集中）}
+
+$$\sigma_{\theta\theta} = \frac{\sigma_\infty}{2}\left(1 + \frac{a^2}{r^2} - \left(1 + \frac{3a^4}{r^4}\right)\cos 2\theta\right), \qquad K_t = 3$$
+
+有限板大域近似（w=10a），1/4 板 + 对称边界，径向 CST 网格加密
+(n\_ang, n\_rad) = (32,16) / (64,32) / (128,64)：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+(n\_ang, n\_rad) & (32,16) & (64,32) & (128,64) \\
+\midrule
+Kt & 2.739 & 3.048 & 3.132 \\
+|Kt$-$3|/3 & 8.7\% & 1.6\% & 4.4\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+门槛 10\% 通过；网格方向性极差 3.6\% $<$ 10\%；w=20a 时 Kt=2.977
+（0.8\%）——确认 +4.4\% 是有限宽效应而非离散化伪差（Howland 型
+修正的正方向）。
+
+\subsubsection{E3 Z2 效应指数 \texorpdfstring{$\theta$}{theta}}
+
+Timoshenko 抛物线剪流悬臂梁（光滑解，无点载荷奇异性），5 层双向
+2$\times$ 加密，SPR 恢复的 $\eta$ 序列，跳过最粗非渐近层做
+$\ln\eta \sim \ln h$ 线性回归：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcccccc}
+\toprule
+层 (nx) & 4 & 8 & 16 & 32 & 64 & \textbf{$\theta$} \\
+\midrule
+$\eta_{CST}$ \% & 79.88 & 65.73 & 40.86 & 20.95 & 10.31 & \textbf{0.898} \\
+$\eta_{Q4}$ \% & 64.87 & 38.68 & 20.14 & 10.26 & 5.23 & \textbf{0.963} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+两种单元实测 $\theta$ 均落在理论区间 [0.8, 1.2]（线性单元 O(h) 能量误差速率）
+——Z2 估计器的能量误差速率得到解析级验证。CST 略低（常应力单元
+SPR 恢复收敛更慢）属预期。
+
+\subsection{性能基线}
+
+数据由 \fem|scripts/perf_benchmark.py| 生成（规则方形网格，4 角全约束
++ 右下角 x 向集中力），单机双次取中位数。
+
+\textbf{CPS4（Q4）}：
+
+\begin{longtable}{lccccccc}
+\toprule
+档位 & 单元 & 节点 & 求解器 & 连接/几何 & K 组装 & 求解 & 误差估计 \\
+\midrule
+1k & 1,024 & 1,089 & direct & 3.5 ms & 5.4 ms & 24.8 ms & 5.3 ms \\
+10k & 10,000 & 10,201 & direct & 29.1 & 47.6 & 242 & 43.8 \\
+100k & 100,489 & 101,124 & cg & 332 & 477 & 919 & 513 \\
+300k & 300,304 & 301,401 & cg & 1,007 & 1,541 & 3,353 & 1,548 \\
+\bottomrule
+\end{longtable}
+
+\textbf{CPS3（CST）}：
+
+\begin{longtable}{lccccccc}
+\toprule
+档位 & 单元 & 节点 & 求解器 & 连接/几何 & K 组装 & 求解 & 误差估计 \\
+\midrule
+1k & 1,058 & 576 & direct & 1.1 ms & 1.9 ms & 7.4 ms & 2.7 ms \\
+10k & 10,082 & 5,184 & direct & 8.0 & 11.7 & 75.6 & 14.5 \\
+100k & 100,352 & 50,625 & cg & 94 & 116 & 295 & 158 \\
+300k & 301,088 & 151,321 & cg & 293 & 359 & 1,238 & 419 \\
+\bottomrule
+\end{longtable}
+
+\textbf{读法}：组装/连接/后处理全部随规模近线性（向量化路径）；
+求解（direct）超线性（稀疏分解 fill-in）；求解（CG）依赖网格条件数——
+规则网格收敛快，条件差网格慢 1--2 个数量级。
+
+\textbf{瓶颈本质}：CG 迭代数由刚度矩阵谱性质决定（条件数 $\propto$
+网格质量），不是 Python 层可微优化对象——29 万单元真实模型 4161 迭代
+54 s，同规模规则网格仅 1.5--4 s。ILU 预条件在 58 万 DOF 下 fill-in
+不可行且不保证 SPD（与 CG 前提冲突）。cg\_rtol 已试验 1e-8（9\% 迭代
+收益）但污染固定 DOF 反力（$\sim$4.3e-3 N），被平衡检查误杀——已回退
+1e-10 并注释原因：\textbf{收敛判据是正确性的一部分，不是性能旋钮}。
+
+\textbf{CI 性能门}（test-perf job）：阈值 = max(基线$\times$4.0,
+基线+200ms)，实测超阈值才红（边界值绿防 flaky）；基线为脚本内
+CI\_BASELINE 常量，\fem|--update-baseline| 刷新；失败也上传 JSON
+artifact 诊断。\fem|--ci| 禁 \fem|--mem|（tracemalloc 与计时语义冲突）。
+
+\subsubsection{求解器选型建议}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{4cm}p{11cm}}
+\toprule
+\textbf{模型规模} & \textbf{建议} \\
+\midrule
+$\le$ 10 万 DOF & 默认 direct（消去法）——快且精确，反力干净 \\
+10 万 $\sim$ 50 万 DOF & auto（自动选 Jacobi-PCG）——内存友好 \\
+$>$ 50 万 DOF & 必须 cg（\fem|--linear-solver cg|）；若迭代数爆炸，
+优先检查网格质量（长宽比/扭歪），或粗网格先行 \\
+教学/粗网格 & 1k--10k 单元一切瞬发，无需关心性能 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+迭代数预警信号：求解报告中的迭代数（如 4000+）与同规模规则网格
+（几十次）对比，差距就是网格条件差的代价。\textbf{粗网格 + 高质量单元
+（CST $\to$ Q4I）通常比细网格 + CG 迭代爆炸更省时。}
+
+\subsubsection{微优化记录（2026-08-04，包 4）}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{2.9cm}p{3.3cm}p{2.2cm}p{2.0cm}p{3.2cm}}
+\toprule
+\textbf{项} & \textbf{位置} & \textbf{改前} & \textbf{改后} & \textbf{验证} \\
+\midrule
+L2 fallback 批量堆叠 & \texttt{stress.py \newline nodal\_L2\_\newline projection} & 300k CST 12.8 s & 4.2 s (3$\times$) & 7 场景 bitwise（CST/Q4R $\times$ 3 输入形态 + 非均匀 nqp） \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{没改（已 profile，无安全空间）}：Q4/Q4I/Q4R 批量组装热点在
+element 内核 einsum（文件边界禁止触碰）；assemble\_sparse\_vectorized
+的 rows/cols 每次调用重建（$\sim$3\% 收益，需缓存失效管理，风险/收益
+不划算）；error\_est 已按 5 万单元分块向量化；SPR 占 estimate 时间
+$\sim$78\% 但位于冻结区外文件边界；L2 剩余时间为质量阵 splu 分解
+（算法级）。
+
+\subsection{CI 流水线}
+
+GitHub Actions 8 个 job：lint（ruff/mypy/vulture/self-test）、测试矩阵
+（Python 3.9--3.13 × Windows/Linux）、全量验证（覆盖率 fail\_under=90）、
+wheel 构建、test-perf 性能回归门。无 gmsh 环境模拟由 test-core job 承担
+（1600+ 测试仍通过）。漂移门 6 值在 CI 与本地逐位一致。
+
+\subsection{发布检查清单}
+
+任何改动合入 main 前后，按以下清单逐项执行（指挥官工作流）：
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{全量测试}：\fem|pytest -v| 0 失败（判据：进度 100\% +
+        0 FAILED/ERROR + exit 0；注意 pytest 9.1.1 的 \texttt{-q} 会省略
+        最终汇总行，用 \texttt{-v} 判读）
+  \item \textbf{探针}：\fem|python scripts/audit_contract_probe.py| 0 FAIL
+  \item \textbf{fuzz}：\fem|python scripts/fuzz_api.py 500| 0 problems
+  \item \textbf{漂移门}：\fem|python scripts/regression_compare.py|
+        6 值相对误差 0.000e+00（$<10^{-9}$）
+  \item \textbf{lint 五连}：ruff check / ruff format --check / mypy /
+        vulture / self-test（\texttt{python -W error::SyntaxWarning}）
+  \item \textbf{无 gmsh 模拟}：干净 worktree（无 tools/gmsh.exe）下
+        \fem|verify_all.py --no-gmsh| 全量，skip 不失败
+  \item \textbf{CI}：push 后等待 8 job 全绿（含 test-perf 性能门）；
+        判断重跑是否生效看日志时间戳
+  \item \textbf{数字同步}：README / \texttt{CODE\_MAP} / 本类文档中的版本号、
+        测试函数数、覆盖率数字一次刷新到位（文档守卫测试会红）
+  \item \textbf{打包}：make\_release\_zip 后 zipfile 检查无泄漏文件
+        （.fem2d-msh-* 等临时文件不得入包）
+\end{enumerate}
+
+历史教训：验收必须独立复跑，从不采信执行者汇报；跨平台逐位要求下
+底层库多列调用一律逐列（SuperLU 教训）。
+
+\subsection{独立审查历史}
+
+外部逐行审查 3 轮、七维度（R1--R7），P0/P1 缺陷归零。审查发现过：
+CST 磨平峰值下降 17\%（接受为物理预期）、角弧识别悬崖（粗网格下弧被当
+线，14$\to$8 段跳变，\fem|topology.py| 20° 门 + \fem|circle.py| $\ge$4 点门，
+已文档化并接受）、1 ULP 级累加顺序差异（P-$\eta$ 向量化后 .at 顺序，
+不在钉死漂移值中）。审查报告归档于 \fem|docs/review_20260805.md|。
+
+%══════════════════════════════════════════════════════════════
+\section{测试代码深度解析}
+
+测试代码放在最后讲，因为它是"代码为什么这样安排"的终极证据。
+本项目测试约 \textbf{3.1 万行 / 1649+ 个测试函数 / 143 个文件}，
+而源码约 1.9 万行——测试比源码多 60\%。为什么？一句话：
+\textbf{每一个数值行为都有测试锁定，每一处修复都附判别性测试}。
+本求解器经历过数轮大规模重构（等价拆分、并行合并），数值行为
+\textbf{零漂移}——这不是运气，是本章的机制锁出来的。
+
+\subsection{测试的组织：143 个文件怎么排}
+
+测试按\textbf{分组前缀}归档在 \fem|tests/|，文件名即分组：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{5.6cm}p{4.2cm}p{4.4cm}}
+\toprule
+\textbf{分组前缀} & \textbf{内容} & \textbf{锁定什么} \\
+\midrule
+test\_solve\_refactor\_lock & 求解金标准逐位锁 & solver.solve 输出逐位不变（§9.2） \\
+contract & 契约测试（6 文件） & 契约表每个 $\checkmark$ 有判别性测试在场 \\
+boundary & 边界识别 & 段 schema、识别结果、插件体系 \\
+\texttt{regression\_audit\_\newline 2026080\{2,3a-e\}} & 历次审计回归 & 已修缺陷不复发 \\
+usability & 易用性 & 错误消息、误用路径 \\
+analytic & 解析解验证 & E1/E2/E3（§9.8） \\
+structure & 结构/导入面 & 包结构、纯 facade 纪律 \\
+\texttt{test\_\{solver,runner,\newline stress,error\_est\}\_\newline branches} & 分支锁 & 关键分支行为（§9.7） \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+命名约定：测试函数 \fem|test_xxx|；模块级 helper 函数
+\fem|_xxx|（下划线前缀，不参与收集）；\fem|_run| / \fem|_plate|
+类工厂统一构造模型。判别性测试单独成函数（\fem|test_xxx_discriminative|
+或独立 test），失败时错误信息直接点名"放回旧实现必须失败"的意图。
+
+\subsection{金标准逐位锁：test\_solve\_refactor\_lock.py 逐行}
+
+这是测试体系里\textbf{最硬核的一把锁}。背景：2026-08 大重构把
+\fem|solver.solve| 等价拆分为多个阶段。教学求解器最怕的坑是
+"重构后结果悄悄变了、程序不报错"。金标准的做法：重构前抓取
+代表性模型的\textbf{完整输出}（stdout 日志序列 + 完整 result
+dict）存入测试文件，重构只允许等价拆分，不允许任何数值/日志/
+键集合变化——\textbf{逐值精确比较（非 allclose）}。
+
+\subsubsection{文件头 docstring 就是设计文档}
+
+\begin{lstlisting}[language=python]
+"""solver.solve 重构行为锁定测试 (包 5 任务 2).
+
+GOLDEN 是重构前 (2026-08-03 基线) 对代表性模型 (单元族 x 求解方法 x
+微尺度 x 大坐标 x 纯 Dirichlet) 抓取的精确输出: stdout 日志序列 + 完整
+result dict。重构只允许等价拆分, 不允许任何数值/日志/键集合变化 --
+逐值精确比较 (非 allclose)。生成脚本: 仓库外 gen_solve_golden.py。
+
+环境敏感例外 (2026-08-04 CI 确认): 跨平台 (Linux OpenBLAS vs Windows
+求和序) 使所有数值派生量漂移 ±1 ulp -- Residual/ΣF/ΣM 行 (backward-error
+与平衡残差, 观测 4.15e-17 vs 2.07e-17 恰 2×)、result 的 u/stress/
+reactions 等数值键 (观测最后一位 ±1)。这些行/键改为相对容差比较
+(诊断行 rtol=2.0 + atol=1e-12 覆盖近零分量; 数值键 rtol=1e-10 覆盖
+±1 ulp 且留 1e4 倍余量, 真回归 1e-8+ 必被抓住); stdout 其余行逐字符,
+result 键集合/类型/bool/str 逐值。金标准是 Windows 录制 -- Linux 上
+逐位相等本就不可能, 锁的意图是"同平台 solver 重构等价"。
+"""
+\end{lstlisting}
+
+注意 docstring 的写法：它\textbf{不是装饰性注释，而是取舍的判决记录}
+——为什么锁"逐值"？为什么允许 ±1 ulp？容差怎么选的？每句话都能
+追溯到一次真实观测（CI 平台差异 4.15e-17 vs 2.07e-17）。读到这个
+文件的维护者不需要考古就知道："环境敏感例外"是刻意设计的，
+不是偷懒放宽。
+
+\subsubsection{容差常量的语义}
+
+\begin{lstlisting}[language=python]
+# 环境敏感诊断行 -- 结构必须逐字符匹配 (regex 锚定整行), 数值容差比较.
+_RESID_RE = re.compile(
+    r"\[OK\] Residual = ([0-9.eE+-]+) \(backward error\)\n")
+_SIGF_RE = re.compile(
+    r"\[Solver\] ΣF = \(([0-9.eE+-]+), ([0-9.eE+-]+)\) N  "
+    r"\(rel: ([0-9.eE+-]+)\)\n")
+_SIGM_RE = re.compile(
+    r"\[Solver\] ΣM = ([0-9.eE+-]+) N·m  \(rel: ([0-9.eE+-]+)\)\n")
+# (pattern, rel 分量索引); None = 无 rel 分量
+_DIAG_RE = ((_RESID_RE, None), (_SIGF_RE, 2), (_SIGM_RE, 1))
+_BALANCE_KEYS = ("residual", "force_balance", "moment_balance")
+# rtol=2.0: 观测到 2× 舍入差异 (4.15e-17 vs 2.07e-17); atol=1e-12:
+# 覆盖近零分量 (如 0.0 vs -5.68e-14) -- 微尺度模型 (1e-166) 亦远小于此
+_DIAG_RTOL, _DIAG_ATOL = 2.0, 1e-12
+# rel 分量: 近零噪声的比率, 观测放大 4.2× → rtol=1e2 留 24× 余量
+_REL_RTOL = 1e2
+# 数值派生键 (u/stress/reactions/...): 跨平台 ±1 ulp 噪声 (观测 1 ulp);
+# 近零分量 (理论为 0 的 tau_xy 等) 是积分求和序噪声 (观测 2.27e-12 vs
+# 4.09e-12, 应力尺度 1e5 的 ~1e-17 相对) -- rtol 对近零值失效, 补
+# 键内尺度相对 atol = max|键值| × 1e-12 (留 1e4 倍余量, 微尺度 1e-150
+# 模型同样安全 -- 尺度随键自动缩放, 非绝对阈值)
+_NUM_RTOL = 1e-10
+_NUM_ATOL_FACTOR = 1e-12
+\end{lstlisting}
+
+容差参数表（每个数字背后都有一行注释记录观测值）：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{4.2cm}p{2.6cm}p{7.2cm}}
+\toprule
+\textbf{参数} & \textbf{值} & \textbf{理由（注释原文）} \\
+\midrule
+\_DIAG\_RTOL & 2.0 & 观测到 2× 舍入差异（4.15e-17 vs 2.07e-17） \\
+\_DIAG\_ATOL & 1e-12 & 覆盖近零分量（0.0 vs -5.68e-14）；微尺度模型亦远小于此 \\
+\_REL\_RTOL & 1e2 & rel 分量是近零噪声的比率，观测放大 4.2×，留 24× 余量 \\
+\_NUM\_RTOL & 1e-10 & 覆盖 ±1 ulp 且留 1e4 倍余量，真回归 1e-8+ 必被抓住 \\
+\texttt{\_NUM\_ATOL\_\newline FACTOR} & 1e-12 & 键内尺度相对 atol = max|键值| × 1e-12，\textbf{非绝对阈值} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{两个关键设计}：其一，atol 是\textbf{键内尺度相对的}
+（\texttt{atol = scale * \_NUM\_ATOL\_FACTOR}），不是绝对常数——微尺度
+1e-150 模型的数值键尺度自动收缩，容差随之收缩，不存在"绝对阈值
+放行微尺度漂移"的缺口；其二，\_REL\_RTOL 单独放宽 rel 分量——它是
+近零噪声的\textbf{比率}，跨平台放大可达 4.2×，但分量本身仍由
+atol=1e-12 主锁，平衡真破坏（分量 ~1e-10+）照样拒绝。
+
+\subsubsection{环境敏感行的剥离：结构锁死、数值容差}
+
+stdout 的其余行\textbf{逐字符}比较；被识别为环境敏感的行先剥离再
+比较。剥离用正则锚定整行——行格式/单位/前缀变了 = 结构漂移，红。
+
+\begin{lstlisting}[language=python]
+def _compare_stdout(name, out, golden_out):
+    """逐字符比较, 环境敏感诊断行剥离后容差比较."""
+    for pattern, rel_idx in _DIAG_RE:
+        om, gm = pattern.search(out), pattern.search(golden_out)
+        assert om is not None or gm is None, (
+            f"[{name}] 金标准无 {pattern.pattern[:24]}... 行但当前输出有")
+        assert gm is not None or om is None, (
+            f"[{name}] 金标准有 {pattern.pattern[:24]}... 行但当前输出缺失")
+        if om is None:
+            continue
+        for i, (a, g) in enumerate(zip(om.groups(), gm.groups())):
+            if i == rel_idx:
+                assert np.isclose(float(a), float(g), rtol=_REL_RTOL,
+                                  atol=0.0), (
+                    f"[{name}] {pattern.pattern[:16]}: rel 数值漂移 "
+                    f"{a!r} vs 金标准 {g!r}")
+            else:
+                assert np.isclose(float(a), float(g), rtol=_DIAG_RTOL,
+                                  atol=_DIAG_ATOL), (
+                    f"[{name}] {pattern.pattern[:16]}: 数值漂移 "
+                    f"{a!r} vs 金标准 {g!r}")
+        out = out[:om.start()] + out[om.end():]
+        golden_out = golden_out[:gm.start()] + golden_out[gm.end():]
+    assert out == golden_out, (
+        "[" + name + "] stdout 与金标准不一致 (诊断行已剥离), 前 400 字符: "
+        + repr(out[:400]))
+\end{lstlisting}
+
+\textbf{细心的读者会问}：为什么"该行存在性"也要断言（两个
+\texttt{assert om is not None or gm is None}）？因为"诊断行缺失"和
+"诊断行漂移"是两种不同的回归——前者意味着代码路径变了（比如
+平衡检查被跳过），后者只是舍入噪声。逐字符比较剥离后剩下的部分，
+任何日志文案修改（哪怕加一个空格）都会红。这是\textbf{契约的
+文本层}：日志格式本身就是 API。
+
+\subsubsection{递归数值比较：键内尺度 atol}
+
+result dict 的数值键用递归比较器：结构（键集合/长度/类型）逐值，
+数值按 rtol + 键内尺度 atol。
+
+\begin{lstlisting}[language=python]
+def _key_scale(value):
+    """键内最大绝对值 -- 相对 atol 的尺度基准 (递归, 键内共用).
+
+    scale=0 (全零键) → atol=0: 任何非零漂移都被拒, 无放行缺口.
+    """
+    if isinstance(value, dict):
+        return max((_key_scale(v) for v in value.values()), default=0.0)
+    if isinstance(value, (list, tuple)):
+        return max((_key_scale(v) for v in value), default=0.0)
+    if isinstance(value, (float, int, np.floating, np.integer)):
+        return float(abs(value))
+    return 0.0
+
+
+def _compare_numeric(name, key, av, gv, scale=None):
+    """递归数值容差比较: list/tuple/dict/数值标量按 rtol + 键内尺度 atol,
+    其他逐值. bool 是 int 子类但语义逐值 -- 0/1 的 isclose 与逐值等价.
+    """
+    if scale is None:
+        scale = _key_scale(gv)
+    if isinstance(gv, dict):
+        assert isinstance(av, dict) and sorted(av) == sorted(gv), (
+            f"[{name}] result[{key}] 结构漂移: {av!r} vs {gv!r}")
+        for sub in gv:
+            _compare_numeric(name, f"{key}.{sub}", av[sub], gv[sub], scale)
+        return
+    if isinstance(gv, (list, tuple)):
+        assert isinstance(av, (list, tuple)) and len(av) == len(gv), (
+            f"[{name}] result[{key}] 结构漂移: {av!r} vs {gv!r}")
+        for i, (a, g) in enumerate(zip(av, gv)):
+            _compare_numeric(name, f"{key}[{i}]", a, g, scale)
+        return
+    if isinstance(gv, (float, int, np.floating, np.integer)):
+        assert isinstance(av, (float, int, np.floating, np.integer)), (
+            f"[{name}] result[{key}] 类型漂移: {type(av).__name__} "
+            f"vs {type(gv).__name__}")
+        assert np.isclose(float(av), float(gv), rtol=_NUM_RTOL,
+                          atol=scale * _NUM_ATOL_FACTOR), (
+            f"[{name}] result[{key}] 数值漂移: {av!r} vs {gv!r}")
+        return
+    assert av == gv, f"[{name}] result[{key}] 与金标准不一致: {av!r} vs {gv!r}"
+
+
+def _compare_result(name, result, golden_result):
+    assert sorted(result) == sorted(golden_result), (
+        "[" + name + "] result 与金标准不一致, 键差: "
+        + repr(sorted(result) ^ sorted(golden_result)))
+    for key, gv in golden_result.items():
+        av = result[key]
+        if key in _BALANCE_KEYS:
+            # 平衡残差: 舍入噪声级且可近零 (0.0 vs -5.68e-14) --
+            # 相对 rtol=2.0 + atol=1e-12 (微尺度 1e-166 亦远小于此)
+            ga, aa = np.asarray(gv, dtype=float), np.asarray(av, dtype=float)
+            assert ga.shape == aa.shape, (
+                f"[{name}] result[{key}] 形状漂移: {aa.shape} vs {ga.shape}")
+            assert np.all(np.isclose(aa, ga, rtol=_DIAG_RTOL,
+                                     atol=_DIAG_ATOL)), (
+                f"[{name}] result[{key}] 数值漂移: {aa!r} vs {ga!r}")
+        else:
+            _compare_numeric(name, key, av, gv)
+\end{lstlisting}
+
+\textbf{这个比较器锁了四层东西}：键集合（多一个键、少一个键都红）、
+结构（嵌套 dict/list 的形态漂移）、类型（float 变 int 也红）、数值
+（rtol + 键内尺度 atol）。\fem|_key_scale| 的注释点出一个精妙细节：
+全零键 \fem|scale=0| → \fem|atol=0| → \fem|isclose| 退化为精确相等
+（np.isclose 对 0 vs 1e-30 用 atol=0 + rtol 会拒绝）——\textbf{不存在
+"全零键被容差放行"的缺口}。
+
+\subsubsection{九个锁定场景}
+
+金标准锁的是\textbf{单元族 × 求解方法 × 极端尺度}的代表性组合：
+
+\begin{lstlisting}[language=python]
+def _plate(elem_type, scale=1.0, origin=(0.0, 0.0), forces=-500.0):
+    x0, y0 = origin
+    if elem_type == "CPS3":
+        nodes = np.array([[0., 0.], [1., 0.], [0., 1.], [1., 1.]])
+        elements = np.array([[0, 1, 2], [1, 3, 2]], dtype=np.int64)
+    else:
+        nodes = np.array([[0., 0.], [1., 0.], [1., 1.], [0., 1.]])
+        elements = np.array([[0, 1, 2, 3]], dtype=np.int64)
+    nodes = nodes * scale + np.array([x0, y0])
+    mesh = Mesh(nodes=nodes, elements=elements, E=2.1e11, nu=0.3,
+                thickness=0.01, plane_type="stress", elem_type=elem_type)
+    for node in (0, 1):
+        mesh.fix_node(node, "both", 0.0)
+    for node in (2, 3):
+        mesh.add_force(node, 0.0, forces)
+    return mesh
+
+
+def _dirichlet_only():
+    mesh = Mesh(
+        nodes=np.array([[0., 0.], [1., 0.], [1., 1.], [0., 1.]]),
+        elements=np.array([[0, 1, 2, 3]], dtype=np.int64),
+        E=2.1e11, nu=0.3, thickness=0.01, plane_type="stress",
+        elem_type="CPS4")
+    for node in range(4):
+        mesh.fix_node(node, "both", 1e-3)
+    return mesh
+
+
+MODELS = [
+    ("cst", _plate("CPS3"), {}),
+    ("cst_penalty", _plate("CPS3"), {"method": "penalty"}),
+    ("q4", _plate("CPS4"), {}),
+    ("q4_cg", _plate("CPS4"), {"linear_solver": "cg"}),
+    ("q4_cond", _plate("CPS4"), {"check_condition": True}),
+    ("q4r", _plate("CPS4R"), {}),
+    ("dirichlet_only", _dirichlet_only(), {}),
+    ("micro", _plate("CPS3", scale=1e-150, forces=-5e-150), {}),
+    ("large_coord", _plate("CPS4", origin=(1e12, 1e12)), {}),
+]
+\end{lstlisting}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3.2cm}p{10cm}}
+\toprule
+\textbf{场景} & \textbf{覆盖的代码路径} \\
+\midrule
+cst & CST 单元 + 消去法（默认路径） \\
+cst\_penalty & 乘大数法分支（加法式罚因子，§6.8） \\
+q4 & Q4 单元 + 消去法 \\
+q4\_cg & Jacobi-PCG 迭代分支（rtol=1e-10） \\
+q4\_cond & 条件数检查分支（condition\_info 键） \\
+q4r & Q4R 沙漏稳定 + hourglass\_energy 键族 \\
+dirichlet\_only & 全约束特判分支（空矩阵，不求解直接算反力） \\
+micro & 微尺度 1e-150——禁绝对阈值硬指标（§10.1） \\
+large\_coord & 大坐标 1e12 平移——局部坐标消差（§6.3） \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{注意 micro 和 large\_coord}：这是两个"极端尺度"场景，专门
+守护 §10.1 的微尺度纪律——任何绝对阈值混进求解链路，micro 场景
+的数值键立刻漂移。
+
+\subsubsection{主测试与金标准结构}
+
+\begin{lstlisting}[language=python]
+def _run(mesh, kwargs):
+    buf = io.StringIO()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with redirect_stdout(buf):
+            result = solve(mesh, **kwargs)
+    return buf.getvalue(), _np(result)
+
+
+GOLDEN = {'cst': {'stdout': '[Solver] 约束: 4 DOFs, 4 free DOFs\n'
+                           '[Solver] 组装总刚 K (8×8) ...\n'
+                           '[Solver] 组装等效载荷 F ...\n'
+                           '[Solver] 消去法 + SuperLU ...\n'
+                           '  [OK] Residual = 4.15e-17 (backward error)\n'
+                           '[Solver] max|u| = 4.855114e-07\n'
+                           '[Solver] ΣF = (-5.684e-14, -2.274e-13) N  '
+                           '(rel: 3.16e-08)\n'
+                           '[Solver] ΣM = -5.684e-14 N·m  (rel: 6.77e-17)\n'
+                           '[Solver] max|reaction| = 5.000000e+02\n',
+            'result': {'u': [0.0, 0.0, 0.0, 0.0,
+                             -3.462050599201064e-08,
+                             -4.2121615623612943e-07, ...],
+                       'stress': [[-29161.118508655112, ...], ...],
+                       'vm_stress': [...],
+                       'reactions': [159.78695073235684, ...],
+                       'residual': np.float64(4.147910649287126e-17),
+                       'balance_ok': True, ...}}, ...}
+
+
+def test_solve_behavior_identical_to_golden():
+    for name, mesh, kwargs in MODELS:
+        out, result = _run(mesh, kwargs)
+        _compare_stdout(name, out, GOLDEN[name]["stdout"])
+        _compare_result(name, result, GOLDEN[name]["result"])
+\end{lstlisting}
+
+主测试只有 4 行：遍历 9 场景，分别比较 stdout 与 result。\textbf{金
+标准是 Windows 录制}（docstring 明说：跨平台逐位相等本就不可能，
+锁的意图是"同平台 solver 重构等价"）——这把锁的矛头是
+\textbf{重构}，不是跨平台移植。
+
+\subsubsection{判别性测试：锁自身的有效性证明}
+
+如果容差参数放宽到"什么都过"，金标准就成摆设。因此同文件内
+\textbf{附判别性测试}——用已知的"应接受噪声"和"应拒绝漂移"
+直接调比较器，证明容差窗既不吃真回归也不卡平台噪声：
+
+\begin{lstlisting}[language=python]
+def test_residual_tolerance_accepts_2x_platform_noise():
+    """容差逻辑判别性 (本地即生效): CI 观测的 2× 舍入差异必须接受,
+    真漂移 (1e-10) 必须拒绝. 若改回逐字符比较, 2× 用例在此失败."""
+    cst_out = GOLDEN["cst"]["stdout"]
+    _compare_stdout("cst", cst_out.replace("4.15e-17", "2.07e-17"),
+                    cst_out)                        # Linux 2× → 接受
+    for drift in ("1.00e-10", "5.00e-12"):
+        with pytest.raises(AssertionError):
+            _compare_stdout("cst", cst_out.replace("4.15e-17", drift),
+                            cst_out)                # 真漂移 → 拒绝
+
+
+def test_result_numeric_tolerance_1ulp_accepted_drift_rejected():
+    """result 数值键容差判别性 (本地即生效): 1 ulp 平台噪声 (CI 观测
+    量级) 必须接受, 1e-6 相对真漂移必须拒绝. 若改回逐值比较,
+    1 ulp 用例在此失败 (Linux 语义下主测试本身也会失败)."""
+    cst = GOLDEN["cst"]["result"]
+    _compare_result("cst", cst, cst)                        # 恒等 → 过
+    noisy = dict(cst)
+    noisy["u"] = list(cst["u"])
+    noisy["u"][4] = cst["u"][4] + np.spacing(abs(cst["u"][4]))
+    _compare_result("cst", noisy, cst)                      # 1 ulp → 接受
+    drifted = dict(cst)
+    drifted["u"] = list(cst["u"])
+    drifted["u"][4] = cst["u"][4] * 1.000001
+    with pytest.raises(AssertionError):
+        _compare_result("cst", drifted, cst)                # 1e-6 漂移 → 拒绝
+    broken = dict(cst)
+    broken["u"] = list(cst["u"])
+    broken["u"][0] = 1.0                                    # 约束 DOF 非零 → 拒绝
+    with pytest.raises(AssertionError):
+        _compare_result("cst", broken, cst)
+\end{lstlisting}
+
+断言矩阵（注释里每行都写明观测出处）：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{6.4cm}p{3.4cm}p{4.2cm}}
+\toprule
+\textbf{输入} & \textbf{预期} & \textbf{对应观测} \\
+\midrule
+Residual 4.15e-17 → 2.07e-17（2×） & 接受 & Linux 求和序差异 \\
+Residual → 1e-10 / 5e-12 & 拒绝 & 真回归量级 \\
+u[4] + 1 ulp（np.spacing） & 接受 & 平台舍入噪声 \\
+u[4] × 1.000001（1e-6 相对） & 拒绝 & 真漂移 \\
+约束 DOF 置非零 & 拒绝 & 结构级错误 \\
+$\tau_{xy}$ 近零分量 2.27e-12 → 4.09e-12 & 接受 & 积分求和序噪声 \\
+同一分量 → 1e-6 & 拒绝 & 超键内 atol \\
+ΣF rel 1.26e-09 → 5.27e-09（4.2×） & 接受 & q4r 平台差异 \\
+rel → 1e-3 & 拒绝 & 真回归 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{判别性测试的价值}：主测试在 Linux 上本来就该红（金标准是
+Windows 录的），而判别性测试\textbf{本地即生效}——任何人改了
+容差逻辑，本地 pytest 立刻抓出"该接受的被拒了 / 该拒绝的被放了"。
+
+\subsection{判别性测试原则：每修复必附"放回旧实现必失败"}
+
+这是贯穿整个测试体系的第一纪律：\textbf{任何缺陷修复，必须附一个
+"放回旧实现必然失败"的测试}。理由很简单——一个永远通过的测试
+没有价值：它能证明测试代码活着，不能证明被测试的行为是对的。
+
+典型流程：最小复现（把缺陷场景固化成测试，先红）→ 修复 →
+全量回归。判别性测试使修复\textbf{可证伪}：后来者如果"优化"掉了
+修复，测试立刻红，且错误消息直接说出被违反的契约。历史上 fuzz
+抓到的真实缺口（estimate\_condition 收到非数组 K → 裸
+AttributeError）就是按这个流程闭环的：最小复现测试 →
+修复（带上下文的 TypeError）→ 判别性测试锁死新行为。
+
+\subsection{漂移门：regression\_compare.py}
+
+\begin{lstlisting}[language=bash]
+python scripts/regression_compare.py    # 基线 7ee65fc vs main
+\end{lstlisting}
+
+漂移门锁的是\textbf{端到端报告}的 6 项指标：max|u|、energy、eta、
+sxmax、symax、txymax。基线 7ee65fc 录制，\textbf{相对差必须
+0.000e+00}——不是容差，是逐位。为什么这么苛刻？因为这 6 个数是
+用户从报告里直接读到的\textbf{最终输出}，任何一级（网格/组装/
+求解/应力/误差估计）的微小变化都会在它们身上放大。金标准锁
+solver 内部（§9.2），漂移门锁用户可见结果——两层互补，
+一层都不该松。
+
+\subsection{探针：audit\_contract\_probe.py}
+
+\begin{lstlisting}[language=bash]
+python scripts/audit_contract_probe.py    # 151 项契约断言, 必须 0 FAIL
+\end{lstlisting}
+
+探针是\textbf{文档驱动的测试}：\fem|docs/api_contract.md| 的契约表
+声明了每个接口的形状/类型/错误语义，探针逐条用真实代码验证
+"文档说的 = 代码做的"。契约表是"易读的真相"，探针是"可执行的
+真相"——文档与代码的漂移在提交前被抓，而不是在用户踩坑后。
+\fem|verify_all| 把探针并入门禁（§7.2），`--stage` 可单跑。
+
+\subsection{fuzz：固定种子 500}
+
+\begin{lstlisting}[language=bash]
+python scripts/fuzz_api.py 500      # 固定种子, 可复现
+python scripts/combo_fuzz.py        # 组合式随机
+\end{lstlisting}
+
+fuzz 用\textbf{固定种子}保证可复现——随机输入不冒裸异常（裸
+AttributeError/IndexError 都是失败，带上下文的 ValueError 才是
+正确行为）。fuzz 的价值是\textbf{撞出人想不到的输入组合}：
+已经抓到过真实缺口（非数组 K 传给 estimate\_condition），每次
+抓到都按 §9.3 的流程闭环。组合 fuzz（combo\_fuzz）进一步随机
+组合参数，覆盖单参数 fuzz 的盲区。
+
+\subsection{分支锁：test\_\{solver,runner,stress,error\_est\}\_branches.py}
+
+分支锁锁\textbf{关键函数的分支行为}：每个 if/else 分支有专属测试，
+"这个分支存在"本身就是被测试的契约。典型形态：构造触发某分支的
+输入（如空网格、全约束、NaN 载荷），断言分支专属的报错消息或
+返回值——分支被删、条件被改都会红。四把分支锁分别守护求解器、
+runner 主线、应力后处理、误差估计四个核心模块。
+
+\subsection{解析解验证测试（E1/E2/E3）}
+
+解析解验证是唯一"对答案"的测试层（§7.4 详述）：数值解必须收敛
+到独立计算的\textbf{理论值}。
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{E1 悬臂梁}：梁端挠度 vs 材料力学解；同时作为剪切
+        锁定演示——同一网格 CST $\to$ Q4 $\to$ Q4R 的弯曲刚度恢复
+        （§4.3.2 引用的 12.9\% $\to$ 3.2\% $\to$ 0.38\% 数据即来自
+        此验证路径）；
+  \item \textbf{E2 Kirsch 孔边应力集中}：孔边峰值应力系数 $\to$ 3
+        （弹性理论极限值）；
+  \item \textbf{E3 Z2 效应指数}：h-加密后 $\eta$ 的对数斜率
+        $\theta \in [0.8, 1.2]$——误差估计器必须表现出教科书级的
+        收敛阶（§4.6）。
+\end{itemize}
+
+与金标准/漂移门不同，解析解验证是\textbf{物理语义层}的锁：它
+证明的不是"代码没变"，而是"代码算对了"。四类锁的职责边界：
+金标准锁重构等价，漂移门锁最终输出，探针锁文档契约，
+解析解锁物理正确。
+
+\subsection{无 gmsh 纪律}
+
+本求解器在无 gmsh 环境下必须\textbf{全量测试绿}——教学场景用户
+可能只有便携包、没装 gmsh。纪律如下：
+
+\begin{itemize}[leftmargin=*]
+  \item fem2d 顶层\textbf{不急切 import gmsh}（经
+        gmsh\_adapter 惰性加载），测试同理；
+  \item 依赖 gmsh 的测试用 skip 守卫跳过（\fem|pytest.skip|），
+        \textbf{skip 不失败}；
+  \item skip 守卫\textbf{只捕 ImportError}——曾经有个守卫写成捕
+        OSError（假模块抛出的类型不同），导致无 gmsh 环境下 1 个
+        测试失败。教训：守卫捕获的异常类型必须与真实抛出一致，
+        "能捕到"不等于"捕对了"；
+  \item \fem|verify_all --no-gmsh| 用假模块模拟无 gmsh 环境跑全量
+        回归——干净 worktree（无 \fem|tools/gmsh.exe|）下自证
+        "去掉 gmsh 一切照常"。
+\end{itemize}
+
+\subsection{一个测试文件的逐行走读：test\_boundary\_adaptive.py}
+
+原则讲得再多，不如把\textbf{一个真实文件从头走到尾}。选
+\newline \fem|tests/test_boundary_adaptive.py|（185 行）：它测试的是边界
+识别管线（§6.7），体量小、几乎每一行都有教学点，是"边界识别
+算法如何被锁死"的标本。全程只 185 行、7 个测试函数、零 mock。
+
+\subsubsection{文件头：docstring 就是设计契约}
+
+\begin{lstlisting}
+"""Regression tests for adaptive boundary primitive detection."""
+import numpy as np
+
+from fem2d import Mesh, detect_boundaries
+from fem2d.boundary.geometry import classify
+from fem2d.boundary.topology import _point_in_loop
+\end{lstlisting}
+
+三行 import 就是被测面的边界声明：\fem|detect_boundaries|（总入口）、
+\fem|classify|（曲率分类）、\fem|_point_in_loop|（内部几何原语）。
+注意它直接 import 了\textbf{私有函数} \fem|_point_in_loop|——本项目
+的纪律是"测试可以穿墙看内部"，前提是该函数有稳定语义（本例：
+点是否在环内）。穿墙看内部让测试\emph{直接}覆盖单函数语义，而不
+必绕整个管线去间接验证。
+
+\subsubsection{辅助构建器：参数化几何的工厂}
+
+\begin{lstlisting}
+def _fan_mesh(points):
+    points = np.asarray(points, dtype=float)
+    nodes = np.vstack([points.mean(axis=0), points])
+    n = len(points)
+    elements = np.array([
+        [0, i + 1, ((i + 1) % n) + 1] for i in range(n)
+    ])
+    return Mesh(nodes=nodes, elements=elements, E=1.0, nu=0.3,
+                thickness=1.0)
+\end{lstlisting}
+
+中心节点 0 + 环上各点，构成"扇形网格"（\fem|i + 1| 与
+\fem|((i + 1) % n) + 1| 让最后一个单元从末点绕回首点）。这个 6 行
+工厂被 5 个测试复用——\textbf{测试辅助函数与产品代码用同一标准}：
+只写一次、语义清楚、被复用才有资格存在。环上点由
+\fem|_regular_loop| 按角度生成，\fem|_rounded_rectangle| 用
+直线段 + 圆弧拼接出"G1 连续"（切向连续）的圆角矩形——后者是
+专门构造的\textbf{边界用例}：真实模型最常见的形状是直线+圆弧
+混合，而 G1 连续恰好是"曲率断点检测"最容易翻车的点（切向
+连续处曲率突变，但视觉上无尖角）。
+
+\subsubsection{第一个测试：无 CAD 语义时多边形退化为直线段}
+
+\begin{lstlisting}
+def test_coarse_regular_polygons_remain_lines_without_cad_semantics():
+    for sample_count in (8, 10, 12, 16):
+        segments = detect_boundaries(
+            _fan_mesh(_regular_loop(sample_count)))
+        assert len(segments) == sample_count
+        assert {segment["type"] for segment in segments} == {"line"}
+        assert all(len(segment["nodes"]) == 2
+                   and not segment["closed"]
+                   for segment in segments)
+\end{lstlisting}
+
+\textbf{参数化循环代替复制粘贴}：8/10/12/16 四个多边形一次跑完，
+奇数边数（11 的邻居 10 与 12 覆盖了奇偶两侧）确保不是只对某个
+数巧合成立。\textbf{断言的是集合而非顺序}：
+\fem|{segment["type"] for segment in segments} == {"line"}| 不依赖
+输出顺序——识别管线的段顺序由邻接图遍历决定，本不是契约的一部分，
+顺序敏感断言会制造脆测试。
+
+\subsubsection{对照组：细分弦线必须合并、真六边形必须保留}
+
+\begin{lstlisting}
+def test_subdivided_regular_polygons_preserve_line_primitives():
+    for primitive_count in (8, 10, 12, 16):
+        polygonized = _subdivide_chords(
+            _regular_loop(primitive_count), subdivisions=4)
+        segments = detect_boundaries(_fan_mesh(polygonized))
+        assert len(segments) == primitive_count
+        assert all(len(segment["nodes"]) == 5 ...)
+\end{lstlisting}
+
+每个"弦线"被插成 5 个节点——但\textbf{分类结果必须是 1 条 line}，
+即 4 段共线短边被合并，不能每段独立上报（否则下游载荷链会看到
+4 段共线边、生成 4 个面力载荷条目）。\fem|len(segment["nodes"]) == 5|
+验证合并结果保留了全部采样点。与之相对，\fem|test_true_hexagon_|
+\fem|remains_six_lines| 断言真六边形是 6 条 line——这是\textbf{对照组}：
+"细分后不误报为圆弧"与"真多边形不被误报为圆弧"两个方向都锁住，
+防止分类器"全报 line"这种偷懒退化通过测试。
+
+\subsubsection{闭环分类：半径反解到 1e-12}
+
+\begin{lstlisting}
+def test_closed_physical_curve_classification_refits_chord_vertices():
+    polygonized = _subdivide_chords(_regular_loop(24, radius=8.0), 9)
+    closed = np.vstack([polygonized, polygonized[0]])
+
+    segment_type, _, info = classify(closed, scale=135.0, is_outer=False)
+
+    assert segment_type == "arc"
+    assert info["primitive_samples"] == 24
+    assert np.isclose(info["radius"], 8.0, rtol=1e-12)
+\end{lstlisting}
+
+三个断言层层加码：\fem|"arc"|（分类正确）、\fem|primitive_samples|（
+原始 24 条边被识别为 1 个圆弧原语）、半径反解误差 $<10^{-12}$
+（拟合质量）。注意 \fem|scale=135.0| 是\textbf{显式传入}的——圆外接
+半径 8.0 的环，特征尺度约 $2\pi R \approx 50$，135 是放大余量。把
+尺度做成显式参数而不是内部魔法常量，测试就能挑剔地验证
+"尺度感知"：容差不随几何尺寸漂移（呼应 §8 微尺度纪律）。
+
+\subsubsection{圆角矩形：G1 边界用例}
+
+\begin{lstlisting}
+def test_g1_rounded_rectangle_preserves_eight_primitives():
+    segments = detect_boundaries(_fan_mesh(_rounded_rectangle()))
+    assert len(segments) == 8
+    assert len(lines) == 4 and len(arcs) == 4
+    assert all(np.isclose(segment["info"]["radius"], 0.5, rtol=1e-10)
+               for segment in arcs)
+\end{lstlisting}
+
+圆角矩形 = 4 直线 + 4 圆弧，且所有圆弧半径必须反解出 0.5——
+\textbf{数量断言 + 物理量断言}组合：只断言数量不够（可能把圆弧
+错分成多段），只断言半径不够（可能丢段）——两个都锁，才是
+"识别正确"的完整定义。
+
+\subsubsection{尺度感知：从 1e-20 到 1e12 的环判定}
+
+\begin{lstlisting}
+def test_point_in_loop_is_scale_aware_and_deduplicates_vertices():
+    for origin, span in ((0.0, 1e-20), (1e12, 100.0), (-1e12, 1e-3)):
+        ...  # 三个数量级的正方形
+        assert _point_in_loop(origin + 0.5 * span, ...)   # 内点
+        assert not _point_in_loop(origin + 2.0 * span, ...)  # 外点
+        assert _point_in_loop(origin, origin, xs, ys)  # 重复顶点去重
+\end{lstlisting}
+
+三个数量级跨度：\fem|(0, 1e-20)|（纳米级模型）、\fem|(1e12, 100)|
+（大坐标模型）、\fem|(-1e12, 1e-3)|（负坐标小模型）。环判定必须
+是\textbf{相对尺度的}——几何量永远相对自身尺度比较，绝对量在
+三个跨度里没有共同合理值。\textbf{重复顶点去重}（首尾闭合产生的
+重复点）是另一条历史教训的锁：闭环分解时 \fem|loop + [loop[0]]|
+补边，若不去重，点在"重复顶点"上会返回歧义结果。
+
+\subsubsection{环定向：鞋带公式分内外}
+
+\begin{lstlisting}
+def test_detected_ring_has_gmsh_outer_and_hole_orientation():
+    ...  # 外 12 边形 + 内 12 边形孔的 CPS4 环网格
+    segments = detect_boundaries(mesh)
+    oriented_area[loop_id] += 0.5 * np.sum(
+        coords[:-1, 0] * coords[1:, 1] - coords[1:, 0] * coords[:-1, 1])
+    assert oriented_area[outer_loop] > 0.0
+    assert oriented_area[hole_loop] < 0.0
+\end{lstlisting}
+
+这个测试\textbf{自己重算}了识别管线的核心输出（鞋带公式的有向
+面积），再断言 \fem|info["is_outer"]| 与重算一致——而不是断言
+"is\_outer 是 True"。\textbf{测试重算而非信任输出}，是判别性测试
+（§9.3）的基层形态：若识别器把内外环标反，这个测试立即失败；
+若输出字段改名，编译期/运行期也会立刻暴露。对 §6.7 的定向约定
+（材料 CCW、洞 CW）来说，这就是最后一道防线。
+
+\paragraph{这个文件的六个教学点（回顾）}
+
+\begin{enumerate}[leftmargin=*]
+  \item 参数化循环（8/10/12/16、四个尺度）替代复制粘贴——覆盖面
+        与维护成本同时最优化；
+  \item 断言集合/物理量而非顺序——只锁契约内的事实；
+  \item 对照组（真六边形 vs 细分多边形）——防止分类器退化偷懒；
+  \item 显式传尺度参数——容差纪律可被测试直接审查；
+  \item 数量断言 + 物理量断言组合——"识别正确"的完整定义；
+  \item 测试重算输出（鞋带公式）——判别性测试的基层形态。
+\end{enumerate}
+
+七个测试函数、185 行，把 §6.7 的识别算法钉死在"分类正确、
+合并正确、定向正确、尺度稳健"四个维度上——这就是本项目对
+"冻结区"（边界识别算法冻结）的执行方式：不是靠纪律声明，
+是靠\textbf{可证伪的测试}。
+
+\subsection{测试如何保护重构（总结）}
+
+四类"锁"的职责边界一句话版：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{4.6cm}p{4.4cm}p{5.6cm}}
+\toprule
+\textbf{机制} & \textbf{锁什么} & \textbf{证明什么} \\
+\midrule
+金标准逐位锁（§9.2） & solver 输出逐位/键集合 & 重构等价 \\
+漂移门 & 端到端 6 指标相对差 0.0 & 用户可见结果不变 \\
+探针 & 契约表 151 断言 & 文档 = 代码 \\
+fuzz & 随机输入不冒裸异常 & 误用路径有护栏 \\
+分支锁 & 关键分支存在 & 行为不塌方 \\
+解析解（E1/E2/E3） & 数值 vs 理论 & 物理上算对了 \\
+判别性测试 & 每个修复可证伪 & 测试本身活着 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+正是这套机制，让"多轮大重构 + 并行合并"成为可能：重构等价性由
+金标准保证，物理正确性由解析解保证，文档一致性由探针保证——
+每一条都独立运行、独立失败、独立报告。\textbf{这就是本项目
+可维护性的引擎：不是流程文档，是七层互相咬合的测试}。
+
+%══════════════════════════════════════════════════════════════
+\section{注意事项}
+%══════════════════════════════════════════════════════════════
+
+\subsection{常见错误消息速查}
+
+错误消息统一格式 \fem|函数名: 参数名=值 — 原因, 期望|。常见消息与修复：
+
+\begin{longtable}{p{7.4cm}p{7.7cm}}
+\toprule
+\textbf{错误消息（片段）} & \textbf{原因与修复} \\
+\midrule
+\fem|solve: mesh 必须是 fem2d.Mesh 实例| & 传入了 dict/None 等非 Mesh 对象；检查类型 \\
+\texttt{Rigid-body modes are not}\\ \texttt{fully constrained} & 欠约束；补足固定 DOF（2 平动 + 1 转动/连通分量） \\
+\fem|u contains NaN/Inf| & 求解结果非有限；先检查网格/材料/载荷是否合理 \\
+\fem|K 必须为方阵| & estimate\_condition 收到非方阵；检查矩阵形状 \\
+\fem|n_dof 必须等于 2×节点数| & assemble\_loads 的 n\_dof 与网格不一致 \\
+\texttt{Penalty constraints currently}\\ \texttt{require the direct solver} & penalty 方法与 cg/ilu 求解器不兼容；换 elimination 或 direct \\
+\fem|singular matrix / MatrixRankWarning| & 约束不足或含孤立节点（Gmsh 导入的孤立节点教训）；检查连通性 \\
+\fem|No elements found| & 传入了 .geo 脚本而非网格文件（.inp/.msh）；检查文件类型 \\
+\fem|GmshTopologyError| & 混合网格拓扑（三角形+四边形）被拒绝；改用纯三角形或纯四边形 \\
+\fem|must be a finite real number| & 传入 str/complex 等非数值；转为 float \\
+\fem|No CPS3/C2D3 elements found| & .inp 里单元类型不匹配或文件不是网格 \\
+\fem|value out of range / nu 越界| & 材料参数语义错误；nu $\in$ (-1, 0.5) \\
+\fem|表达式解析失败（带行号）| & .spec 格式错误；缺 = 或空值，按行号定位 \\
+\fem|OverflowError（表达式）| & 超大指数（如 9**9**9**9）在编译期被拦截；属安全保护 \\
+\texttt{penalty 罚因子量纲异常} & 乘法式罚因子（$k_{ii}\times$罚因子）使刚度平方；应为\textbf{加法式}：$k_{ii} \mathrel{+}= \max|K_{ii}|\times 10^4$ \\
+\texttt{quality 分类计数不为互斥} & bad/warn 条件区间重叠导致双重计数；bad/warn/ok 计数和必须恰等于单元总数 \\
+\texttt{traction jump 饱和 200\%} & $|s_1-s_2|/\max$ 在应力过零处虚高；改用 $|\Delta t|/\sigma_{ref}$ 归一化 \\
+\texttt{rigid-body rank 不足} & 约束矩阵用原始大坐标致 SVD 阈值失真；先逐分量中心化+归一化再查 rank \\
+\texttt{u 全零/含 NaN 且无警告} & 近奇异矩阵 spsolve 未必抛 MatrixRankWarning；显式 splu 分解 + isfinite 检查兜底 \\
+\bottomrule
+\end{longtable}
+
+\paragraph{调试工作流：三分钟定位问题}
+
+错误消息只是入口，推荐的定位顺序：
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{最小化复现}：从 \fem|models/| 里最接近的演示模型改参数，
+        避免从零建模引入第二个变量；
+  \item \textbf{隔离单测}：\fem|pytest tests/test_xxx.py -k 名称| 只跑
+        相关测试，确认问题在测试面内还是测试面外；
+  \item \textbf{全量回归}：\fem|python scripts/verify_all.py --fast|
+        （pytest 全量 + 探针 + 漂移门），排除基线漂移；
+  \item \fem|--quad| 对比：同一 \fem|cantilever.geo| 分别以三角形
+        （默认）与四边形（\fem|--quad| 触发 recombination）求解，
+        位移/应力云图若剧烈不同，多半是单元族行为差异（如 Q4R
+        细长网格过刚，见 §4.3.3 已知局限）而非代码错误。
+\end{enumerate}
+
+以下 9 条来自历史事故的直接教训，每条都有对应排查记录（知识库
+fem/lessons/）。
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{单位制}：默认 SI 单位（E=2.1e11 Pa, t=0.01 m）。修改参数时
+        保持量纲一致，否则结果数值将无法解释。
+
+  \item \textbf{几何文件与网格文件不可混传}：\fem|.geo| 是 Gmsh \emph{脚本}，
+        不是网格数据；\fem|.inp|/\fem|.msh| 才是网格。把 \fem|.geo| 当网格
+        传入会得到 "No elements found" 类错误（历史事故：同名 .geo/.inp
+        混传，报错信息指向错误方向）。
+
+  \item \textbf{必须充分约束}：欠约束模型被刚体模态检查拦截并明确报错
+        （"Rigid-body modes are not fully constrained"），不会静默给出
+        无意义解。固定端在 CST 中等于锁住整条边所有节点的平动自由度
+        （CST 无转角自由度，固支 = 一排固定铰的等效）。
+
+  \item \textbf{载荷表达式是安全的}：表达式经 AST 白名单解析（变量仅
+        $x,y$，函数仅 sin, cos, tan, exp, sqrt, log, abs 与常量 $\pi$），禁止
+        eval。超大指数（如 \texttt{9**9**9**9}）在编译期被整型转浮点
+        NodeTransformer 拦截（2s 内 OverflowError），不会挂起。
+
+  \item \textbf{输入数值须为实数}：复数节点坐标、复数应力数组被显式拒绝
+        （TypeError，带三路检查），不会静默丢弃虚部。
+
+  \item \textbf{gmsh 缺失时}：网格生成（.geo 路径）不可用，其余功能
+        （读 .msh/.spec、求解、后处理、误差估计）全部可用。无 gmsh
+        环境下 1600+ 测试仍通过（skip 不失败）。
+
+  \item \textbf{混合网格不支持}：三角形+四边形混用拓扑被明确报错拒绝
+        （GmshTopologyError），属安全设计：宁可拒绝，不静默算错。
+
+  \item \textbf{中文输出}：非中文 Windows 控制台（GBK）下，内部已做
+        编码兜底（reconfigure\_streams），中文以 "?" 显示，不会崩溃。
+
+  \item \textbf{验证纪律}：任何改动后运行 \fem|python scripts/verify_all.py --fast|
+        （pytest 全量 + 探针 + 漂移门）确认数值基线未被破坏；漂移门 6 值
+        要求相对误差 $<10^{-9}$。修复必须附判别性测试（放回旧实现必失败）。
+\end{enumerate}
+
+%══════════════════════════════════════════════════════════════
+\section{可扩展性}
+%══════════════════════════════════════════════════════════════
+
+软件按插件化设计：每个扩展点都有\textbf{固定的挂接位置}（注册表
+或分发函数），扩展代码写在独立文件里，\textbf{不改动已验证的数值
+路径}。本节的用法：确定"我要加什么" $\rightarrow$ 查 §11.1 总表定位
+改动文件 $\rightarrow$ 按 §11.2 对应扩展点的最小步骤走 $\rightarrow$
+§11.3 的流程收尾。
+
+\subsection{扩展点总览：改哪些文件、挂在哪}
+
+\begin{longtable}{p{3.0cm}p{4.2cm}p{3.7cm}p{3.1cm}}
+\toprule
+\textbf{扩展类型} & \textbf{要改的文件} & \textbf{挂接点（注册/分发）} & \textbf{门禁验证} \\
+\midrule
+新增单元类型 & \texttt{element/} 新文件 + \texttt{element/}\allowbreak\texttt{\_\_init\_\_.py} 的 import 一行 & \texttt{register\_}\allowbreak\texttt{element} 注册内核实例 & \texttt{verify\_all\_}\allowbreak\texttt{elements}：分片 + 刚体模态 \\
+新增边界检测器 & \texttt{boundary/}\allowbreak\texttt{detectors/} 新文件 & \texttt{register\_}\allowbreak\texttt{detector} 注册即生效，首个非 None 胜出 & 判别性测试 + 全量回归 \\
+新增载荷形式 & \texttt{loads\_core.py} 的 \texttt{parse\_*} 族 & \texttt{parse\_traction} 等入口；AST 白名单 & 解析单测 + 物理量回归 \\
+新增应力恢复方法 & \texttt{stress.py} 新函数 + \texttt{visualize.py} & \texttt{\_RECOVERY\_}\allowbreak\texttt{METHODS} 字典（21--29 行）注册 & 与既有方法对比单测 \\
+新增误差估计器 & \texttt{error\_est.py} & \texttt{estimate()} 分发处加分支（不改旧公式） & 解析解 E1/E2/E3 对比 \\
+新增可视化模式 & \texttt{visualize.py} & PLOTS 注册表（632 行）加 tag + 绘图函数 & 无 gmsh 模拟下出 PNG \\
+新增输入格式 & \texttt{input/} 链 & 扩展名分派加分支（§3.1） & 样例文件端到端 \\
+新增验证阶段 & \texttt{scripts/}\allowbreak\texttt{verify\_all.py} & 九阶段链追加 & 全绿 \\
+\bottomrule
+\end{longtable}
+\normalsize
+
+表中"门禁验证"一列是\textbf{硬性要求}：扩展没配上对应门禁 = 不算
+完成。数值类扩展（单元/恢复/估计器）额外受冻结区纪律约束
+（§5.5）：旧行为必须逐位不变，新行为靠新增注册项承载。
+
+\subsection{各扩展点的最小改动步骤}
+
+\textbf{① 新增单元类型}（5 步，模板 = 现有 CST/Q4/Q4R/Q4I）：
+\begin{enumerate}[leftmargin=*]
+  \item \fem|fem2d/element/q4.py| 复制为新文件，实现 \fem|ElementKernel|
+        协议（刚度、应变位移阵 B、积分规则、沙漏控制等基类方法
+        覆写——\fem|element/__init__.py| 的 docstring 有 3 步流程说明）；
+  \item \fem|fem2d/element/__init__.py| 末尾补
+        \fem|from .<新模块> import <新内核>| + \fem|register_element(<新内核>())|；
+  \item 注册必须过 \fem|verify_all_elements()|（分片试验 + 刚体模态
+        自检）——不过关说明内核公式有误；
+  \item 写判别性测试（放回旧实现必失败的测试，§9.3）；
+  \item \fem|python scripts/verify_all.py --fast| 全绿收尾。
+\end{enumerate}
+
+\textbf{② 新增应力恢复方法}（3 步，模板 = stress.py 的
+\fem|nodal_simple| / \fem|nodal_weighted| / \fem|nodal_L2_projection|，
+150/158/212 行）：
+\begin{enumerate}[leftmargin=*]
+  \item \fem|stress.py| 写 \fem|nodal_<名字>(mesh, result)| 函数，
+        签名与返回 (n,3) 数组必须与现有方法\textbf{完全一致}；
+  \item \fem|visualize.py| 顶部 \fem|_RECOVERY_METHODS| 字典加一项
+        \fem|"<名字>": nodal_<名字>|——CLI 的 \fem|--recovery| 自动可
+        选到它；
+  \item 对比测试：同一 result 上与已有方法数值可比（新方法对同一
+        网格不得出现数量级差异）。
+\end{enumerate}
+
+\textbf{③ 新增载荷/约束形式}（3 步，模板 = \fem|loads_core.py|
+456/514/590 行）：新增 \fem|parse_*| 入口函数复用 \fem|make_edge_profile_func|
+做空间分布，需要新数学函数/常量时\textbf{只改} \fem|_compile_expr|
+的 \textbf{AST 白名单}（这是安全边界：表达式里出现白名单之外的
+名字直接拒绝，历史教训 §2 库"AST 白名单禁止 eval"）；配解析单测 +
+端到端物理量回归。
+
+\textbf{④ 新增边界检测器/命名器}（3 步，模板 = boundary/plugins.py
+的 circle\_label / ellipse\_group\_label / arc\_curvature）：
+\begin{enumerate}[leftmargin=*]
+  \item 在 \fem|boundary/detectors/| 写新文件，\fem|register_detector()|
+        登记——注册即生效，\textbf{无需改识别管线}；
+  \item 首个非 None 胜出：新检测器只要在既有检测器之后注册，
+        不抢已有标签；
+  \item 全量回归（识别结果的金标准文件若变，走 golden 更新流程）。
+\end{enumerate}
+
+\textbf{⑤ 新增可视化模式}（3 步）：\fem|visualize.py| 的 PLOTS 注册表
+加 tag + 绘图函数（模板 = 既有 12 个 tag）；交互/保存自动接入
+（\fem|interactive_plot| 按 tag 分发）；无 gmsh 环境下 \fem|--save|
+必须仍能出 PNG（Agg 后端兜底）。
+
+\subsection{扩展开发流程}
+
+\begin{enumerate}[leftmargin=*]
+  \item 只读调用现有 API（Mesh/solve/error\_est/convergence），不复制
+        实现——重复实现是静默分歧的温床（历史教训：两处 parse\_vec2
+        行为漂移）
+  \item 新增功能必须带判别性测试 + 全量 pytest 0 失败
+  \item 触碰冻结区需特殊程序：金标准逐位一致 + 回归 0.0 双验证
+  \item 提交前跑 \fem|verify_all.py --fast| 与 \fem|--no-gmsh| 模拟
+  \item \textbf{文档同步}：新扩展点必须在本文档（对应小节）与
+        \fem|docs/CODE_MAP.md| 里登记——测试锁定文档声明的关键数字，
+        文档不同步会在 CI 报红（§9.1 文档守卫）。
+\end{enumerate}
+
+%══════════════════════════════════════════════════════════════
+\section{可维护性}
+%══════════════════════════════════════════════════════════════
+
+可维护性不是口号，是\textbf{按场景走固定路径}。下表是六类常见
+日常动作的标准流程——每一步做什么、跑哪条命令、以什么为准。
+
+\begin{longtable}{p{2.6cm}p{7.6cm}p{4.6cm}}
+\toprule
+\textbf{场景} & \textbf{操作路径} & \textbf{验证基准} \\
+\midrule
+修 bug & 最小复现（拿 models/ 现成 .geo 或写最小 .geo 定位）$\rightarrow$ 修复 $\rightarrow$ 附判别性测试（放回旧实现必失败）$\rightarrow$ 全量 pytest & 0 失败；漂移门回归 0.0 \\
+加功能 & 查 §11.1 总表定位挂接点 $\rightarrow$ 按 §11.2 最小步骤 $\rightarrow$ 判别性测试 & verify\_all --fast 全绿 \\
+动冻结区 & 金标准逐位一致（test\_solve\_refactor\_lock）$\rightarrow$ 回归 0.0 双验证——\textbf{唯一合法路径} & 逐位一致 + 漂移门 0.0 \\
+优化性能 & 先 \fem|perf_benchmark.py| 打基线 $\rightarrow$ 改非冻结区 $\rightarrow$ 重测（禁止凭直觉改数值路径） & 性能回归门 + 漂移门 0.0 \\
+升级依赖 & numpy/scipy/pytest 升版后跑全量 + 漂移门；SciPy 升版曾引起 SuperLU 逐位分歧（多列 solve 必须逐列） & 跨平台逐位一致（Windows/Linux CI） \\
+发布新版本 & CHANGELOG 条目 $\rightarrow$ 版本号 $\rightarrow$ 便携包重建（§2.6 目录结构）$\rightarrow$ 发布检查清单（§8.7） & 解压到干净目录跑通 demo \\
+\bottomrule
+\end{longtable}
+\normalsize
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{一键验证}：\fem|verify_all.py| 九阶段自检——pytest 全量、
+        探针、fuzz（500 例）、漂移门、compileall、ruff、mypy、vulture、
+        self-test；\fem|--no-gmsh| 模式模拟无 gmsh 环境全量回归。
+  \item \textbf{数值基线钉死}：漂移门（regression\_compare）6 个物理量
+        逐位比对，跨平台（Windows/Linux CI）一致，任何数值改动逃不过它。
+  \item \textbf{契约表}：\fem|docs/api_contract.md| 记载全部公开 API 的
+        输入/输出/异常契约，配套契约测试（6 文件）锁定行为；探针
+        scripts/audit\_contract\_probe.py 151 项断言与代码实测三方一致。
+  \item \textbf{文档守卫}：测试锁定 README/CODE\_MAP 的关键数字声明，
+        代码变更后文档不同步会直接报红。
+  \item \textbf{CI 全链路}：GitHub Actions 8 个 job（lint、测试矩阵、
+        全量、wheel、性能回归门）。
+  \item \textbf{多轮独立审查}：外部逐行审查 3 轮（R1--R7 七维度），
+        P0/P1 缺陷归零，审查报告归档于 \fem|docs/review_20260805.md|。
+  \item \textbf{冻结区纪律}：element/ 内核公式、solver 数值逻辑、
+        error\_est 公式、边界识别算法——改动需特殊程序（金标准 →
+        逐位一致 → 回归 0.0），教学求解器最怕"错误结果无报错"，
+        此坑已被机制锁死。
+  \item \textbf{工作流铁律}：每提交必全量 pytest 0 失败；修复流程 =
+        最小复现 → 修复 → 判别性测试 → 全量；注释只留"为什么"，
+        不写历史叙事；禁绝对阈值。
+\end{itemize}
+
+%══════════════════════════════════════════════════════════════
+\section{未来展望}
+%══════════════════════════════════════════════════════════════
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{非线性扩展}：当前求解器为线弹性。非线性（几何大变形、
+        弹塑性材料、接触）需要增量步 + 牛顿迭代框架，属新项目范畴；
+        本求解器可作退化基准——非线性代码退化为线性时必须与本软件
+        逐位一致。
+
+  \item \textbf{混合网格}：三角形+四边形混合拓扑当前明确拒绝。若需
+        支持，可在拓扑校验层放开限制并统一单元间界面自由度处理，
+        属独立开发轮次（研究备选，未拍板前不做）。
+
+  \item \textbf{性能}：已完成的优化轮（P-$\alpha$/$\beta$/$\delta$/$\varepsilon$/$\zeta$）
+        覆盖 K$\cdot$u 乘法（100k solve $-10.8\%$）、刚体模态缓存
+        （二次调用 $\sim$6500$\times$ 提速）、面力批量向量化
+        （2.6--3.3$\times$）。进一步方向：稀疏求解器调优、多线程/GPU
+        批量装配。任何优化先 profile 再动手（\fem|perf_benchmark.py|），
+        禁止凭直觉改冻结区。
+
+  \item \textbf{三维扩展}：公式体系（弱形式、误差估计、SPR）可直接
+        推广至三维；单元库、网格接口与可视化需按维度抽象重构
+        （研究备选，架构边界重构成本高）。
+
+  \item \textbf{交互/可视化}：现有交互式向导与云图输出可演进为独立
+        GUI 或 Web 前端（Jupyter 集成），降低使用门槛。
+\end{enumerate}
+
+%══════════════════════════════════════════════════════════════
+\section{版本与验证记录}
+%══════════════════════════════════════════════════════════════
+
+\begin{longtable}{p{2.3cm}p{3.7cm}p{8.6cm}}
+\toprule
+版本 & 提交 & 验证结论 \\
+\midrule
+9.28.0 & e397f64 & 全部轮次闭环；pytest 1812 全过；漂移门 0.000e+00；覆盖 98.3\% \\
+\bottomrule
+\end{longtable}
+
+历史大轮：A 清理轮（死代码/重复实现清除）、B 结构轮（长函数拆分）、
+C 覆盖轮（契约扩展）、D 易用性轮（错误消息引导）、E 解析解轮（E1/E2/E3）、
+R 审查轮（R1--R7 七维度）、P 性能轮（P-$\alpha$--$\zeta$ 七包）、
+S-$\alpha$ 安全轮（表达式 DoS/复数拒绝/打包卫生）。
+
+本文档对应的代码仓库即为主项目目录；便携包（PORTABLE\_WIN64.zip）为
+免安装演示/交付形态，已在全新路径模拟新电脑验证通过（求解结果与
+参考值一致，全量自检 ALL PASS）。
+
+%══════════════════════════════════════════════════════════════
+\appendix
+\section{常见问题（FAQ）}
+
+按"从建模到出结果"的使用顺序编排的问答，每条答案都在正文有
+对应章节——这里只给结论和指针。
+
+\subsection{建模与输入}
+
+\textbf{Q1：为什么不再支持 .inp 输入？}
+A：手写 .inp 解析器在真实文件面前暴露了一批边界情况缺陷（TYPE=
+子串匹配误判、T3D2 孤立节点、.geo 混传），改走 Gmsh API 直读
+.msh 后整类错误消失（§3.8）。.inp 保留为\textbf{导出}格式，不再是
+输入格式。
+
+\textbf{Q2：没有 Gmsh 能跑吗？}
+A：能。网格生成（.geo 路径）不可用，其余全部可用：读 .msh/.spec、
+求解、后处理、误差估计。无 gmsh 环境下 1600+ 测试仍通过
+（skip 不失败，§9.9 无 gmsh 纪律）。
+
+\textbf{Q3：.geo / .msh / .txt / .spec 有什么区别？}
+A：.geo 是 Gmsh 脚本（几何 + 网格）；.msh 是 Gmsh 网格数据；
+.txt 是中文几何描述（交互向导生成）；.spec 是求解参数文件。
+run.py 按扩展名自动分派（§3.1）。
+
+\subsection{单元选择}
+
+\textbf{Q4：CST / Q4 / Q4R / Q4I 怎么选？}
+A：教学与收敛研究用 Q4（全积分、无锁定配置）；大型模型/扭曲网格
+用 Q4R（快但细长网格失真）；薄板/细长弯曲首选 Q4I；规则简单
+网格用 CST 入门（§4.3.3 决策表）。
+
+\textbf{Q5：Q4R 的沙漏能占比高是不是说明结果不可信？}
+A：不是。沙漏能占比在两种情形下都可能 $>90\%$（稳定项主导或沙漏
+主导），它不是可靠判据；判据改用单元长宽比在求解前告警
+（§4.3.3）。
+
+\textbf{Q6：为什么 $2\times2$ 高斯积分叫"全积分"？}
+A：被积函数对平行四边形是 $\xi,\eta$ 的二次多项式，$2\times2$ 高斯
+点恰好能精确积分 3 阶以内——刚刚够，故称"全"。单点积分只够
+线性项，二次项被采样到零——沙漏的根源（§4.3.1）。
+
+\textbf{Q7：固定端在 CST 里为什么等于一排固定铰？}
+A：CST 每个节点只有 Ux/Uy 两个平动自由度，没有转角可约束；固支
+只能锁住整条边上所有节点的平动——位移梯度在边内为零，转角
+间接为零（§10.1 第 3 条）。
+
+\subsection{载荷与边界}
+
+\textbf{Q8：压力方向反了怎么办？}
+A：法向由相邻单元 CCW 方向确定（§6.7.4 定向约定），与调用时
+节点顺序无关；若要主动改向，检查单元是否全部 CCW 归一化
+（导入器自动做，§3.8 硬规则 4）。
+
+\textbf{Q9：表达式载荷里能写什么？}
+A：变量仅 $x,y$，函数仅 sin/cos/tan/exp/sqrt/log/abs 与常量 $\pi$。
+AST 白名单解析，禁止 eval；超大指数在编译期被拦截（§10.1 第 4 条）。
+
+\textbf{Q10：为什么网格看起来约束充分却报奇异矩阵？}
+A：最常见原因是孤立节点——节点存在但未被任何 2D 单元引用，它在
+总刚中对应全零行/列，任何约束都救不回来。Gmsh 导入已自动过滤
+（§3.8 硬规则 3），裸构造 Mesh 时需自查节点连通性。
+
+\subsection{结果解读}
+
+\textbf{Q11：结果与解析解差 10\% 是算错了吗？}
+A：先看单元族与网格密度：Q4 悬臂 12.9\%→3.2\%→0.38\% 随加密收敛
+（§4.3.1）；Q4R 在细长网格下可过刚到 2\%（§4.3.3 已知局限）。
+误差估计用 Z2 与应力跳跃定位区域（§4.6），不要凭单个数值下结论。
+
+\textbf{Q12：应力云图峰值和单元应力峰值为什么不同？}
+A：磨平（nodal weighted/SPR）把相邻单元常应力加权平均，峰值被
+周围低值拉低 $\sim$17\% 是正常现象；色条范围若用节点值应明确
+标注（历史教训，§4.5.2）。
+
+\textbf{Q13：相邻单元应力跳跃 200\% 是什么？}
+A：$|s_1-s_2|/\max$ 公式在应力过零处饱和到 200\%——是归一化公式
+的假象，不是真实误差；正确度量是牵引跳跃 $|\Delta t|/\sigma_{ref}$
+（§4.6.2）。
+
+\subsection{开发与验证}
+
+\textbf{Q14：改了一行代码怎么确认没破坏数值？}
+A：运行\newline
+\fem|python scripts/verify_all.py --fast|
+——pytest 全量 + 探针 + 漂移门（端到端 6 指标相对误差 $<10^{-9}$）；
+修复必须附判别性测试——放回旧实现必失败（§9.3）。
+
+\textbf{Q15：怎么加一种新单元？}
+A：实现 \fem|ElementKernel| 协议（形函数/B 矩阵/刚度/自检四件套），
+\fem|register_element()| 登记即可被求解器使用；现有四种单元是模板
+（§6.2 协议层 + §11 扩展开发流程）。
+
+\textbf{Q16：便携包和源码方式怎么选？}
+A：演示/交付用便携包（免安装，demo.bat 一键全流程，§2.1）；开发/
+研究用源码方式（pytest 全量回归 + 探针可用，§2.2）。
+
+\textbf{Q17：为什么 Q4 网格在纯弯曲下挠度偏小？}
+A：全积分 Q4 的剪切锁定——双线性位移场无法表示
+$\sigma_x \sim y$ 的弯曲应力分布，寄生剪切使弯曲刚度抬高（§4.3.1）。
+粗网格明显（悬臂 12.9\%），加密后消失；换 Q4R/Q4I 也可消除。
+
+\textbf{Q18：怎么判断网格够不够细？}
+A：三条独立证据：Z2 能量误差 $\eta$ 随加密下降且收敛阶 $\approx 1$
+（§4.6.1）；E3 效应指数 $\theta$ 落在预期区间（§9.8）；加密一倍
+（h 减半）后关键量（挠度/应力集中系数）变化显著变小。三者
+互相印证，不要只看一张云图。
+
+\textbf{Q19：云图里红色区域就是危险区吗？}
+A：先看色条标注的是单元值还是节点磨平值——磨平后峰值被拉低
+$\sim$17\% 属正常（§4.5.2），色条范围与标注必须一致；再看是哪个
+量（von Mises 是标量判据，$\sigma_x$ 有符号无危险性）。
+
+\textbf{Q20：怎么把结果导出给其他软件？}
+A：网格导出：输出路径用 \fem|.inp| 后缀即写出 Abaqus 风格文件
+（§3.8，仅导出、不再导入）；结果数据在 \fem|_fem2d_out/| 下的
+报告与云图；也可在 Python 里直接读 \fem|result| 字典
+（\fem|u|/\fem|vm_stress|/各应力分量）自行后处理。
+
+\section{术语表}
+%══════════════════════════════════════════════════════════════
+
+\begin{longtable}{p{3.0cm}p{11.8cm}}
+\toprule
+\textbf{术语} & \textbf{含义} \\
+\midrule
+CST & 常应变三角形（3 节点线性单元） \\
+Q4 & 双线性四边形（4 节点，$2\times2$ 积分） \\
+Q4R & 单点积分四边形 + 沙漏稳定 \\
+Q4I & QM6 非协调四边形（静力凝聚） \\
+DOF & 自由度；约定 x $\to$ 2n、y $\to$ 2n+1 \\
+B 矩阵 & 应变-位移阵，$\boldsymbol{\varepsilon} = \mathbf{B}\,\mathbf{d}$ \\
+弱形式 & 虚功原理的加权积分形式（式 \eqref{eq:virtual}） \\
+消去法 & Bathe §4.2.2 约束自由度消去（默认） \\
+罚方法 & 对角元加罚刚度施加约束（近似） \\
+SPR & 超收敛点恢复（节点补丁局部最小二乘） \\
+L2 投影 & 一致质量阵意义下的最小二乘应力投影 \\
+Z2 & Zienkiewicz--Zhu 能量误差估计器（Bathe Eq. 4.108） \\
+效应指数 & 误差随 h 的衰减率 $\theta$（线性单元 $\approx 1$） \\
+牵引跳跃 & 内部边上的牵引不连续度量 $\llbracket\mathbf{t}\rrbracket$ \\
+刚体模态 & 零应变变形模式（2 平动 + 1 转动） \\
+沙漏模式 & 单点积分的零能量变形模式 \\
+漂移门 & 6 个基线值逐位比对的数值回归门 \\
+金标准 & boundary\_golden 段 schema + solve\_refactor\_lock 逐位锁 \\
+冻结区 & element/ 内核、solver 数值逻辑、error\_est 公式、边界识别算法 \\
+判别性测试 & 放回旧实现必须失败的测试 \\
+\bottomrule
+\end{longtable}
+
+%══════════════════════════════════════════════════════════════
+\section{公式--教材对照表}
+%══════════════════════════════════════════════════════════════
+
+本软件的每一条核心公式都能在教材中找到出处。对照表（教学与审查用）：
+
+\begin{longtable}{p{4.7cm}p{3.7cm}p{6.2cm}}
+\toprule
+\textbf{软件公式/机制} & \textbf{Bathe 出处} & \textbf{实现位置} \\
+\midrule
+平衡方程 & Eq. 4.1 & \fem|error_est| 理论依据 \\
+几何方程（应变-位移） & Eq. 4.2 & \fem|element/*| B 矩阵 \\
+平面应力本构 D & Eq. 4.11 & \fem|material.D_matrix()| \\
+平面应变本构 D & Eq. 4.12 & \fem|material.D_matrix()| \\
+DOF 编号 x=2i, y=2i+1 & Eq. 4.18 & 全局约定 \\
+虚功原理（弱形式） & Eq. 4.33 & 理论基础 \\
+单元刚度/载荷 & Eq. 4.30--4.31 & \fem|element/*| + \fem|loads_core| \\
+消去法约束施加 & §4.2.2, Eq. 4.40 & \fem|bc.apply_elimination()| \\
+静力凝聚（Q4I） & Eq. 4.65 & \fem|element/q4i.py| \\
+等参积分 & Eq. 5.39 & \fem|element/q4.py| \\
+CST 形函数 & §5.2.3 & \fem|element/cst.py| \\
+Q4 形函数 & §5.2.4 & \fem|element/q4.py| \\
+QM6 非协调模式 & §5.5.1 & \fem|element/q4i.py| \\
+分片试验 & §4.4.2 & \fem|patch_test.py| \\
+SPR 恢复 & §4.3.6 & \fem|spr.py| \\
+Z2 能量误差估计器 & §4.3.6, Eq. 4.108 & \fem|error_est.py| \\
+应力不连续（牵引跳跃） & §4.3.6, Eq. 4.107 & \fem|compute_traction_jumps| \\
+等应力带法 & §4.3.6 + Sussman--Bathe & \fem|visualize.isoband| \\
+后向误差（残差检查） & §8.2.6 & \fem|solver.py| \\
+\bottomrule
+\end{longtable}
+
+%══════════════════════════════════════════════════════════════
+\section{项目历史大事记}
+%══════════════════════════════════════════════════════════════
+
+从 3 月理论预研到 8 月封盘发布，项目走过了半年。3--5 月以理论
+学习与手算验证为主，6 月起原型成形，7 月进入当前代码库的正式
+迭代，8 月完成审计、性能与打包（§8.8 独立审查历史可对照）。
+每个月都能在代码库或知识库中找到对应痕迹。
+
+\begin{longtable}{p{2.8cm}p{5.1cm}p{6.7cm}}
+\toprule
+\textbf{日期} & \textbf{轮次} & \textbf{内容与结论} \\
+\midrule
+2026-03-18 & 理论预研 & Bathe《Finite Element Procedures》精读起步：弱形式、单元刚度、误差评估体系——§4 理论基础的知识起点 \\
+2026-03-28 & 手算验证 & 杆/梁单双单元手算算例与教材解析解对标，建立"理论 $\rightarrow$ 代码 $\rightarrow$ 验证"的核对习惯（后成为分片试验与解析解轮的原型） \\
+2026-04-10 & 数学基础 & 变分原理与弱形式推导复习；单刚 $\rightarrow$ 总刚组装的稀疏存储笔记（后续五阶段管线的算法源头） \\
+2026-04-22 & CST 原型 & 单文件 CST 教学原型：分片试验通过，验证"几何 $\rightarrow$ 网格 $\rightarrow$ 组装 $\rightarrow$ 求解 $\rightarrow$ 后处理"闭环可行 \\
+2026-05-12 & 求解器骨架 & .inp 手写解析器初版（CPS3 网格导入）+ 边界条件命令行雏形（fix/force），CLI 形态确立 \\
+2026-05-30 & Q4 与 Gmsh & 协调四边形单元理论研究 + Gmsh 建模语法学习（.geo 脚本体系确立，§2.7 的来源） \\
+2026-06-10 & 可视化雏形 & matplotlib 单元色块云图 + 色条初版；数值结果"看得见"，后处理章（§10）铺路 \\
+2026-06-28 & 边界识别雏形 & 网格拓扑自动识别原型（边界链与标签体系前身）；平面应力/平面应变体系梳理 \\
+2026-07-12 & 立项 & 2D 平面三角形单元求解器起步（本科毕设/保研项目） \\
+2026-07-20 & Gmsh 集成 & 多格式网格导入贯通（.geo/.msh/.inp）；沉淀网格拓扑校验系列教训（孤立节点/重复单元/负索引） \\
+2026-07-24 & 审计轮 & CST 求解器多轮外部审计，28 项问题修复 + 7 项保留 \\
+2026-07-25 & 可视化与误差轮 & SPR 应力恢复、等应力带法（Bathe §4.3.6）、网格质量指标、应力跳跃度量接入；沉淀 9 条经验教训（知识库 fem/lessons/） \\
+2026-07-28 & 维护性评估 & 桌面版源码盘点：可维护性差、单文件堆积 $\rightarrow$ 启动大规模重构（8 月 A--E 轮的前奏） \\
+2026-08-02 & A/B/C & 清理轮（死代码）+ 结构轮（长函数拆分）+ 覆盖轮（契约扩展） \\
+2026-08-03 & D/E & 易用性轮（错误消息引导）+ 解析解轮（E1/E2/E3 理论对标） \\
+2026-08-03 & 契约复查 & K1--K13 缺口闭环 + 探针 151 项断言 + fuzz 500 \\
+2026-08-05 & R 审查 & R1--R7 七维度外部审查，P0/P1 缺陷归零，评分 8.4/10 \\
+2026-08-06 & P轮I/II & 性能七包（K$\cdot$u 向量化/缓存/面力批量化等）+ CI 性能门 \\
+2026-08-07 & S-$\alpha$ 安全 & 表达式 DoS 修复、复数拒绝、打包卫生；封盘清理，维护模式 \\
+2026-08-07 & 便携包 & 免安装 Windows 便携包验证通过（模拟新电脑全流程） \\
+\bottomrule
+\end{longtable}
+
+%══════════════════════════════════════════════════════════════
+\section{参考文献}
+%══════════════════════════════════════════════════════════════
+
+\begin{enumerate}[leftmargin=*]
+  \item K.-J. Bathe. \emph{Finite Element Procedures}, 2nd ed. Prentice Hall,
+        1996.（核心教材；本文公式编号（§4.2.2、§4.3.6、§5.2、§5.5、
+        Eq. 4.18/4.30/4.107/4.108 等）均对应此书）
+  \item T. Sussman, K.-J. Bathe. ``Studies of finite element procedures --
+        stress band plots'', \emph{Computers \& Structures}, 1986.
+        （等应力带法）
+  \item O. C. Zienkiewicz, J. Z. Zhu. ``A simple error estimator and
+        adaptive procedure for practical engineering analysis'',
+        \emph{IJNME}, 1987.（Z2 估计器）
+  \item R. L. Taylor et al. QM6 非协调单元，\emph{Int. J. Num. Meth. Eng.},
+        1976.（Q4I 理论基础）
+  \item S. P. Timoshenko, J. N. Goodier. \emph{Theory of Elasticity}, 3rd ed.
+        （E1 梁理论、E2 Kirsch 解出处）
+  \item Kirsch (1898). 无限板圆孔应力集中。（E2 解析解）
+\end{enumerate}
+
+\end{document}

@@ -176,7 +176,7 @@ def apply_elimination(
         return_info=False, *, _system_validated=False):
     # cg_rtol 必须保持 1e-10: 实测 1e-8 时 CG 残差污染固定 DOF 反力
     # (~4.3e-3 N @ 29 万单元), 与平衡检查 tol_rel=1e-8·|F| 同量级,
-    # 合法大模型被 ΣF 检查误杀 (性能优化试验后回退)
+    # 合法大型模型被 ΣF 检查误杀 (性能优化试验后回退)
     """用消去法施加位移约束 (Bathe §4.2.2 Eq 4.42-4.45)
 
     将 DOF 划分为自由 (a) 和约束 (b) 两组，仅求解自由 DOF，

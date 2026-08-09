@@ -28,3 +28,12 @@ wt_*/
 architecture.pdf
 scripts/convergence/
 perf_results.json
+
+# GUI/Wizard 运行时临时几何 (随机后缀, 不入库)
+.fem2d-*
+
+# LaTeX 编译产物
+FEM2D_USER_GUIDE.aux
+FEM2D_USER_GUIDE.log
+FEM2D_USER_GUIDE.out
+FEM2D_USER_GUIDE.toc

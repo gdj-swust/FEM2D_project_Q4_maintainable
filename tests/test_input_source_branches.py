@@ -634,3 +634,113 @@ def test_resolve_input_msh_import_none_raises(tmp_path, monkeypatch):
         isrc.resolve_input_file(str(msh), AnalysisConfig())
     assert exc.value.exit_code == 1
     assert ".msh 导入失败" in str(exc.value)
+
+
+# ═══════════════════════════════════════════════════════════════
+# resolve_geo: .msh 复用 (geo 未修改时跳过 gmsh 网格化)
+# ═══════════════════════════════════════════════════════════════
+
+def _patch_generate(monkeypatch):
+    """mock generate_geo_with_topology, 记录调用次数."""
+    calls = {"n": 0}
+    def _fake_gen(geo_path, *, quad=False, output_path=None,
+                  plane_type="stress"):
+        calls["n"] += 1
+        return "gen.msh", "gen-import"
+    monkeypatch.setattr(isrc, "generate_geo_with_topology", _fake_gen)
+    return calls
+
+
+def test_resolve_geo_reuses_fresh_msh(tmp_path, monkeypatch, capsys):
+    """geo 未修改且已有 .msh → 复用跳过网格化 (交付识别提速).
+
+    判别: generate_geo_with_topology 调用 0 次, 返回复用路径 + 打印标记.
+    """
+    geo = tmp_path / "m.geo"
+    msh = tmp_path / "m.msh"
+    geo.write_text('SetFactory("OpenCASCADE");\n', encoding="utf-8")
+    msh.write_text("x", encoding="utf-8")
+    t = os.path.getmtime(str(msh)) - 10
+    os.utime(str(geo), (t, t))               # geo 旧于 msh
+    calls = _patch_generate(monkeypatch)
+    seen = {}
+    def _fake_import(msh_path, require_quads=False, plane_type="stress"):
+        seen["path"] = msh_path
+        return "reused-import"
+    monkeypatch.setattr(gmsh_adapter_mod, "import_msh", _fake_import)
+    msh_path, imp, src = isrc.resolve_geo(str(geo), AnalysisConfig())
+    assert calls["n"] == 0, "复用命中时不应调用 generate_geo_with_topology"
+    assert msh_path == str(msh) and imp == "reused-import"
+    assert seen["path"] == str(msh)
+    assert "复用已有网格" in capsys.readouterr().out
+
+
+def test_resolve_geo_regenerates_when_geo_newer(tmp_path, monkeypatch, capsys):
+    """geo 新于 msh → 网格可能过期, 必须重新网格化."""
+    geo = tmp_path / "m.geo"
+    msh = tmp_path / "m.msh"
+    geo.write_text('SetFactory("OpenCASCADE");\n', encoding="utf-8")
+    msh.write_text("x", encoding="utf-8")
+    t = os.path.getmtime(str(geo)) - 10
+    os.utime(str(msh), (t, t))               # msh 旧于 geo
+    calls = _patch_generate(monkeypatch)
+    boom = AssertionError("复用不应命中")
+    monkeypatch.setattr(gmsh_adapter_mod, "import_msh",
+                        lambda *a, **k: (_ for _ in ()).throw(boom))
+    msh_path, imp, _ = isrc.resolve_geo(str(geo), AnalysisConfig())
+    assert calls["n"] == 1
+    assert msh_path == "gen.msh" and imp == "gen-import"
+    assert "复用已有网格" not in capsys.readouterr().out
+
+
+def test_resolve_geo_reuses_foreign_msh(tmp_path, monkeypatch, capsys):
+    """交付包 msh 均为外来无标记文件 — 无 lc 覆盖时必须同样复用."""
+    geo = tmp_path / "m.geo"
+    msh = tmp_path / "m.msh"
+    geo.write_text('lc = 0.1;\nSetFactory("OpenCASCADE");\n',
+                   encoding="utf-8")
+    msh.write_text("x", encoding="utf-8")
+    t = os.path.getmtime(str(msh)) - 10
+    os.utime(str(geo), (t, t))
+    calls = _patch_generate(monkeypatch)
+    monkeypatch.setattr(gmsh_adapter_mod, "import_msh",
+                        lambda *a, **k: "reused-import")
+    msh_path, imp, _ = isrc.resolve_geo(str(geo), AnalysisConfig())
+    assert calls["n"] == 0 and msh_path == str(msh)
+    capsys.readouterr().out
+
+
+def test_resolve_geo_lc_override_skips_reuse(tmp_path, monkeypatch, capsys):
+    """显式 --lc 覆盖密度 → 旧 msh 不复用 (否则结果用错网格密度)."""
+    geo = tmp_path / "m.geo"
+    msh = tmp_path / "m.msh"
+    geo.write_text('lc = 0.1;\nSetFactory("OpenCASCADE");\n',
+                   encoding="utf-8")
+    msh.write_text("x", encoding="utf-8")
+    t = os.path.getmtime(str(msh)) - 10
+    os.utime(str(geo), (t, t))
+    calls = _patch_generate(monkeypatch)
+    boom = AssertionError("复用不应命中")
+    monkeypatch.setattr(gmsh_adapter_mod, "import_msh",
+                        lambda *a, **k: (_ for _ in ()).throw(boom))
+    msh_path, imp, _ = isrc.resolve_geo(str(geo), AnalysisConfig(lc=0.5))
+    assert calls["n"] == 1 and msh_path == "gen.msh"
+    assert "复用已有网格" not in capsys.readouterr().out
+
+
+def test_resolve_geo_fallback_when_reuse_fails(tmp_path, monkeypatch, capsys):
+    """msh 损坏/读回失败 → WARN + fallback 重新网格化."""
+    geo = tmp_path / "m.geo"
+    msh = tmp_path / "m.msh"
+    geo.write_text('SetFactory("OpenCASCADE");\n', encoding="utf-8")
+    msh.write_text("x", encoding="utf-8")
+    t = os.path.getmtime(str(msh)) - 10
+    os.utime(str(geo), (t, t))
+    calls = _patch_generate(monkeypatch)
+    monkeypatch.setattr(gmsh_adapter_mod, "import_msh",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            ValueError("无法打开")))
+    msh_path, imp, _ = isrc.resolve_geo(str(geo), AnalysisConfig())
+    assert calls["n"] == 1 and msh_path == "gen.msh"
+    out = capsys.readouterr().out
+    assert "复用" in out and "重新网格化" in out

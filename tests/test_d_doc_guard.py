@@ -30,10 +30,12 @@ CODE_MAP = ROOT / "docs" / "CODE_MAP.md"
 # 硬编码锁定值 (2026-08-06, D-α 实测 @ main 810b7bd + 本守卫文件计入):
 # P轮Ⅱ 七包合入前 134 文件 / ~1552 函数 / 1628 收集 → 合入后
 # 141 文件 / 1627 函数 / 1790 收集 → 本包新增守卫文件 → 142/1630/1793
-# → S-α 新增 test_s_alpha_security.py (19 函数) → 143/1649/1812.
-TEST_FILES = 143
-TEST_FUNCTIONS = 1649
-COLLECTED = 1812
+# → S-α 新增 test_s_alpha_security.py (19 函数) → 143/1649/1812
+# → GUI v12 新增 test_gui_logic.py (26 收集) → 144/1667/1838
+# → msh 复用新增 5 (test_resolve_geo_*) + GUI 组选择新增 3 (test_apply_identification_*/test_add_bc_*) → 144/1675/1846.
+TEST_FILES = 144
+TEST_FUNCTIONS = 1683
+COLLECTED = 1854
 
 # 前缀字样由拼接构造 — 禁止在本文件出现连续序列
 _DF = "def test" + "_"

@@ -532,6 +532,39 @@ def _resolve_geo_lc(fp, config, ask, temp_dir=None):
     return tmp.name, tmp.name
 
 
+def _try_reuse_msh(geo_path, msh_path, *, quad, plane_type):
+    """已有 .msh 且 .geo 未修改时复用, 跳过 gmsh 网格化.
+
+    交付场景: exe 每次识别 .geo 都重新跑 gmsh (实测 7.8s/19168 单元,
+    弱机 30s+), 而直接喂 .msh 是秒开 — 复用是对称补齐. 判据:
+    ①msh 存在; ②geo 不比 msh 新 (geo 修改过 → 旧网格可能过期);
+    ③import_msh 读回成功 (拓扑验证失败 → fallback 重新网格化).
+    外来无标记 msh 同样复用 — 文件名配对 + mtime 是基本信任,
+    import_msh 的拓扑验证兜底结构错误.
+
+    返回 (msh_path, gmsh_import); 任何判据不满足返回 (None, None),
+    调用方必须走正常网格化路径。
+    """
+    if not os.path.isfile(msh_path):
+        return None, None
+    try:
+        if os.path.getmtime(geo_path) > os.path.getmtime(msh_path):
+            return None, None
+    except OSError:
+        return None, None
+    from .gmsh_adapter import import_msh
+    try:
+        gmsh_import = import_msh(msh_path, require_quads=quad,
+                                 plane_type=plane_type)
+    except Exception as error:
+        print(f"  [WARN] 复用 {os.path.basename(msh_path)} 失败"
+              f" ({error}) — 重新网格化")
+        return None, None
+    print(f"  [Gmsh] 复用已有网格 {os.path.basename(msh_path)}"
+          " (.geo 未修改) — 跳过网格化")
+    return msh_path, gmsh_import
+
+
 def resolve_geo(fp, config, ask=None):
     """.geo → 询问网格密度 (CLI 全参数时跳过), 跑 Gmsh 生成 .msh.
 
@@ -556,6 +589,13 @@ def resolve_geo(fp, config, ask=None):
 
     gmsh_geo, temp_geo = _resolve_geo_lc(fp, config, ask, temp_dir=out_dir)
     target_msh = _artifact_path(fp, config.output_dir, '.msh')
+    # lc 覆盖请求 (temp_geo is not None) → 网格密度已变, 旧 msh 不复用
+    if temp_geo is None:
+        reused, reused_import = _try_reuse_msh(
+            fp, target_msh, quad=config.quad,
+            plane_type=config.plane or 'stress')
+        if reused is not None:
+            return reused, reused_import, source_geo_path
     msh = None
     try:
         msh, gmsh_import = generate_geo_with_topology(

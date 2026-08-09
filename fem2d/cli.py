@@ -91,7 +91,7 @@ def parse_args(argv=None):
         choices=['auto', 'direct', 'cg', 'cg-block', 'ilu'],
         default=None,
         help=(
-            '线性求解器：auto(大模型自动PCG)、direct(SuperLU)、'
+            '线性求解器：auto(大型模型自动PCG)、direct(SuperLU)、'
             'cg/cg-block(Jacobi-PCG)、ilu(ILU-PCG)'
         ),
     )
@@ -141,6 +141,12 @@ def ask(prompt: str) -> str:
     except EOFError:
         print("  [exit] 标准输入已关闭 — 按未输入处理。")
         return ""
+    except OSError:
+        # GUI 嵌入 (exe 双击, 无控制台) 时 stdin 句柄无效 —
+        # input() 抛 OSError(9 Bad fd) 而非 EOFError, 与 EOF 同样
+        # 按未输入处理 (曾静默泄漏导致 GUI 识别线程"没有结果")
+        print("  [exit] 标准输入不可用 — 按未输入处理。")
+        return ""
     except KeyboardInterrupt:
         raise CliError("\n  [INFO] 已退出 (Ctrl-C)", exit_code=0)
 
@@ -151,6 +157,12 @@ def is_batch_mode(config) -> bool:
     接收 AnalysisConfig (类型化配置) 而非 argparse Namespace —
     执行层不感知 CLI 参数表.
     """
-    return (not sys.stdin.isatty()
+    try:
+        tty = sys.stdin.isatty()
+    except (OSError, ValueError, AttributeError):
+        # stdin 无效/缺失 (exe 双击无控制台) — 无法交互 → 按批处理,
+        # 否则调用方会走 ask() 的 input() 抛 OSError 静默失败
+        tty = False
+    return (not tty
             or bool(config.fix or config.fix_ux or config.fix_uy
                     or config.traction or config.force or config.body))

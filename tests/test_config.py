@@ -195,6 +195,36 @@ def test_resolve_geo_lc_batch_mode_skips_ask(tmp_path):
     assert fp == str(geo) and tmp is None
 
 
+def test_is_batch_mode_invalid_stdin_is_batch(monkeypatch):
+    """.exe 双击 (无控制台) stdin 无效 — isatty() 抛 OSError 时必须
+    按批处理判定, 否则调用方走 ask() 的 input() 静默失败
+    ("走 .geo 没有结果" 根因回归, 2026-08-08)."""
+    from fem2d.cli import is_batch_mode
+
+    class _BadStdin:
+        def isatty(self):
+            raise OSError(9, "Bad file descriptor")
+
+    monkeypatch.setattr("sys.stdin", _BadStdin())
+    config = AnalysisConfig(mesh="m.geo", E=2.1e11, nu=0.3, thickness=0.01)
+    assert is_batch_mode(config) is True  # 视为批处理 → 不交互提问
+
+
+def test_ask_invalid_stdin_oserror_returns_empty(monkeypatch):
+    """.exe 双击 stdin 无效时 input() 抛 OSError(9) — ask 必须与
+    EOFError 同样按未输入处理, 不得泄漏 (2026-08-08 根因回归)."""
+    from fem2d.cli import ask
+
+    def _bad_input(prompt=""):
+        raise OSError(9, "Bad file descriptor")
+
+    monkeypatch.setattr("builtins.input", _bad_input)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        assert ask("probe> ") == ""
+    assert "标准输入不可用" in out.getvalue()
+
+
 def test_resolve_geo_lc_missing_lc_no_spurious_warn_in_batch(capsys, tmp_path):
     """.geo 无 lc 行 + 仅 --fix-ux 批处理: 不得 WARN (曾无条件提示)."""
     from fem2d.input_source import _resolve_geo_lc

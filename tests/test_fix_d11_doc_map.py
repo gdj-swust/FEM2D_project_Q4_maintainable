@@ -71,12 +71,12 @@ def test_d11_no_line_number_references():
 
 
 def test_d11_counts_current():
-    """计数回填真实值: 30 顶层模块 / 143 测试文件 / ~1649 函数 (S-α 实测)."""
+    """计数回填真实值: 30 顶层模块 / 144 测试文件 / ~1683 函数 (msh 复用+GUI组+自动识别实测)."""
     text = _text()
     assert "30 顶层模块" in text, "顶层模块计数未回填"
-    assert "143 文件" in text, "测试文件计数未回填"
-    assert "1649" in text, "test 函数计数未回填 (grep def test_ 计数)"
-    assert "~1649 函数" in text, "测试体系节标题计数未回填"
+    assert "144 文件" in text, "测试文件计数未回填"
+    assert "1683" in text, "test 函数计数未回填 (grep def test_ 计数)"
+    assert "~1683 函数" in text, "测试体系节标题计数未回填"
 
 
 def test_d11_symbols_resolve():
