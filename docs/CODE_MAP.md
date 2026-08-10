@@ -1,9 +1,9 @@
 # FEM2D 全局代码地图（2026-08-05 摸底）
 
-> 用途：给下一任总指挥/执行者快速进入状态。本文件是**静态结构地图**
+> 用途：快速进入项目状态。本文件是**静态结构地图**
 > （模块/函数一律以 **符号引用** 标注，如 `input_source.resolve_input_file()` —
 > 免疫拆分式行号漂移；数字快照 P轮Ⅱ 后 @ main 810b7bd，见 §5），数值行为由金标准/漂移门
-> 锁定，结构变动需同步更新本节。配套：`COMMANDER_HANDOFF_20260805c.md`。
+> 锁定，结构变动需同步更新本节。
 
 ## 1. 顶层结构
 
@@ -112,7 +112,7 @@ Mesh 构造时浅拷贝 kernel（Q4R hourglass_coefficient 是可变类属性，
 ## 5. 测试体系（~1683 函数）
 
 - **金标准锁定**：`tests/boundary_golden/*.json`（边界段 schema——不得新增键）+ `tests/test_solve_refactor_lock.py`（求解逐位锁）
-- **统一验收入口**：`scripts/verify_all.py`（P-κ）——四件套（pytest 全量/探针/fuzz 500/漂移门）+ lint 全命令 + 无 gmsh 模拟一条命令；`--fast`/`--full`/`--no-gmsh`/`--drift`/`--list-stages`/`--stage <名>`/`--fake-fail`（红侧自证）；退出码 0/1/2/3 = 全绿/用法/test 组 FAIL/lint 组 FAIL；lint 与漂移门命令与 ci.yml 双处同步；无 gmsh 模拟需干净 worktree（无 tools/gmsh.exe，交接教训 5）
+- **统一验收入口**：`scripts/verify_all.py`（P-κ）——四件套（pytest 全量/探针/fuzz 500/漂移门）+ lint 全命令 + 无 gmsh 模拟一条命令；`--fast`/`--full`/`--no-gmsh`/`--drift`/`--list-stages`/`--stage <名>`/`--fake-fail`（红侧自证）；退出码 0/1/2/3 = 全绿/用法/test 组 FAIL/lint 组 FAIL；lint 与漂移门命令与 ci.yml 双处同步；无 gmsh 模拟需干净 worktree（无 tools/gmsh.exe）
 - **漂移门**：`scripts/regression_compare.py`（基线 7ee65fc vs main，相对差必须 0.0）
 - **探针**：`scripts/audit_contract_probe.py`（契约表一致性，0 FAIL）
 - **fuzz**：`scripts/fuzz_api.py 500`（固定种子）+ `combo_fuzz.py`
