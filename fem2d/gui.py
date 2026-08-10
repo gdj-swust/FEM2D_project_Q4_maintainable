@@ -617,7 +617,8 @@ class FEM2DGUI:
             else self.load_value
         value = value_entry.get().strip()
         try:
-            parsed = parse_bc_value(
+            # 仅做校验: 值可含 x/y 表达式, 实际求值在 _apply_model_bcs
+            parse_bc_value(
                 "位移" if fix_or_load == "fix" else "载荷", value)
         except ValueError as error:
             messagebox.showerror("数值有误", str(error))

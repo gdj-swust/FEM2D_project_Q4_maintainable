@@ -443,15 +443,21 @@ def test_on_path_trace_empty_path_skipped():
 
 # ── 识别/求解看门狗 ──
 
-def test_poll_watchdog_identify_timeout():
-    """识别 >180s 无结果 → 强制失败并复位 (不再无限'识别中')."""
+def test_poll_watchdog_identify_timeout(monkeypatch):
+    """识别 >180s 无结果 → 强制失败并复位 (不再无限'识别中').
+
+    时钟必须打桩: CI 容器内 time.monotonic() 从 job 启动算起 (<180s),
+    用 0.0 假"很久以前"在 CI 上不会命中看门狗.
+    """
+    import fem2d.gui as _gui_mod
+    monkeypatch.setattr(_gui_mod.time, "monotonic", lambda: 1000.0)
     gui = _bare_gui()
     gui._gui_attrs_for_poll = True
     _gui_attrs(gui)
     gui._identifying = True
     gui._solving = False
     gui._identify_aborted = False
-    gui._identify_started = 0.0          # 很久以前 (模拟超时)
+    gui._identify_started = 0.0          # 结合打桩时钟: elapsed=1000s (超时)
     gui._stage_shown_at = 0.0
     gui._progress_q = queue.Queue()      # 无阶段消息
     gui._result_q = queue.Queue()        # 无结果
@@ -462,8 +468,14 @@ def test_poll_watchdog_identify_timeout():
     assert failed and "180s" in failed[0]
 
 
-def test_poll_watchdog_solve_timeout():
-    """求解 >600s 无结果 → 强制复位 (按钮恢复可用)."""
+def test_poll_watchdog_solve_timeout(monkeypatch):
+    """求解 >600s 无结果 → 强制复位 (按钮恢复可用).
+
+    时钟必须打桩: 同 test_poll_watchdog_identify_timeout —
+    CI 容器内 monotonic() < 600s 时用 0.0 不会命中看门狗.
+    """
+    import fem2d.gui as _gui_mod
+    monkeypatch.setattr(_gui_mod.time, "monotonic", lambda: 1000.0)
     gui = _bare_gui()
     _gui_attrs(gui)
     gui._identifying = False
