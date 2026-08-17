@@ -133,6 +133,13 @@ def _node_patch_csr(mesh, table=None):
     return ptr, flat
 
 
+def _pick_nearest(cands, nodes, b):
+    """候选节点集中距 ``b`` 最近者 (并列取最小节点号, 确定性裁决)."""
+    xb, yb = nodes[b]
+    return min(cands, key=lambda n: (
+        float(np.hypot(nodes[n, 0] - xb, nodes[n, 1] - yb)), n))
+
+
 def _boundary_patch_table(mesh):
     """ZZ92 §2.3 边界节点 patch 增强表 (SPR-BC-2026-001)。
 
@@ -179,9 +186,7 @@ def _boundary_patch_table(mesh):
         cands = {n for n in cands if ptr[n + 1] > ptr[n]}
         if not cands:
             continue
-        xb, yb = nodes[b]
-        i = min(cands, key=lambda n: (
-            float(np.hypot(nodes[n, 0] - xb, nodes[n, 1] - yb)), n))
+        i = _pick_nearest(cands, nodes, b)
         repl[b] = flat[ptr[i]:ptr[i + 1]]
 
     if not repl:
