@@ -33,9 +33,10 @@ CODE_MAP = ROOT / "docs" / "CODE_MAP.md"
 # → S-α 新增 test_s_alpha_security.py (19 函数) → 143/1649/1812
 # → GUI v12 新增 test_gui_logic.py (26 收集) → 144/1667/1838
 # → msh 复用新增 5 (test_resolve_geo_*) + GUI 组选择新增 3 (test_apply_identification_*/test_add_bc_*) → 144/1675/1846.
-TEST_FILES = 144
-TEST_FUNCTIONS = 1683
-COLLECTED = 1854
+# → SPR-BC-2026-001 新增 test_spr_boundary.py (16 函数/24 收集) → 145/1699/1878.
+TEST_FILES = 145
+TEST_FUNCTIONS = 1699
+COLLECTED = 1878
 
 # 前缀字样由拼接构造 — 禁止在本文件出现连续序列
 _DF = "def test" + "_"

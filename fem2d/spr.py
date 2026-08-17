@@ -14,8 +14,15 @@ CST 使用三点代表值；Q4 / Q4E 可传入 2×2 Gauss (Barlow) 点响应。
 
 两条路径对良态节点给出相同的拟合平面（同一组采样、同一仿射重参数化），
 病态节点则完全走原算法，因此恢复结果与逐点实现一致。
+
+* 边界节点 —— ZZ92 §2.3 处理 (SPR-BC-2026-001): 边界节点集 B 的每个
+  节点 b 由最近内部节点的 patch 拟合、在 b 坐标处求值 (见
+  :func:`_boundary_patch_table`), 避免薄边界 patch 单侧外推产生的
+  ~O(h) 边界恢复误差。内部节点路径逐位不变。
 """
 import numpy as np
+
+from .topology_core import CSRLists
 
 # 批量路径的良态判据: cond(A) <= 1e6 (法方程特征值比 1e-12)。
 # 比原逐点实现的 1e8 更严格 —— 落在两者之间的节点被推给精确路径，
@@ -107,9 +114,10 @@ def _prepare_samples(mesh, elem_stress):
     return positions, elem_stress
 
 
-def _node_patch_csr(mesh):
-    """返回 ``node_to_elems`` 的 CSR 指针/索引数组。"""
-    table = mesh.node_to_elems
+def _node_patch_csr(mesh, table=None):
+    """返回 ``table`` 的 CSR 指针/索引数组 (默认 ``mesh.node_to_elems``)。"""
+    if table is None:
+        table = mesh.node_to_elems
     ptr = getattr(table, "ptr", None)
     if ptr is not None:
         return (np.asarray(ptr, dtype=np.int64),
@@ -123,6 +131,85 @@ def _node_patch_csr(mesh):
         (eid for row in table for eid in row),
         dtype=np.int64, count=int(ptr[-1]))
     return ptr, flat
+
+
+def _pick_nearest(cands, nodes, b):
+    """候选节点集中距 ``b`` 最近者 (并列取最小节点号, 确定性裁决)."""
+    xb, yb = nodes[b]
+    return min(cands, key=lambda n: (
+        float(np.hypot(nodes[n, 0] - xb, nodes[n, 1] - yb)), n))
+
+
+def _boundary_patch_table(mesh):
+    """ZZ92 §2.3 边界节点 patch 增强表 (SPR-BC-2026-001)。
+
+    边界节点集 B = ``mesh.boundary_edges`` 出现过的节点。对每个 b ∈ B:
+
+    1. 候选内部节点 = b 邻接单元顶点 − B; 为空时扩到 ring-1 单元顶点
+       (CST 角点情形), 仍减去 B;
+    2. 候选须 patch 非空 (空 patch 候选拟合不出值);
+    3. 取离 b 最近者 i (并列取最小节点号), 行 b ← patch(i) — 下游拟合
+       在 b 坐标处求值, 即内部 patch 决定边界恢复值 (ZZ92 §2.3: 边界
+       节点全部由内部 patch 决定, 精度与内部节点相同);
+    4. 候选仍为空 (全边界退化网格) → 保留 b 自己的行兜底。
+
+    内部节点行原样保留, 因此内部恢复值逐位不变。返回 CSRLists;
+    无边界边时直接返回原表 (零开销)。
+    """
+    mesh.build_connectivity()
+    table = mesh.node_to_elems
+    if not mesh.boundary_edges:
+        return table
+    ptr, flat = table.ptr, table.flat
+    n_nodes = len(table)
+    nodes, elements = mesh.nodes, mesh.elements
+
+    bset = set()
+    for lo, hi in mesh.boundary_edges:
+        bset.add(int(lo))
+        bset.add(int(hi))
+
+    repl = {}  # 节点 -> 替换后的行 (np.ndarray)
+    for b in sorted(bset):
+        cands = set()
+        for eid in table.ids(b):
+            cands.update(int(v) for v in elements[int(eid)])
+        cands -= bset
+        if not cands:
+            ring1 = set(int(e) for e in table.ids(b))
+            for eid in list(ring1):
+                ring1.update(int(nb) for nb in mesh.elem_neighbors.ids(eid))
+            for eid in ring1:
+                cands.update(int(v) for v in elements[eid])
+            cands -= bset
+        # 候选需有非空 patch; 全空 → 保留自身行兜底 (含空行原样)
+        cands = {n for n in cands if ptr[n + 1] > ptr[n]}
+        if not cands:
+            continue
+        i = _pick_nearest(cands, nodes, b)
+        repl[b] = flat[ptr[i]:ptr[i + 1]]
+
+    if not repl:
+        return table
+    lens = ptr[1:] - ptr[:-1]
+    for n, row in repl.items():
+        lens[n] = row.size
+    new_ptr = np.zeros(n_nodes + 1, dtype=np.int64)
+    np.cumsum(lens, out=new_ptr[1:])
+    new_flat = np.empty(int(new_ptr[-1]), dtype=np.int64)
+    # 内部行在 flat 中连续: 逐段复制替换节点之间的原始块, 替换行原位写入
+    cursor = 0
+    prev = -1
+    for n in sorted(repl):
+        if n > prev + 1:
+            src = flat[ptr[prev + 1]:ptr[n]]
+            new_flat[cursor:cursor + src.size] = src
+            cursor += src.size
+        new_flat[cursor:cursor + repl[n].size] = repl[n]
+        cursor += repl[n].size
+        prev = n
+    new_flat[cursor:] = flat[ptr[prev + 1]:ptr[n_nodes]]
+    return CSRLists(new_ptr, new_flat)
 
 
 def _normal_matrix(dx, dy, starts, counts):
@@ -235,10 +322,15 @@ def _fit_node_block(mesh, sample_xy, sample_values, ptr, flat,
     return unresolved
 
 
-def _fit_nodes_exact(mesh, sample_xy, sample_values, nodes, recovered):
-    """原逐点实现: 三环 patch 扩张 + lstsq + 条件数守卫。"""
+def _fit_nodes_exact(mesh, sample_xy, sample_values, nodes, recovered,
+                     table=None):
+    """原逐点实现: 三环 patch 扩张 + lstsq + 条件数守卫。
+
+    ``table`` 为边界增强表时 (SPR-BC-2026-001), 病态边界节点同样用
+    内部 patch — 逻辑不动, 只换 patch 来源。
+    """
     n_comp = sample_values.shape[-1]
-    node_elems = mesh.node_to_elems
+    node_elems = mesh.node_to_elems if table is None else table
     for raw_nid in nodes:
         nid = int(raw_nid)
         patch_set = set(node_elems[nid])
@@ -319,13 +411,21 @@ def spr_recovery(mesh, elem_stress):
     后者的采样位置由当前 element kernel 的恢复积分规则给出，因此
     Q4/Q4E 会使用 2×2 Gauss/Barlow 点。
 
+    边界节点按 Zienkiewicz-Zhu 1992 (Int. J. Numer. Meth. Engng, 33,
+    1331–1364) §2.3 处理: 由最近内部节点的 patch 拟合、在边界节点坐标
+    处求值 — 薄边界 patch 的单侧外推使边界恢复应力只有 ~O(h), 内部
+    patch 决定后边界节点恢复精度与内部节点同为 O(h²) (ZZ92 对线性
+    单元、边界节点的结论)。候选为空的退化网格退回自身 patch。内部
+    节点路径逐位不变。
+
     支持单分量 (如 vm, s1) 或多分量 (如 [σ_x, σ_y, τ_xy])。
     """
     sample_xy, sample_values = _prepare_samples(mesh, elem_stress)
     n_comp = sample_values.shape[-1]
     recovered = np.zeros((mesh.n_nodes, n_comp))
 
-    ptr, flat = _node_patch_csr(mesh)
+    table = _boundary_patch_table(mesh)
+    ptr, flat = _node_patch_csr(mesh, table=table)
     per_node = np.diff(ptr) * sample_xy.shape[1]
     n_nodes = mesh.n_nodes
     unresolved = []
@@ -346,6 +446,7 @@ def spr_recovery(mesh, elem_stress):
     pending = (np.unique(np.concatenate(unresolved))
                if unresolved else np.empty(0, dtype=np.int64))
     if pending.size:
-        _fit_nodes_exact(mesh, sample_xy, sample_values, pending, recovered)
+        _fit_nodes_exact(mesh, sample_xy, sample_values, pending, recovered,
+                         table=table)
     return recovered
 

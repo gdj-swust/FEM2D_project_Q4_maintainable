@@ -60,7 +60,10 @@ def test_z2_total_error_keeps_scale():
         r = solve(m, method="elimination", verbose=False)
         return estimate(m, r, method="SPR", verbose=False)["total_error"]
     base = run(1e5)
-    assert base > 0.9, f"基准 total_error {base} 异常"
+    # SPR-BC-2026-001 重基线: 边界节点改由内部 patch 恢复后 base
+    # 1.012 → 0.722 (估计更准, 载荷线性缩放比仍 1.000000); 地板只防
+    # total_error 塌缩/下溢回归, 0.5 以下仍判异常。
+    assert base > 0.5, f"基准 total_error {base} 异常"
     small = run(1e-200)
     expected = base * 1e-205
     assert small > 0.0, "1e-200 载荷 total_error 下溢为 0"

@@ -6,6 +6,12 @@
 spr_recovery / nodal_L2_projection 数值核心原样快照 (语义冻结,
 禁止修改)。重构前新测试对旧实现全绿 → 重构后仍全绿, 即等价性证明。
 
+SPR-BC-2026-001 (v9.29.0) 重基线说明: 生产 spr_recovery 新增边界
+节点 patch 替换 (ZZ92 §2.3) — 参考管线同步加入 ``_ref_boundary_patch_table``
+(朴素逐节点重实现, 与生产 CSRLists 增强表逐行逐元素一致)。内部节点
+语义仍与 P-ε 冻结快照逐位一致; 拟合核心 ``_ref_fit_node_block`` /
+``_ref_fit_nodes_exact`` 的数值段未动。
+
 覆盖:
 * CST / Q4 / Q4R / Q4I 各 4 类手写网格 (规则 / 扭曲 / 微尺度 / 带孔)
 * SPR: (ne,ncomp) 代表值 + (ne,nqp,ncomp) 积分点采样
@@ -44,9 +50,50 @@ def _ref_normal_matrix(dx, dy, starts, counts):
     return normal
 
 
-def _ref_node_patch_csr(mesh):
-    """node_to_elems 的 CSR 指针/索引数组 — 旧实现原样."""
+def _ref_boundary_patch_table(mesh):
+    """SPR-BC-2026-001 边界增强表参考 — 朴素逐节点重实现.
+
+    边界节点 b 的行替换为最近内部候选节点 (邻接单元顶点 − 边界集,
+    为空扩 ring-1; 候选须 patch 非空; 并列取最小节点号) 的 patch 行;
+    无候选保留自身行。内部节点行原样。返回 list[list[int]] —
+    与生产 _boundary_patch_table 的 CSRLists 逐行逐元素一致。
+    """
+    mesh.build_connectivity()
     table = mesh.node_to_elems
+    rows = [list(table.ids(n)) for n in range(mesh.n_nodes)]
+    if not mesh.boundary_edges:
+        return rows
+    bset = set()
+    for lo, hi in mesh.boundary_edges:
+        bset.add(int(lo))
+        bset.add(int(hi))
+    for b in sorted(bset):
+        cands = set()
+        for eid in rows[b]:
+            cands.update(int(v) for v in mesh.elements[int(eid)])
+        cands -= bset
+        if not cands:
+            ring1 = set(rows[b])
+            for eid in list(ring1):
+                ring1.update(int(nb) for nb in mesh.elem_neighbors[int(eid)])
+            for eid in ring1:
+                cands.update(int(v) for v in mesh.elements[int(eid)])
+            cands -= bset
+        cands = {n for n in cands if rows[n]}
+        if not cands:
+            continue
+        xb, yb = mesh.nodes[b]
+        i = min(cands, key=lambda n: (
+            float(np.hypot(mesh.nodes[n, 0] - xb, mesh.nodes[n, 1] - yb)),
+            n))
+        rows[b] = list(rows[i])
+    return rows
+
+
+def _ref_node_patch_csr(mesh, table=None):
+    """node_to_elems 的 CSR 指针/索引数组 — 旧实现原样."""
+    if table is None:
+        table = mesh.node_to_elems
     ptr = getattr(table, "ptr", None)
     if ptr is not None:
         return (np.asarray(ptr, dtype=np.int64),
@@ -154,10 +201,11 @@ def _ref_fit_node_block(mesh, sample_xy, sample_values, ptr, flat,
     return unresolved
 
 
-def _ref_fit_nodes_exact(mesh, sample_xy, sample_values, nodes, recovered):
+def _ref_fit_nodes_exact(mesh, sample_xy, sample_values, nodes, recovered,
+                         table=None):
     """旧逐点实现: 三环 patch 扩张 + 逐分量 lstsq + 条件数守卫 — 原样."""
     n_comp = sample_values.shape[-1]
-    node_elems = mesh.node_to_elems
+    node_elems = mesh.node_to_elems if table is None else table
     for raw_nid in nodes:
         nid = int(raw_nid)
         patch_set = set(node_elems[nid])
@@ -283,12 +331,14 @@ def _ref_prepare_samples(mesh, elem_stress):
 
 
 def _ref_spr_recovery(mesh, elem_stress):
-    """旧 SPR 管线: 批处理块循环 + 精确路径 — 原样."""
+    """旧 SPR 管线: 批处理块循环 + 精确路径 — 原样 (边界增强表为
+    SPR-BC-2026-001 重基线新增)."""
     sample_xy, sample_values = _ref_prepare_samples(mesh, elem_stress)
     n_comp = sample_values.shape[-1]
     recovered = np.zeros((mesh.n_nodes, n_comp))
 
-    ptr, flat = _ref_node_patch_csr(mesh)
+    table = _ref_boundary_patch_table(mesh)
+    ptr, flat = _ref_node_patch_csr(mesh, table)
     per_node = np.diff(ptr) * sample_xy.shape[1]
     n_nodes = mesh.n_nodes
     unresolved = []
@@ -310,7 +360,7 @@ def _ref_spr_recovery(mesh, elem_stress):
                if unresolved else np.empty(0, dtype=np.int64))
     if pending.size:
         _ref_fit_nodes_exact(mesh, sample_xy, sample_values, pending,
-                             recovered)
+                             recovered, table)
     return recovered
 
 

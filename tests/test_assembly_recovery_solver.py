@@ -115,6 +115,43 @@ def test_pattern_is_rebuilt_after_mesh_change():
     assert grown.shape[0] == small.shape[0] + 2
 
 
+def _reference_boundary_rows(mesh):
+    """SPR-BC-2026-001: 边界节点行替换为最近内部候选的 patch (naive).
+
+    与生产 _boundary_patch_table 同规则: 候选 = 邻接单元顶点 − 边界集,
+    为空扩 ring-1; 候选须 patch 非空; 并列取最小节点号; 无候选保留
+    自身行。内部节点行原样。返回 list[list[int]]。
+    """
+    rows = [list(mesh.node_to_elems.ids(n)) for n in range(mesh.n_nodes)]
+    if not mesh.boundary_edges:
+        return rows
+    bset = set()
+    for lo, hi in mesh.boundary_edges:
+        bset.add(int(lo))
+        bset.add(int(hi))
+    for b in sorted(bset):
+        cands = set()
+        for eid in rows[b]:
+            cands.update(int(v) for v in mesh.elements[int(eid)])
+        cands -= bset
+        if not cands:
+            ring1 = set(rows[b])
+            for eid in list(ring1):
+                ring1.update(int(nb) for nb in mesh.elem_neighbors[int(eid)])
+            for eid in ring1:
+                cands.update(int(v) for v in mesh.elements[int(eid)])
+            cands -= bset
+        cands = {n for n in cands if rows[n]}
+        if not cands:
+            continue
+        xb, yb = mesh.nodes[b]
+        i = min(cands, key=lambda n: (
+            float(np.hypot(mesh.nodes[n, 0] - xb, mesh.nodes[n, 1] - yb)),
+            n))
+        rows[b] = list(rows[i])
+    return rows
+
+
 def _reference_spr(mesh, sample_xy, sample_values):
     """Deliberately naive per-node least-squares recovery.
 
@@ -123,12 +160,15 @@ def _reference_spr(mesh, sample_xy, sample_values):
     full-rank and well-conditioned, otherwise expand the patch up to ring 3.
     Ring-0 patches with fewer than 3 samples (e.g. CST single-centroid
     sampling on corner/boundary nodes) therefore need the expansion to
-    match the batched path's fallback.
+    match the batched path's fallback.  Boundary nodes start from the
+    enhanced patch rows (SPR-BC-2026-001, ZZ92 §2.3) — same table the
+    production exact path receives.
     """
     n_comp = sample_values.shape[-1]
     recovered = np.zeros((mesh.n_nodes, n_comp))
+    rows = _reference_boundary_rows(mesh)
     for nid in range(mesh.n_nodes):
-        patch = set(mesh.node_to_elems[nid])
+        patch = set(rows[nid])
         frontier = set(patch)
         ring = 0
         while ring < 3:
