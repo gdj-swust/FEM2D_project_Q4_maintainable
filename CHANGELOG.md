@@ -3,6 +3,109 @@
 > 历史修复里程碑汇总 (2026-08-03 起)。源码注释只保留"为什么必须这样做"；
 > 修复历史与审计记录迁移至此。更早的历史散见于代码注释与知识库日志。
 
+## 9.30.0 (2026-08-18) — 交互探针 + Abaqus 对比工作流
+
+> 云图对比 Abaqus 看不出头绪时的数值对点工具: 交互绘图加 p 键/点击探针,
+> 新增固定坐标对比脚本; 顺带修 stress_qp=None 契约坑与对比脚本最值位置误报。
+
+- **fem2d/stress.py**: 新增 `stress_probe(mesh, result, x, y)` → 坐标处两种
+  口径的 (6,) 应力行 [sx,sy,txy,s1,s2,vm] (element 单元代表值 / recovered
+  SPR 恢复场插值)。交互探针与对比脚本共用此装配, 派生量 (主应力/von Mises)
+  只此一处计算 — 曾三处复制同一 idiom。修复 `stress_at_point` recovered
+  路径 `stress_qp=None` (CST 常量应力输出) 时透传 None 冒 TypeError,
+  现回退单元应力 (对齐 error_est.py 惯用法 `qp if qp is not None else ...`)。
+- **fem2d/visualize.py**: 交互绘图新增探针: `p` 键输入坐标、`c` 键开关
+  图上点击探针、主菜单直接输入坐标也可探针 (NFKC 归一全角括号/逗号/
+  数字, "（０.10，０.15）" 亦可)。**有图时菜单输入改后台线程读 + 主线程
+  泵 GUI 事件** — 终端 input() 阻塞主线程曾让图"冻死" (点击转圈无反应,
+  右下角状态栏坐标不刷新), 泵送后点击回调与状态栏实时坐标恢复; 点击
+  回调加工具栏模式守卫 (缩放/平移拖拽不误探针); Ctrl-C 优雅退出收敛为
+  `_ask_or_quit` + `_quit_interactive`。右下角新增**状态栏读值**:
+  左键点击处显示当前云图分量的点值 (随切分量自动切换, 停留到下次
+  点击; motion 触发被用户否掉 — 持续定位插值对 Python 压力大),
+  读值口径走插件
+  注册表 `_READOUT_MODES` — element 单元代表应力 (≈质心, 默认,
+  "显示质心好") / recovered SPR 恢复场插值, `v` 键切换, 新增口径注册
+  一行即可 (同 `_RECOVERY_METHODS` 惯例); 位移分量走形函数插值 (与
+  位移云图同源); mesh/loads 无点值不显示, 模型外显示"（模型外）";
+  **点击同时用红色闭圈圈出命中单元的外轮廓** (每个面板同步圈出 —
+  选中哪个单元一目了然, 变形面板用 x+scale·u 坐标防错位; 点外/孔内
+  点击清除), 文本+高亮更新走 blit 局部刷新 (restore_region +
+  重画文本框/高亮 + blit, draw_event 重捕背景) — 曾每次 draw_idle 全量
+  重绘 4 面板 Gouraud 图, 图窗整体卡顿; **交互输入泵弃用 plt.pause 改
+  flush_events** — pause 内部每轮 show(block=False) → manager.show →
+  canvas.draw_idle, 图窗每 50ms 全量重绘一次 4 面板 Gouraud 图 (图窗
+  永远卡顿的真凶, 与读值无关: blit 修完后"还是很卡顿"即此因), 纯事件
+  泵送不触发任何重绘; **流畅性备忘** — SPR 恢复与牵引跳跃段加会话级
+  缓存 (切分量曾同 (mesh, 应力) 组合每次切图重算 3 遍 SPR + 重建 3.8
+  万段跳跃, 粗网格实测切图 ~1.1s → ~0.8s; 缓存值强引用防 GC 后 id
+  复用错配, 满 8 全清), plot_three 的 SPR 结果共享给点击读值的
+  recovered 缓存 — 首次点击不再付 SPR 预热 (实测 dpi/chunksize 对
+  缩放每帧重绘 0.42s 无效 — matplotlib 重渲染 19k Gouraud 三角形的
+  固有成本); plot 分支加
+  fignums 守卫 (Agg/无图时
+  gcf() 曾凭空建空白图)。色条大/小量级刻度改原始值科学计数
+  (`1.25e+07`), 弃 "12.00e6" 式缩写 (刻度只剩 12/11/9 一类数字,
+  用户反馈)。
+- **scripts/probe_abq_compare.py** (新): 复用 runner 管线, 固定 21 个
+  探针点输出两口径 6 值表 + 全局最值; 单元场最值报质心 (曾用单元号索引
+  `mesh.nodes` — 报出任意节点坐标, 位置是假的); 节点场报节点坐标。
+- **models/demo_complex_60.geo** (新): 椭圆孔 60 段近似变体, 隔离 20 段
+  多边形几何误差; 头部注明与 demo_complex.geo 仅差 n1/Save 名, 几何改动
+  需同步两份。
+- **测试**: stress_probe 契约/数值测试 (test_api_contract_types.py +
+  test_stress_branches.py) + 色条科学计数回归 + stress_qp=None 回归;
+  probe_abq_compare 注册进 test_scripts_path_injection.py 干净环境守卫;
+  audit_contract_probe 增 stress_probe 契约断言; api_contract.md 契约行同步。
+  test_visualize_branches.py 增读值测试: _readout_line 与 stress_probe 行
+  逐分量一致 (含 taumax=(s1−s2)/2)、位移形函数插值、模型外/无点值收敛、
+  注册表契约、v 键切换、左键点击端到端 (合成 button_press MouseEvent
+  走真实 callbacks.process 管线, 续测 blit 路径: 首帧后读值更新不再
+  draw_idle 全量重绘 + 右键不覆盖读值 + 点击命中单元外轮廓闭圈断言/
+  点外清空)、交互泵 pause 绊线 (泵路径实测走 flush_events, 再碰
+  plt.pause 即红)、SPR/traction 备忘 (spr_recovery/compute_traction_jumps
+  调用计数, 备忘命中后重算即红)、plot 分支无空白图回归。
+
+## 9.31.0 (未发布, 2026-08-19) — 预处理向量化 + 网格密度一致性 + 变形面板逆映射
+
+> 大网格校验 4 倍提速 (160k 四边形 6.7s → 1.7s, 诊断逐项一致); 堵住
+> .msh 缓存复用"同名+mtime 信任"漏洞 (lc 密度标记); 修变形面板点击
+> 逆映射在 scale·u 大于网格尺度时恒报"模型外"; 发布 zip 改 git 清单。
+
+- **fem2d/preprocess.py**: `validate_mesh` 诊断热路径向量化 — 重复单元
+  (np.lexsort 行字典序分组)、零边 (边对批量范数)、退化单元 (批量鞋带
+  公式, 支持 (...,3,2)/(...,4,2)); 消息格式逐项不变 (差分验证 2000 个
+  随机缺陷网格 0 处不匹配)。`_find_non_manifold_nodes`/`_edge_to_elem_map`
+  保持逐单元 — 曾评估的每个捷径 (分类跳过/诱导图路径遍历/全局连通
+  分量) 都有精确性反例 (重叠四边形、闭合双扇区、远处重连薄板)。
+- **scripts/gmsh_runner.py + fem2d/input_source.py**: 生成的 .msh 头部
+  写 `// FEM2D-generated-mesh lc=<lc>` 密度标记 (子串匹配保向后兼容);
+  `_try_reuse_msh` 复用前比对标记 lc 与 .geo 当前 lc — 曾 lc=0.008 的
+  .geo 请求被静默用 11.6 倍更粗的同名缓存网格满足 (mtime 信任有洞)。
+- **fem2d/stress.py**: `stress_at_point` 增私有 `_eid` 关键字 —
+  `stress_probe` 两口径只做一次 `point_in_element` 定位 (每次交互点击
+  省 ~0.65ms 内核查询); `_eid=-1` 与未传同契约 ("not in mesh")。
+- **fem2d/visualize.py**: 变形面板点击逆映射修复 — 面板绘制
+  x_d = x_u + scale·u(x_u), 解 x_u = x_d − scale·u(x_u) 的第一轮定位
+  必须在**变形网格** (nodes + scale·u2) 上进行: scale·u 超过网格尺度
+  时点击坐标在未变形 AABB 之外, 旧实现首轮就查未变形网格直接域外,
+  变形面板点击恒"模型外"; 等参形函数同参, 一轮即达精确不动点 (常位
+  移场旧固定 2 轮增量式第二轮继续减 scale·u 越减越远)。
+- **scripts/make_release_zip.py**: 打包清单改 `git ls-files` (root 非
+  仓库顶层/无 git 一律回退 os.walk) — 曾把 `.bench_tmp` 与未跟踪
+  个人文件 (html/pdf/png) 打进发布包; `_ALWAYS_EXCLUDE` 加 `.bench_tmp`。
+- **scripts/spr_boundary_acceptance.py / check_dead_code.py**: 删死代码
+  `KIRSCH_LEVELS` (vulture 0 命中); 消 "Invalid # noqa directive" 噪声。
+- **fem2d/boundary/**: physical_mapping 模块/类 docstring 改实证现实
+  (经 registry 分支可达, 不可删); topology/segment_builder 三处互指
+  注释 (断点切分两套实现、定向规则三份等价实现、容差块逐字同源 —
+  "修改一处需同步另一处")。
+- **fem2d/regions.py**: `{canonical_edge(a,b) for a,b in
+  mesh.edge_to_elems}` 改 `set(mesh.edge_to_elems)` (EdgeTable 键本就
+  规范 (lo,hi), 逐键再规范化是恒等操作; 曲线侧规范化调用保留)。
+- **测试体系**: +19 函数/19 收集 → 145 文件 / 1736 函数 / 1916 收集
+  (P-λ 五处同步: guard 常量/README/CODE_MAP ×2/fix_d11)。
+
 ## 9.29.0 (2026-08-17) — SPR 边界节点恢复 (SPR-BC-2026-001)
 
 > 任务书: 按 Zienkiewicz-Zhu 1992 (Int. J. Numer. Meth. Engng, 33,

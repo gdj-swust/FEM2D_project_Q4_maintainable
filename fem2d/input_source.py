@@ -532,13 +532,47 @@ def _resolve_geo_lc(fp, config, ask, temp_dir=None):
     return tmp.name, tmp.name
 
 
+def _geo_current_lc(geo_path):
+    """.geo 首条 lc 赋值 (无/不可读 → None) — 复用密度判据的期望值.
+
+    与 gmsh_runner._geo_lc_from 同口径 (gmsh 用脚本内 lc 变量网格化),
+    但此处读原始 .geo (复用判据发生在 lc 覆盖之前 — 有覆盖时旧网格
+    本就不复用)。
+    """
+    try:
+        with open(geo_path, 'r', encoding='utf-8', errors='ignore') as f:
+            text = f.read()
+    except OSError:
+        return None
+    m = re.search(_LC_PATTERN, text, re.MULTILINE)
+    return float(m.group(1)) if m else None
+
+
+def _msh_density_lc(msh_path):
+    """生成物标记中的 lc 密度 (无标记/无密度/不可读 → None).
+
+    标记行 "lc=<值>" 由 gmsh_runner.stamp_generated_msh 写入; 旧版
+    无密度标记与外来无标记 msh 都不匹配 → None (无密度承诺可比)。
+    """
+    try:
+        with open(msh_path, "rb") as stream:
+            head = stream.read(1 << 17)  # 标记在文件头, 前 128 KiB 足够
+    except OSError:
+        return None
+    m = _import_scripts("gmsh_runner")._MSH_LC_RE.search(head)
+    return float(m.group(1)) if m else None
+
+
 def _try_reuse_msh(geo_path, msh_path, *, quad, plane_type):
     """已有 .msh 且 .geo 未修改时复用, 跳过 gmsh 网格化.
 
     交付场景: exe 每次识别 .geo 都重新跑 gmsh (实测 7.8s/19168 单元,
     弱机 30s+), 而直接喂 .msh 是秒开 — 复用是对称补齐. 判据:
     ①msh 存在; ②geo 不比 msh 新 (geo 修改过 → 旧网格可能过期);
-    ③import_msh 读回成功 (拓扑验证失败 → fallback 重新网格化).
+    ③密度一致 (带 lc 标记的本程序生成物须与 .geo 当前 lc 相等 —
+    同名 + mtime 信任有洞: 换名/回写 mtime 的过期网格会绕过 ②;
+    旧版无密度标记/外来无标记 msh 无密度承诺可比, 维持原行为);
+    ④import_msh 读回成功 (拓扑验证失败 → fallback 重新网格化).
     外来无标记 msh 同样复用 — 文件名配对 + mtime 是基本信任,
     import_msh 的拓扑验证兜底结构错误.
 
@@ -551,6 +585,17 @@ def _try_reuse_msh(geo_path, msh_path, *, quad, plane_type):
         if os.path.getmtime(geo_path) > os.path.getmtime(msh_path):
             return None, None
     except OSError:
+        return None, None
+    # 密度一致性 (见 docstring 判据③): 精确相等才复用 — 两侧同由
+    # 脚本文本 float() 而来, 相等即同一密度 (1e-15 容差会放过微尺度
+    # lc 的真实变更, 与 _resolve_geo_lc 的"精确相等"口径一致)
+    current_lc = _geo_current_lc(geo_path)
+    stamped_lc = _msh_density_lc(msh_path)
+    if (stamped_lc is not None and current_lc is not None
+            and stamped_lc != current_lc):
+        print(f"  [WARN] 复用 {os.path.basename(msh_path)} 被拒: "
+              f"网格密度标记 lc={stamped_lc} ≠ .geo 当前 lc={current_lc} "
+              "— 重新网格化")
         return None, None
     from .gmsh_adapter import import_msh
     try:

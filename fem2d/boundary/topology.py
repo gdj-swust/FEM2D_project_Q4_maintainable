@@ -135,6 +135,9 @@ def _validate_and_nest_loops(nodes, node_loops, scale):
 
 def _orient_loops(nodes, loops):
     """Orient full loops before segmentation: material CCW, holes CW."""
+    # "材料环 CCW / 内孔 CW" 规则的三份等价实现之一; 另两份是下方
+    # _orient_closed_segments 与 segment_builder._orient 闭合分支
+    # (布尔等价形式). 修改一处需同步另外两处.
     for loop in loops:
         is_ccw = _signed_loop_area(nodes[loop.node_ids]) > 0.0
         if loop.is_outer != is_ccw:
@@ -269,6 +272,9 @@ def _classify_loop_chain(nodes, chain, loop, loop_id, scale):
 
 def _orient_closed_segments(segments):
     """Apply the Gmsh convention: material loops CCW, hole loops CW."""
+    # "材料环 CCW / 内孔 CW" 规则的三份等价实现之一; 另两份是上方
+    # _orient_loops 与 segment_builder._orient 闭合分支 (布尔等价形式).
+    # 修改一处需同步另外两处.
     for segment in segments:
         if (
                 not segment.get("closed", False)
@@ -554,6 +560,11 @@ def _decompose_loops(adj):
 
 def _split_at_breakpoints(loop, breakpoints):
     """在断点处切分闭环 — 每条原始边恰好属于一个分段, 无重复."""
+    # 与 segment_builder._split_closed_chain 是同一"闭环按断点环绕切分"
+    # 内核的两份实现, 已发生参数漂移: 本处断点来自 sharp_corner_indices
+    # (angle_threshold_deg=20.0), 无平滑断点时回退 segment_by_curvature;
+    # 对面用 sharp_corner_indices() 默认 35.0° + piecewise_smooth_
+    # breakpoints, 无曲率回退. 修改一处需同步另一处.
     loop = list(map(int, loop))
     n = len(loop)
     bps = sorted({int(bp) % n for bp in breakpoints})
@@ -745,6 +756,7 @@ def has_boundary_self_intersection(loop_nodes):
         return True
     # 容差基于局部坐标尺度, 不得强制 1.0 下限 — 会让尺度 ≤1e-14 的合法
     # 模型每条边都被判零长, 误报 "Self-intersecting" 拒绝
+    # 该容差块与 _intersecting_boundary_loop_pair 逐字同源, 修改需同步
     magnitude = max(float(np.max(np.abs(coords))), np.finfo(float).tiny)
     span = max(
         float(np.ptp(coords[:, 0])),
@@ -794,7 +806,9 @@ def _intersecting_boundary_loop_pair(loop_coordinates):
     if not finite_arrays:
         return None
     combined = np.vstack(finite_arrays)
-    # 同 has_boundary_self_intersection: 1.0 下限破坏微尺度尺度不变性
+    # 与 has_boundary_self_intersection 的容差块逐字同源 (magnitude/span/
+    # tolerance, 微尺度感知), 修改一处需同步另一处 — 强制 1.0 下限会
+    # 破坏微尺度尺度不变性
     #
     magnitude = max(float(np.max(np.abs(combined))), np.finfo(float).tiny)
     span = max(

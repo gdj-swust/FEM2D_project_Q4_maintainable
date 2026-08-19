@@ -34,9 +34,13 @@ CODE_MAP = ROOT / "docs" / "CODE_MAP.md"
 # → GUI v12 新增 test_gui_logic.py (26 收集) → 144/1667/1838
 # → msh 复用新增 5 (test_resolve_geo_*) + GUI 组选择新增 3 (test_apply_identification_*/test_add_bc_*) → 144/1675/1846.
 # → SPR-BC-2026-001 新增 test_spr_boundary.py (16 函数/24 收集) → 145/1699/1878.
+# → 状态栏读值/blit 刷新 (16 函数/17 收集) → 145/1715/1895.
+# → 流畅性备忘 (SPR/traction 缓存, 2 函数/2 收集) → 145/1717/1897.
+# → SPR 边界恢复会话 (stress 探针单次定位 2 + msh 密度元数据 4 + 生成标记 2
+#   + visualize 分支 11, 共 19 函数/19 收集) → 145/1736/1916.
 TEST_FILES = 145
-TEST_FUNCTIONS = 1699
-COLLECTED = 1878
+TEST_FUNCTIONS = 1736
+COLLECTED = 1916
 
 # 前缀字样由拼接构造 — 禁止在本文件出现连续序列
 _DF = "def test" + "_"

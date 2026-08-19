@@ -88,6 +88,7 @@ from .stress import (
     point_in_element,
     principal_stresses,
     stress_at_point,
+    stress_probe,
 )
 
 __all__ = [
@@ -150,6 +151,7 @@ __all__ = [
     "solve",
     "spr_recovery",
     "stress_at_point",
+    "stress_probe",
     "validate_boundary_segments",
     "verify_all_elements",
     "von_mises",

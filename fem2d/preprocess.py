@@ -286,64 +286,83 @@ def _find_duplicate_nodes(nodes, tol):
 
 
 def _find_duplicate_elements(elements):
-    """节点号排序后判重的拓扑重复单元."""
+    """节点号排序后判重的拓扑重复单元 (np.lexsort 向量化).
+
+    原逐单元 tuple 判重在细网格上 ~0.1s; 行字典序排序后相邻比较,
+    口径一致 (重复单元 eid 升序收集, 消息只报计数与前 10 个)。
+    """
     sorted_elems = np.sort(elements, axis=1)
-    seen = set()
-    dup_elem_ids = []
-    for eid in range(elements.shape[0]):
-        key = tuple(sorted_elems[eid])
-        if key in seen:
-            dup_elem_ids.append(eid)
-        seen.add(key)
+    order = np.lexsort(sorted_elems.T[::-1])
+    srt = sorted_elems[order]
+    # 每组 (排序后相同的行) 除首行外都是重复单元
+    is_first = np.ones(len(srt), dtype=bool)
+    is_first[1:] = np.any(srt[1:] != srt[:-1], axis=1)
+    dup_mask = np.zeros(len(srt), dtype=bool)
+    dup_mask[order[~is_first]] = True
+    dup_elem_ids = np.flatnonzero(dup_mask).tolist()
     return (f"{len(dup_elem_ids)} 个重复单元: {dup_elem_ids[:10]}"
             if dup_elem_ids else None, len(dup_elem_ids))
 
 
 def _find_zero_edges(nodes, elements, h_elem, coord_ulp):
-    """退化边: 逐单元局部容差 (1e-8×单元跨度 + ULP)."""
+    """退化边: 逐单元局部容差 (1e-8×单元跨度 + ULP) — 向量化.
+
+    原逐单元逐边 norm 在细网格上 ~2s (每单元一次小矩阵 norm 调用
+    开销); 改为每类局部边一次批量边长, 命中列表仅真退化边。
+    消息只报计数, 收集顺序 (边序优先 vs 旧 eid 优先) 不影响诊断。
+    """
     edge_tol = np.maximum(1e-8 * h_elem, coord_ulp)
     zero_edges = []
-    for eid, conn in enumerate(elements):
-        for ia, ib in _LOCAL_EDGES[elements.shape[1]]:
-            a, b = int(conn[ia]), int(conn[ib])
-            if a == b or np.linalg.norm(nodes[a] - nodes[b]) < edge_tol[eid]:
-                zero_edges.append((eid, ia, ib))
+    for ia, ib in _LOCAL_EDGES[elements.shape[1]]:
+        a = elements[:, ia]
+        b = elements[:, ib]
+        dist = np.linalg.norm(nodes[a] - nodes[b], axis=1)
+        for eid in np.flatnonzero((a == b) | (dist < edge_tol)).tolist():
+            zero_edges.append((int(eid), ia, ib))
     return (f"{len(zero_edges)} 条退化边 (边长 < 局部尺度×1e-8)"
             if zero_edges else None, len(zero_edges))
 
 
 def _signed_area(coords):
-    """单元有向面积: 三角形 = 单三角, 四边形 = 两三角之和."""
-    a1 = 0.5 * ((coords[1, 0] - coords[0, 0]) *
-                (coords[2, 1] - coords[0, 1]) -
-                (coords[2, 0] - coords[0, 0]) *
-                (coords[1, 1] - coords[0, 1]))
-    if coords.shape[0] == 3:
+    """单元有向面积: 三角形 = 单三角, 四边形 = 两三角之和.
+
+    单单元 (3,2)/(4,2) 与批量 (...,3,2)/(...,4,2) 同式 —
+    批量路径供 _find_degenerate_elements 向量化复用同一公式
+    (曾内联逐字重复, 修一处分叉另一处仍错, 见 tests/test_validate_mesh.py
+    蝴蝶形锁死测试)。
+    """
+    c = np.asarray(coords, dtype=float)
+    a1 = 0.5 * ((c[..., 1, 0] - c[..., 0, 0]) *
+                (c[..., 2, 1] - c[..., 0, 1]) -
+                (c[..., 2, 0] - c[..., 0, 0]) *
+                (c[..., 1, 1] - c[..., 0, 1]))
+    if c.shape[-2] == 3:
         return a1
-    a2 = 0.5 * ((coords[3, 0] - coords[2, 0]) *
-                (coords[0, 1] - coords[2, 1]) -
-                (coords[0, 0] - coords[2, 0]) *
-                (coords[3, 1] - coords[2, 1]))
+    a2 = 0.5 * ((c[..., 3, 0] - c[..., 2, 0]) *
+                (c[..., 0, 1] - c[..., 2, 1]) -
+                (c[..., 0, 0] - c[..., 2, 0]) *
+                (c[..., 3, 1] - c[..., 2, 1]))
     return a1 + a2
 
 
 def _find_degenerate_elements(nodes, elements):
-    """退化单元 (零面积/负面积/自交四边形)."""
-    degenerate = []
-    for eid, conn in enumerate(elements):
-        area = _signed_area(nodes[conn])
+    """退化单元 (零面积/负面积/自交四边形) — 向量化.
+
+    原逐单元循环在细网格上 ~0.3s; 批量鞋带公式后 ~ms 级, 诊断
+    口径逐位一致: 面积 ≤ 0, 或四边形两片三角有向面积异号 (蝴蝶形
+    自交, 净面积仍为正而面积判据漏检 — 与求解器 Jacobian 拒绝
+    同口径)。
+    """
+    c = nodes[elements]
+    area = _signed_area(c)
+    if c.shape[1] == 3:
         bad = area <= 0
-        if not bad and len(conn) == 4:
-            # 蝴蝶形 (自交) 四边形: 两片三角有向面积异号, 净面积仍为正
-            # 而漏检 — 求解器 Jacobian 检查会以 inverted 拒绝, 导入校验
-            # 必须给出同样诊断。两片三角分解复用 _signed_area (内联
-            # 逐字重复同一公式时, 修一处分叉另一处仍错)
-            c = nodes[conn]
-            a1 = _signed_area(c[:3])
-            a2 = _signed_area(np.vstack([c[2], c[3], c[0]]))
-            bad = a1 * a2 < 0
-        if bad:
-            degenerate.append((eid, area))
+    else:
+        a1 = _signed_area(c[:, :3])
+        a2 = _signed_area(c[:, [2, 3, 0]])
+        bad = (area <= 0) | (a1 * a2 < 0)
+    degenerate = [(int(eid), float(area[eid]))
+                  for eid in np.flatnonzero(bad)]
     return (f"{len(degenerate)} 个退化单元 (面积 ≤ 0 或自交)"
             if degenerate else None, len(degenerate))
 

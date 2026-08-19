@@ -28,7 +28,7 @@
                                             代数圆弧/短弧保护)
   H         配置与质量                     11 (全部行)
   I         装配                            2 (契约 2 行全覆盖)
-  合计: 151 项探针 (可用 AST 统计 probe() 调用数核对)。
+  合计: 153 项探针 (可用 AST 统计 probe() 调用数核对)。
 每组的"全部行"以契约表行数为准; 行内无具体误用错误声明的
 (如 I 组"非对称内核 → RuntimeError") 以合法输入不抛为探针内容。
 """
@@ -91,6 +91,7 @@ from fem2d.stress import (
     point_in_element,
     principal_stresses,
     stress_at_point,
+    stress_probe,
 )
 
 FAILS = []
@@ -288,6 +289,15 @@ probe("principal_stresses (3,) positive", _probe_principal_stresses_3, None)
 probe("stress_at_point mode", lambda: stress_at_point(m2, res, 0.5, 0.5, mode="bogus"), ValueError)
 probe("stress_at_point missing key", lambda: stress_at_point(m2, {"u": np.zeros(8)}, 0.5, 0.5), ValueError)
 probe("stress_at_point outside", lambda: stress_at_point(m2, res, 50.0, 50.0), ValueError)
+
+
+def _probe_stress_probe_rows():
+    """stress_probe 正路径: 两口径各 (6,) 行 [sx,sy,txy,s1,s2,vm]."""
+    e_row, r_row = stress_probe(m2, res, 0.5, 0.5)
+    assert e_row.shape == (6,) and r_row.shape == (6,)
+    assert np.all(np.isfinite(e_row)) and np.all(np.isfinite(r_row))
+probe("stress_probe (6,) rows", _probe_stress_probe_rows, None)
+probe("stress_probe outside", lambda: stress_probe(m2, res, 50.0, 50.0), ValueError)
 probe("point_in_element outside", lambda: point_in_element(m2, 50.0, 50.0), None)
 probe("spr_recovery shape", lambda: spr_recovery(m2, np.ones((5, 3))), ValueError)
 probe("spr_recovery nan", lambda: spr_recovery(m2, np.array([[np.nan, 1., 1.], [1., 1., 1.]])), ValueError)

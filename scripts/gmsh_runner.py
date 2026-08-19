@@ -187,8 +187,31 @@ def _scan_include_tree(geo_path, *, done=None, active=None, chain=()):
 
 # 本程序生成物的 .msh 标记 — 同名 .msh 覆盖保护据此识别 (gmsh 读回时
 # 忽略 $Comments 段, 2026-08 实测确认 MSH 4.x 实体/物理组完整恢复).
+# 标记行可带 "lc=<值>" 密度元数据: 复用判据 (input_source._try_reuse_msh)
+# 据此拒绝"同名同 mtime 但密度不符"的过期网格; 前缀扩展向后兼容 —
+# is_program_generated_msh 用子串匹配, 带/不带 lc 的标记都命中.
 _MSH_MARKER = "// FEM2D-generated-mesh"
 _MSH_MARKER_BYTES = _MSH_MARKER.encode("ascii")
+# 标记行中的密度值 (lc=...) — 旧版无密度标记/外来无标记 msh 不匹配 → None
+_MSH_LC_RE = re.compile(rb"// FEM2D-generated-mesh lc=([\d.eE+\-]+)")
+# 几何脚本首条 lc 赋值 (同 input_source._LC_PATTERN — 脚本层不复用
+# fem2d 模块, 避免 scripts→fem2d 反向依赖)
+_MSH_SRC_LC_RE = re.compile(r'^\s*lc\s*=\s*([\d.eE+\-]+)', re.MULTILINE)
+
+
+def _geo_lc_from(geo_path):
+    """几何脚本首条 lc 赋值 (无/不可读 → None) — 写入生成物密度标记.
+
+    解析实际交给 gmsh 运行的脚本 (含 lc 覆盖临时副本), 标记值即
+    本次网格化的真实密度 — CLI --lc 覆盖自动反映, 无需穿透调用层.
+    """
+    try:
+        with open(geo_path, "r", encoding="utf-8", errors="ignore") as f:
+            text = f.read()
+    except OSError:
+        return None
+    m = _MSH_SRC_LC_RE.search(text)
+    return float(m.group(1)) if m else None
 
 
 def _bundled_gmsh_candidates():
@@ -312,12 +335,15 @@ def sanitize_geo_source(source, *, geo_path=None):
     return sanitized
 
 
-def stamp_generated_msh(path):
+def stamp_generated_msh(path, lc=None):
     """向生成物 .msh 注入本程序标记 ($Comments 段, gmsh 读回时忽略).
 
+    ``lc``: 本次网格化的密度 (None = 不写密度元数据) — 写入标记行
+    "lc=<值>", 复用判据据此拒绝"同名同 mtime 但密度不符"的过期网格.
     仅当文件为 MSH 4.x ($MeshFormat 首行版本 4.x 且存在 $EndMeshFormat)
     时注入 — 缺失任一段说明文件残缺或非本程序产物, 不碰 (防御: 残缺
-    文件不改写). 幂等: 已含标记直接返回.
+    文件不改写). 幂等: 已含标记直接返回 (含旧版无密度标记 — 生成时
+    只写一次, 不做补写升级).
     标记是"本程序生成物"的唯一可靠识别信号: 同名 .msh 覆盖保护据此
     决定覆盖 (带标记) 或 WARN + 临时副本 (无标记, 来源不明).
     字节级改写 (不按文本解码) — 物理组名含中文等非 ASCII 时无损.
@@ -338,8 +364,9 @@ def stamp_generated_msh(path):
     if header_end < 0:
         return False
     line_end = data.find(b"\n", header_end) + 1
-    marker = (b"$Comments\n" + _MSH_MARKER_BYTES
-              + b"\n$EndComments\n")
+    marker_line = _MSH_MARKER_BYTES + (
+        f" lc={lc:g}".encode("ascii") if lc is not None else b"")
+    marker = b"$Comments\n" + marker_line + b"\n$EndComments\n"
     try:
         with open(path, "wb") as stream:
             stream.write(data[:line_end] + marker + data[line_end:])
@@ -535,7 +562,9 @@ def run_gmsh(
             return None
         # 生成物标记: 覆盖保护 (is_program_generated_msh) 的唯一识别信号。
         # 只处理 MSH 4.x — 残缺/低版本文件不改写 (stamp 内部防御).
-        stamp_generated_msh(temporary_path)
+        # lc 密度元数据解析自实际运行的脚本 (含 CLI 覆盖临时副本) —
+        # 复用判据据此拒绝"同名同 mtime 但密度不符"的过期网格.
+        stamp_generated_msh(temporary_path, lc=_geo_lc_from(command_geo))
         if defer_publish:
             # 调用方负责 import_msh 验证 + 原子发布 — 移交临时文件所有权
             handed_off = True

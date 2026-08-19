@@ -13,7 +13,9 @@ from fem2d.stress import (
     compute_stresses,
     nodal_average,
     nodal_L2_projection,
+    point_in_element,
     stress_at_point,
+    stress_probe,
 )
 
 
@@ -191,3 +193,51 @@ def test_stress_at_point_recovered_cache_used(monkeypatch):
     out = stress_at_point(mesh, result, 0.25, 0.25, mode="recovered")
     assert "_spr_cache" in result          # 缓存已建立
     assert np.allclose(out, [1.0, 0.0, 0.0])   # 常场 SPR 精确恢复
+
+
+def test_stress_at_point_recovered_stress_qp_none():
+    """CST 输出契约 stress_qp=None → recovered 回退单元应力 (曾 TypeError)."""
+    mesh = _two_tri()
+    stress = np.array([[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
+    result = {"stress": stress, "stress_qp": None}
+    out = stress_at_point(mesh, result, 0.25, 0.25, mode="recovered")
+    assert "_spr_cache" in result
+    assert out.shape == (3,)
+
+
+def test_stress_probe_rows_numeric():
+    """stress_probe 行装配: 常场下两口径同值, 解析值 [1,0,0,1,0,1]."""
+    mesh = _two_tri()
+    result = {"stress": np.array([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]])}
+    e_row, r_row = stress_probe(mesh, result, 0.25, 0.25)
+    expect = [1.0, 0.0, 0.0, 1.0, 0.0, 1.0]  # s1=1, s2=0, vm=1
+    assert np.allclose(e_row, expect)
+    assert np.allclose(r_row, expect)
+
+
+def test_stress_probe_single_lookup_and_eid_passthrough(monkeypatch):
+    """stress_probe 两口径只做一次 point_in_element 定位 (曾各查一遍,
+    交互探针每次点击付两次 kernel 查询); _eid 透传输出与旧路径一致."""
+    mesh = _two_tri()
+    result = {"stress": np.array([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]])}
+    calls = {"n": 0}
+    real = point_in_element
+
+    def counting(m, x, y):
+        calls["n"] += 1
+        return real(m, x, y)
+
+    monkeypatch.setattr("fem2d.stress.point_in_element", counting)
+    e_row, r_row = stress_probe(mesh, result, 0.25, 0.25)
+    assert calls["n"] == 1, f"point_in_element 应调用 1 次, 实际 {calls['n']}"
+    expect = [1.0, 0.0, 0.0, 1.0, 0.0, 1.0]
+    assert np.allclose(e_row, expect)
+    assert np.allclose(r_row, expect)
+
+
+def test_stress_at_point_eid_outside_mesh_raises():
+    """_eid=-1 (定位域外) 与未传 _eid 同契约: "not in mesh" ValueError."""
+    mesh = _tri()
+    result = {"stress": np.ones((1, 3))}
+    with pytest.raises(ValueError, match="not in mesh"):
+        stress_at_point(mesh, result, 5.0, 5.0, _eid=-1)

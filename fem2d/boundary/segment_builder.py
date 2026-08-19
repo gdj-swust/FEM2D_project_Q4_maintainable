@@ -138,6 +138,11 @@ class BoundarySegmentBuilder:
         }
 
     def _split_closed_chain(self, nodes):
+        # 与 boundary.topology._split_at_breakpoints 是同一"闭环按断点环绕
+        # 切分"内核的两份实现, 已发生参数漂移: 本处 sharp_corner_indices()
+        # 用默认 35.0° + piecewise_smooth_breakpoints, 无曲率回退; 对面
+        # (topology) 用 angle_threshold_deg=20.0, 无平滑断点时回退
+        # segment_by_curvature. 修改一处需同步另一处.
         loop = nodes[:-1]
         coords = self.mesh.nodes[loop]
         positions = sorted(set(
@@ -192,6 +197,10 @@ class BoundarySegmentBuilder:
 
     def _orient(self, nodes, edges, context, closed):
         if closed:
+            # "材料环 CCW / 内孔 CW" 规则 (is_outer != (area>0) 则反转) 的
+            # 三份等价实现之一, 本处是布尔等价形式; 另两份是
+            # boundary.topology 的 _orient_loops 与 _orient_closed_segments.
+            # 修改一处需同步另外两处.
             area = _signed_loop_area(self.mesh.nodes[nodes])
             if (
                     context.is_outer and area < 0.0

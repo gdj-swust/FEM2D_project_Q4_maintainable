@@ -12,7 +12,7 @@ from fem2d.gmsh_adapter import import_msh
 from fem2d.loads_core import parse_traction, parse_vec2
 from fem2d.mesh import Mesh
 from fem2d.solver import solve
-from fem2d.stress import principal_stresses, stress_at_point
+from fem2d.stress import principal_stresses, stress_at_point, stress_probe
 
 
 def _mesh():
@@ -110,6 +110,21 @@ def test_stress_at_point_missing_result_key():
     m = _mesh()
     with pytest.raises(ValueError, match="'stress'"):
         stress_at_point(m, {"u": np.zeros(8)}, 0.5, 0.5)
+
+
+def test_stress_probe_rows_and_contract():
+    """stress_probe: 两口径各 (6,) 行; 错误契约委托 stress_at_point."""
+    m = _mesh()
+    for i in range(4):
+        m.fix_node(i, "both", 0.0)
+    m.add_force(2, 1.0, 0.0)
+    res = solve(m, verbose=False)
+    e_row, r_row = stress_probe(m, res, 0.5, 0.5)
+    assert e_row.shape == (6,) and r_row.shape == (6,)
+    with pytest.raises(ValueError, match="'stress'"):
+        stress_probe(m, {"u": np.zeros(8)}, 0.5, 0.5)
+    with pytest.raises(ValueError, match="not in mesh"):
+        stress_probe(m, res, 50.0, 50.0)
 
 
 # ── K5: solve 类型契约 ──

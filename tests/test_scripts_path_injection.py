@@ -18,6 +18,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 
 _SCRIPT_MODULES = [
     "audit_contract_probe",
+    "probe_abq_compare",
     "fuzz_api",
     "combo_fuzz",
     "regression_compare",
