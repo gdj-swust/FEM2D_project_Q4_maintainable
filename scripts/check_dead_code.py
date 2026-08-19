@@ -522,7 +522,7 @@ def analyze(path, src, name_uses, attr_calls, from_imports,
                         (sub.lineno, f"{node.name}.{sub.name}{hint}",
                          "方法零调用 (类名限定)"))
 
-    # 统一 noqa 过滤: 报告行携带 `# noqa` / `# noqa: F401` → 该候选免报
+    # 统一 noqa 过滤: 报告行携带 `noqa` / `noqa: F401` 注释 → 该候选免报
     # (注册副作用导入 / 经实例形式调用的方法等已核实误报)。
     for dim in list(findings):
         findings[dim] = [

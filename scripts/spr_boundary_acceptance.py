@@ -44,7 +44,6 @@ TAU_MAX = P_SHEAR / (2.0 * I_BEAM) * (H**2 / 4.0)  # 剪流最大值 (y=0)
 # ── Kirsch 模型 (与 tests/test_analytic_e2_kirsch.py 同款) ──
 A_HOLE, W_PLATE = 1.0, 10.0
 SIGMA_INF = 1e6
-KIRSCH_LEVELS = (48, 24), (96, 48)   # (n_ang, n_rad); 96 可被 12 整除
 KIRSCH_THETAS = (0.0, 30.0, 60.0, 90.0)
 
 

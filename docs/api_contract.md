@@ -119,6 +119,7 @@
 | principal_stresses | (stress) | (n, 3) 有限数组 [σx, σy, τxy] | 形状 (n,2)/(n,)/(标量) → ValueError 带期望形状; NaN/Inf → ValueError "contains NaN/Inf" | ✅ (K3) |
 | principal_stresses (3,) 单向量 | (3,) 一维 [σx, σy, τxy] | 合法: 返回 4 标量元组 (σ1, σ2, τ_max, θ); 非法同批量路径 (NaN/形状错 → ValueError) | ✅ (契约扩展 2026-08-05 — 6c 遗留; 探针 (3,) 正路径断言 + fuzz i==9 锁不抛异常 + test_api_contract_types.py 锁返回形状) |
 | stress_at_point | (mesh, result, x, y, mode="element") | mode ∈ {element,sides,average,recovered} | mode 非法 → ValueError(带可选值); 点不在网格 → ValueError; result 非 dict 或缺 "stress" → ValueError 带键名; x/y NaN → point_in_element 返回 -1 → ValueError(带坐标) | ✅ (K4) |
+| stress_probe | (mesh, result, x, y) | 返回 (element_row, recovered_row), 各 (6,) [sx,sy,txy,s1,s2,vm] | 错误契约同 stress_at_point (委托) — 显示层 (交互探针/对比脚本) 共用装配, 派生量只此一处计算 (9.30.0) | ✅ (K4) |
 | point_in_element | (mesh, x, y) | x,y 有限标量 | 返回 -1 (不在网格) — 调用方契约; NaN/Inf/复数 → ValueError(带坐标上下文, 9.21.0 坐标守卫) | ✅ |
 | spr_recovery | (mesh, elem_stress) | (n_elem, n_comp) 或 (n_elem, nqp, n_comp) | 首维 ≠ n_elem → ValueError (入口校验); NaN → ValueError "contains NaN/Inf"; 孤立节点 → 无样点节点回退平均 (设计行为) | ✅ (K8) |
 | element_refinement_indicator | (mesh, result) | result: solve() dict | result 非 dict 或缺 "stress" → ValueError 带键名 (曾裸 KeyError) | ✅ (复查轮 66b3d8e) |
@@ -263,7 +264,7 @@
 | parse_vec2 / parse_traction | test_api_contract_types.py + test_regression_audit_20260802.py |
 | compute_stresses / nodal_* / spr_recovery | test_api_contract_scalars.py + test_stress.py |
 | principal_stresses / von_mises | test_api_contract_types.py + test_regression_audit_20260803e.py |
-| stress_at_point / point_in_element | test_api_contract_types.py + test_geo_models.py |
+| stress_at_point / stress_probe / point_in_element | test_api_contract_types.py + test_geo_models.py + test_stress_branches.py |
 | D_matrix | test_api_contract_scalars.py + test_stress.py |
 | get_element_kernel / register_element | test_regressions_round4.py + test_geo_models.py |
 | 四入口 resolve_input_file | test_four_entrypoints_e2e.py (复查轮补) + test_config.py (.spec) |

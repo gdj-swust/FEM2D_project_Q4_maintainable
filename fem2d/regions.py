@@ -270,9 +270,12 @@ class RegionRegistry:
         """Check that curve edges exist and surface elements are in range."""
         self.validate_indices(len(mesh.nodes), len(mesh.elements))
         mesh.build_connectivity()
-        mesh_edges = {
-            canonical_edge(a, b) for a, b in mesh.edge_to_elems
-        }
+        # edge_to_elems 键来自 topology_core.EdgeTable (build_connectivity
+        # 里 as_mapping 的惰性视图), 其 lo/hi 文档即 "Canonical (min, max)
+        # node pair" — 逐键再 canonical_edge 是纯冗余 (实测 176,697 次/
+        # 0.081s), 直接取键集合即可; 曲线侧 region.edge_pairs 的
+        # canonical_edge(*edge) 调用必须保留
+        mesh_edges = set(mesh.edge_to_elems)
         errors = []
         for region in self.curves:
             missing = sorted({

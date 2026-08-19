@@ -1,9 +1,11 @@
 """Normalize Gmsh Physical Group labels into semantic boundary groups.
 
-删除计划: PhysicalEdgeMapper 仅被 map_physical_edges 工厂引用, 生产调用链
-(runner._import_mesh → naming.py:329) 恒传 edge_labels=None 使本类不可达。
-建议 v10 删除: 先清 naming.py:329 处 guard 死分支, 再删本类与工厂,
-调用方统一走 segments_from_physical_curves 公共 API。
+生产可达 (2026-08-19 实证修订): 带 Physical Curve 的 gmsh 模型必经
+runner.build_boundary_segments → naming 模块 registry 分支 →
+segments_from_region_registry → segments_from_physical_curves →
+map_physical_edges 工厂实例化 PhysicalEdgeMapper; 另有
+tests/test_clean_round.py 直接导入与 docs/api_contract.md 锁定的
+内部 import 测试注入点 — 本模块不可删。
 """
 from __future__ import annotations
 
@@ -38,11 +40,11 @@ class PhysicalEdgeMap:
 class PhysicalEdgeMapper:
     """Map T3D2/ELSET records and optional ``.geo`` aliases to mesh edges.
 
-    ⚠️ 遗留路径 (2026-08-03 标记): 生产调用链 runner._import_mesh 恒传
-    edge_labels=None, 本类只在 edge_labels 非空时激活 — 实际不可达。
-    保留供 segments_from_physical_curves 公共 API 契约; 若未来复活,
-    _geo_curve_aliases 的 5 种 kind 全猜 (Line3/Circle3 同 id 张冠李戴)
-    需改为从 .geo 解析真实实体类型。
+    生产 registry 路径可达: 带 Physical Curve 的 gmsh 模型经
+    naming 模块 registry 分支 → segments_from_physical_curves →
+    map_physical_edges 工厂实例化本类; 测试与公共契约锁定, 不可删。
+    遗留注意: _geo_curve_aliases 的 5 种 kind 全猜 (Line3/Circle3
+    同 id 张冠李戴), 如需精确实体类型应从 .geo 解析。
     """
 
     def __init__(

@@ -12,7 +12,7 @@ run.py                 纯转发 → runner.main（编码安全网在 main 内�
 run_demo.py            demo_complex 示例（椭圆孔内压+顶部压力+自重），直接复用正式 API
 fem2d/                 主包（30 顶层模块 + element/ + boundary/ 两个子包）
 scripts/               工具层（打包/探针/fuzz/漂移门/geo_spec 等 12+ 脚本）
-tests/                 145 文件，~1699 test 函数（grep def test_: 1699）
+tests/                 145 文件，~1736 test 函数（grep def test_: 1736）
 docs/                  api_contract / boundary_plugins / ci / coverage / performance
 models/                示例模型；tools/ 捆绑 Gmsh 4.15.2
 ```
@@ -109,7 +109,7 @@ Mesh 构造时浅拷贝 kernel（Q4R hourglass_coefficient 是可变类属性，
 6. 小变形 + 结果有限性检查；条件数可选（默认关）
 ```
 
-## 5. 测试体系（~1699 函数）
+## 5. 测试体系（~1736 函数）
 
 - **金标准锁定**：`tests/boundary_golden/*.json`（边界段 schema——不得新增键）+ `tests/test_solve_refactor_lock.py`（求解逐位锁）
 - **统一验收入口**：`scripts/verify_all.py`（P-κ）——四件套（pytest 全量/探针/fuzz 500/漂移门）+ lint 全命令 + 无 gmsh 模拟一条命令；`--fast`/`--full`/`--no-gmsh`/`--drift`/`--list-stages`/`--stage <名>`/`--fake-fail`（红侧自证）；退出码 0/1/2/3 = 全绿/用法/test 组 FAIL/lint 组 FAIL；lint 与漂移门命令与 ci.yml 双处同步；无 gmsh 模拟需干净 worktree（无 tools/gmsh.exe）

@@ -728,6 +728,82 @@ def test_resolve_geo_lc_override_skips_reuse(tmp_path, monkeypatch, capsys):
     assert "复用已有网格" not in capsys.readouterr().out
 
 
+def test_resolve_geo_rejects_marked_msh_with_wrong_density(
+        tmp_path, monkeypatch, capsys):
+    """密度门: 带 lc 标记的本程序生成物与 .geo 当前 lc 不符 → 拒绝复用.
+
+    场景: 旧网格换名/回写 mtime 绕过"geo 未修改"判据时, 密度标记兜底
+    (mtime 信任有洞 — 网格必须按当前密度重新生成).
+    """
+    geo = tmp_path / "m.geo"
+    msh = tmp_path / "m.msh"
+    geo.write_text('lc = 0.25;\nSetFactory("OpenCASCADE");\n',
+                   encoding="utf-8")
+    msh.write_text("// FEM2D-generated-mesh lc=0.5\n", encoding="utf-8")
+    t = os.path.getmtime(str(msh)) - 10
+    os.utime(str(geo), (t, t))               # geo 旧于 msh — mtime 判据放行
+    calls = _patch_generate(monkeypatch)
+    boom = AssertionError("复用不应命中")
+    monkeypatch.setattr(gmsh_adapter_mod, "import_msh",
+                        lambda *a, **k: (_ for _ in ()).throw(boom))
+    msh_path, imp, _ = isrc.resolve_geo(str(geo), AnalysisConfig())
+    assert calls["n"] == 1 and msh_path == "gen.msh"
+    out = capsys.readouterr().out
+    assert "复用已有网格" not in out
+    assert "网格密度标记 lc=0.5" in out and "lc=0.25" in out
+
+
+def test_resolve_geo_reuses_marked_msh_with_matching_density(
+        tmp_path, monkeypatch, capsys):
+    """密度门: 标记 lc 与 .geo 当前 lc 一致 → 正常复用."""
+    geo = tmp_path / "m.geo"
+    msh = tmp_path / "m.msh"
+    geo.write_text('lc = 0.5;\nSetFactory("OpenCASCADE");\n',
+                   encoding="utf-8")
+    msh.write_text("// FEM2D-generated-mesh lc=0.5\n", encoding="utf-8")
+    t = os.path.getmtime(str(msh)) - 10
+    os.utime(str(geo), (t, t))
+    calls = _patch_generate(monkeypatch)
+    monkeypatch.setattr(gmsh_adapter_mod, "import_msh",
+                        lambda *a, **k: "reused-import")
+    msh_path, imp, _ = isrc.resolve_geo(str(geo), AnalysisConfig())
+    assert calls["n"] == 0 and msh_path == str(msh) and imp == "reused-import"
+    assert "复用已有网格" in capsys.readouterr().out
+
+
+def test_resolve_geo_reuses_legacy_marker_without_density(
+        tmp_path, monkeypatch, capsys):
+    """旧版无密度标记 → 无密度承诺可比, 维持原复用行为 (向后兼容)."""
+    geo = tmp_path / "m.geo"
+    msh = tmp_path / "m.msh"
+    geo.write_text('lc = 0.1;\nSetFactory("OpenCASCADE");\n',
+                   encoding="utf-8")
+    msh.write_text("// FEM2D-generated-mesh\n", encoding="utf-8")
+    t = os.path.getmtime(str(msh)) - 10
+    os.utime(str(geo), (t, t))
+    calls = _patch_generate(monkeypatch)
+    monkeypatch.setattr(gmsh_adapter_mod, "import_msh",
+                        lambda *a, **k: "reused-import")
+    msh_path, imp, _ = isrc.resolve_geo(str(geo), AnalysisConfig())
+    assert calls["n"] == 0 and msh_path == str(msh)
+
+
+def test_resolve_geo_reuses_marked_msh_when_geo_has_no_lc(
+        tmp_path, monkeypatch, capsys):
+    """.geo 无 lc 行 → 期望密度未知, 标记不可比, 维持复用."""
+    geo = tmp_path / "m.geo"
+    msh = tmp_path / "m.msh"
+    geo.write_text('SetFactory("OpenCASCADE");\n', encoding="utf-8")
+    msh.write_text("// FEM2D-generated-mesh lc=0.5\n", encoding="utf-8")
+    t = os.path.getmtime(str(msh)) - 10
+    os.utime(str(geo), (t, t))
+    calls = _patch_generate(monkeypatch)
+    monkeypatch.setattr(gmsh_adapter_mod, "import_msh",
+                        lambda *a, **k: "reused-import")
+    msh_path, imp, _ = isrc.resolve_geo(str(geo), AnalysisConfig())
+    assert calls["n"] == 0 and msh_path == str(msh)
+
+
 def test_resolve_geo_fallback_when_reuse_fails(tmp_path, monkeypatch, capsys):
     """msh 损坏/读回失败 → WARN + fallback 重新网格化."""
     geo = tmp_path / "m.geo"

@@ -9,6 +9,9 @@
   python scripts/make_release_zip.py --split --list   # 只列 4 包清单, 不写 zip
   python scripts/make_release_zip.py --root <目录>    # 仓库根覆盖 (守恒比对用)
 
+git 仓库内收集优先用 `git ls-files` 已跟踪清单 (未跟踪的个人/临时文件
+不进包), 非 git 仓库 (如源码 tarball 无 .git) 回退 os.walk 扫描。
+
 排除规则与 .gitignore/交接文档一致 (点开头临时前缀是运行时产物,
 .gitignore 以 models/*.msh 覆盖 models/ 内, 本表按任意路径层级兜底),
 每条规则注明"为什么":
@@ -17,6 +20,7 @@
   __pycache__ / .pytest_cache / .mypy_cache / .ruff_cache / .venv*
                                      缓存与虚拟环境 (交接文档"缓存"项)
   .coverage / *.zip / tmp*           运行产物与临时文件
+  .bench_tmp                         基准/性能临时目录 (运行时产物, 不入包)
   wt_*                               分包 worktree (并行任务副本, 非当前代码)
   PROMPT_*                           派发任务书 (临时文档, 不入包)
   .fem2d-msh-* / .fem2d-write-probe-*
@@ -55,6 +59,7 @@ import argparse
 import fnmatch
 import os
 import re
+import subprocess
 import sys
 import time
 import zipfile
@@ -65,6 +70,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # 所有模式都排除 (fnmatch 匹配任意路径层级的名字; "为什么"见模块 docstring)
 _ALWAYS_EXCLUDE = [
     ".git",
+    ".bench_tmp",
     ".coverage",
     "__pycache__",
     ".pytest_cache",
@@ -162,24 +168,56 @@ def _excluded(rel: str, include_tools: bool) -> bool:
     return False
 
 
+def _git_tracked_files(root: Path) -> list | None:
+    """git 仓库内返回已跟踪文件清单 (相对仓库根); 非 git / 失败返回 None."""
+    try:
+        top = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=60, check=True).stdout.strip()
+        if os.path.normcase(Path(top).resolve()) != os.path.normcase(
+                root.resolve()):
+            return None  # root 非仓库顶层: ls-files 路径基准不同, 回退 os.walk
+        out = subprocess.run(
+            ["git", "-C", str(root), "-c", "core.quotepath=false",
+             "ls-files"],
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=60, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return [line for line in out.stdout.splitlines() if line]
+
+
 def collect_files(root: Path, include_tools: bool = False) -> list:
-    """返回按名排序的、规则过滤后的相对路径列表."""
+    """返回按名排序的、规则过滤后的相对路径列表.
+
+    git 仓库内优先取 `git ls-files` 已跟踪清单 (未跟踪的个人/临时文件
+    不进包); 非 git 仓库或 git 不可用/失败时回退 os.walk 扫工作树。
+    """
+    rels = _git_tracked_files(root)
+    if rels is None:
+        files = []
+        for dirpath, dirnames, filenames in os.walk(root):
+            rel_dir = os.path.relpath(dirpath, root).replace(os.sep, "/")
+            if rel_dir != "." and _excluded(rel_dir, include_tools):
+                dirnames[:] = []  # 排除的目录整棵剪枝
+                continue
+            kept = []
+            for name in sorted(dirnames):
+                rel = f"{rel_dir}/{name}" if rel_dir != "." else name
+                if not _excluded(rel, include_tools):
+                    kept.append(name)
+            dirnames[:] = kept
+            for name in sorted(filenames):
+                rel = f"{rel_dir}/{name}" if rel_dir != "." else name
+                if not _excluded(rel, include_tools):
+                    files.append(rel)
+        return files
     files = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        rel_dir = os.path.relpath(dirpath, root).replace(os.sep, "/")
-        if rel_dir != "." and _excluded(rel_dir, include_tools):
-            dirnames[:] = []  # 排除的目录整棵剪枝
-            continue
-        kept = []
-        for name in sorted(dirnames):
-            rel = f"{rel_dir}/{name}" if rel_dir != "." else name
-            if not _excluded(rel, include_tools):
-                kept.append(name)
-        dirnames[:] = kept
-        for name in sorted(filenames):
-            rel = f"{rel_dir}/{name}" if rel_dir != "." else name
-            if not _excluded(rel, include_tools):
-                files.append(rel)
+    for rel in sorted(rels):
+        # 已跟踪但工作树已删的文件不打包 (与 os.walk 语义一致)
+        if not _excluded(rel, include_tools) and (root / rel).is_file():
+            files.append(rel)
     return files
 
 

@@ -385,6 +385,24 @@ def test_style_colorbar_title(capsys):
     assert ("ticks", 8) in calls and ("ticklabels", 8) in calls
 
 
+def test_style_colorbar_raw_scientific_notation():
+    """大量级 → 刻度显示原始值科学计数 (曾缩写成 "12.00e6" 被否定)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    from fem2d.visualize import _style_colorbar
+    calls = []
+    class _Cbar:
+        def set_ticks(self, t):
+            calls.append(("ticks", list(t)))
+        def set_ticklabels(self, t):
+            calls.append(("ticklabels", t))
+    _style_colorbar(_Cbar(), 0.0, 1.25e7)
+    labels = dict(calls)["ticklabels"]
+    assert labels[0] == "0"
+    assert labels[-1] == "1.25e+07"
+    assert all(s == "0" or "e+0" in s for s in labels)
+
+
 def test_plot_three_show_non_agg(monkeypatch):
     """非 Agg 后端 → show(block=False) 分支."""
     import matplotlib.pyplot as plt

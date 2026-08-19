@@ -10,17 +10,26 @@ plot_three 保存路径、interactive_plot 交互分支。
 import matplotlib
 matplotlib.use("Agg")   # 必须先于 pyplot/visualize 导入 (无显示器环境)
 
+import time
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
 import fem2d.visualize as viz
 from fem2d.mesh import Mesh
+from fem2d.stress import stress_probe
 from fem2d.visualize import (
+    _DEFAULT_READOUT,
+    _READOUT_MODES,
     _compute_edge_jumps_scalar,
     _display_triangulation,
     _draw_element_edges,
+    _pad_near_constant_range,
+    _p98_vmax,
+    _parse_coord,
     _plot_loads,
+    _readout_line,
     _to_node,
     _validate_isoband_levels,
     interactive_plot,
@@ -123,6 +132,69 @@ def test_to_node_weighted_no_weights_fallback(monkeypatch):
     assert result.shape == (4, 3)
 
 
+def test_to_node_spr_memoized(monkeypatch):
+    """同一 (mesh, 应力数组) 的 SPR 恢复只算一次 — 切分量曾每次 3 遍重算.
+
+    判别性: spr_recovery 调用计数 — 备忘命中后重算即红; 不同数组
+    对象 (不同 id) 须重算 (备忘键含 id, 值强引用防 GC 错配).
+    """
+    mesh = _two_tri()
+    s = np.ones((2, 3))
+    viz._TO_NODE_CACHE.clear()
+    calls = {"n": 0}
+    real = viz.spr_recovery
+
+    def _count(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+    monkeypatch.setattr(viz, "spr_recovery", _count)
+    a1 = _to_node(mesh, s, None, "SPR")
+    a2 = _to_node(mesh, s, None, "SPR")
+    assert calls["n"] == 1
+    assert a1 is a2  # 备忘命中 — 同一数组, 无重算
+    _to_node(mesh, s * 2.0, None, "SPR")  # 新数组对象 → 必须重算
+    assert calls["n"] == 2
+
+
+def test_to_node_spr_stale_cache_recomputed(monkeypatch):
+    """就地改应力数组 → 内容指纹变 → 备忘失效重算.
+
+    判别性: 同一数组对象 (同 id) 就地改值后 spr_recovery 必须再跑 —
+    曾只比对象 id, 就地修改静默吃旧缓存 (应力值变了云图不变).
+    """
+    mesh = _two_tri()
+    s = np.ones((2, 3))
+    viz._TO_NODE_CACHE.clear()
+    calls = {"n": 0}
+    real = viz.spr_recovery
+
+    def _count(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+    monkeypatch.setattr(viz, "spr_recovery", _count)
+    _to_node(mesh, s, None, "SPR")
+    s[0, 0] = 5.0                      # 同一对象就地改 → id 不变
+    _to_node(mesh, s, None, "SPR")
+    assert calls["n"] == 2
+
+
+def test_to_node_spr_cache_evicts_at_capacity(monkeypatch):
+    """容量 8 满 → 插入前全清 (整体清空防 GC 后 id 复用错配)."""
+    mesh = _two_tri()
+    viz._TO_NODE_CACHE.clear()
+    calls = {"n": 0}
+    real = viz.spr_recovery
+
+    def _count(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+    monkeypatch.setattr(viz, "spr_recovery", _count)
+    for k in range(9):                 # 9 个不同数组对象 → 9 个不同 id 键
+        _to_node(mesh, np.ones((2, 3)) * (k + 1), None, "SPR")
+    assert len(viz._TO_NODE_CACHE) == 1    # 第 9 个触发全清后只存自己
+    assert calls["n"] == 9
+
+
 # ═══════════════════════════════════════════════════════════════
 # plot_traction_jumps 分支
 # ═══════════════════════════════════════════════════════════════
@@ -133,6 +205,72 @@ def test_traction_jumps_no_internal_edges(ax):
     result = plot_traction_jumps(mesh, np.zeros((1, 3)), ax=ax)
     assert result is None
     assert "(no internal edges)" in ax.get_title()
+
+
+def test_traction_jumps_memoized(monkeypatch):
+    """同一 (mesh, 应力) 的跳跃计算 + 段构建只做一次 — 切分量重算浪费.
+
+    判别性: compute_traction_jumps 调用计数 — 备忘命中后重算即红.
+    """
+    mesh = _two_tri()
+    s = np.ones((2, 3))
+    viz._TRACTION_JUMP_CACHE.clear()
+    calls = {"n": 0}
+    real = viz.compute_traction_jumps
+
+    def _count(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+    monkeypatch.setattr(viz, "compute_traction_jumps", _count)
+    fig, ax = plt.subplots()
+    plot_traction_jumps(mesh, s, ax=ax)
+    plot_traction_jumps(mesh, s, ax=ax)
+    assert calls["n"] == 1
+    plt.close(fig)
+
+
+def test_traction_jumps_stale_cache_recomputed(monkeypatch):
+    """就地改应力数组 → 指纹变 → 跳跃重算 (同 _TO_NODE_CACHE 口径)."""
+    mesh = _two_tri()
+    s = np.ones((2, 3))
+    viz._TRACTION_JUMP_CACHE.clear()
+    calls = {"n": 0}
+    real = viz.compute_traction_jumps
+
+    def _count(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+    monkeypatch.setattr(viz, "compute_traction_jumps", _count)
+    fig, ax = plt.subplots()
+    plot_traction_jumps(mesh, s, ax=ax)
+    s[0, 0] = 3.0                      # 同一对象就地改 → id 不变
+    plot_traction_jumps(mesh, s, ax=ax)
+    assert calls["n"] == 2
+    plt.close(fig)
+
+
+def test_traction_jumps_sigma_ref_split_and_eviction(monkeypatch):
+    """sigma_ref 在备忘键内 — 换参考应力必须重算 (跨网格收敛对比时传
+    不同 sigma_ref, 旧图段不得复用); 容量 8 满 → 全清."""
+    mesh = _two_tri()
+    s = np.ones((2, 3))
+    viz._TRACTION_JUMP_CACHE.clear()
+    calls = {"n": 0}
+    real = viz.compute_traction_jumps
+
+    def _count(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+    monkeypatch.setattr(viz, "compute_traction_jumps", _count)
+    fig, ax = plt.subplots()
+    plot_traction_jumps(mesh, s, ax=ax)
+    plot_traction_jumps(mesh, s, ax=ax)                  # 命中
+    plot_traction_jumps(mesh, s, ax=ax, sigma_ref=1e6)   # 键不同 → 重算
+    assert calls["n"] == 2
+    for k in range(7):                                   # 再凑 7 个 → 第 9 键全清
+        plot_traction_jumps(mesh, s * (k + 2), ax=ax)
+    assert len(viz._TRACTION_JUMP_CACHE) == 1
+    plt.close(fig)
 
 
 def test_traction_jumps_zero_field_fallback(capsys):
@@ -339,6 +477,44 @@ def test_plot_contour_colorbar_labels_source():
 
 
 # ═══════════════════════════════════════════════════════════════
+# 色标常场保护
+# ═══════════════════════════════════════════════════════════════
+
+def test_p98_vmax_zero_field_fallback():
+    """零场 P98 → (1.0, 'zero-field fallback'); 阈值是 1e-30 相对下限 —
+    微尺度常场同样回退 (绝对阈值会让 1e-40 级场误判为"有场")."""
+    assert _p98_vmax(np.zeros(20)) == (1.0, "zero-field fallback")
+    assert _p98_vmax(np.full(20, 1e-40))[1] == "zero-field fallback"
+    p98, label = _p98_vmax(np.arange(20.0))
+    assert p98 == pytest.approx(18.62)
+    assert label == "P98"
+
+
+def test_pad_near_constant_range_pads_only_near_constant():
+    """近常场 → ±scl·1e-6 padding (基于场自身尺度, 微尺度场不塌缩);
+    正常跨度原样返回."""
+    lo, hi = _pad_near_constant_range(1.0, 1.0)
+    assert lo == pytest.approx(1.0 - 1e-6)
+    assert hi == pytest.approx(1.0 + 1e-6)
+    lo2, hi2 = _pad_near_constant_range(1e-10, 1e-10 * (1 + 1e-15))
+    assert lo2 == pytest.approx(1e-10 - 1e-16, rel=1e-6)
+    assert hi2 == pytest.approx(1e-10 + 1e-16, rel=1e-6)
+    assert _pad_near_constant_range(0.0, 5.0) == (0.0, 5.0)
+
+
+def test_plot_contour_constant_field_isoband_no_crash(ax):
+    """常场 isoband 12 带 — e_min≈e_max 先 padding 再 linspace (曾
+    全同 level 让填充等值线带坍缩/报错)."""
+    mesh = _two_tri()
+    plot_contour(mesh, np.full(2, 3.0), "constant", ax=ax,
+                 shading="isoband", location="element", n=12)
+    # 常场 3.0 → padding scl·1e-6=3e-6 → 12 带带宽 6e-6/12=5e-7 —
+    # 标题带宽注记证明 padding 生效 (曾全同 level 带坍缩)
+    assert "constant" in ax.get_title()
+    assert "bands: 5e-07" in ax.get_title()
+
+
+# ═══════════════════════════════════════════════════════════════
 # interactive_plot
 # ═══════════════════════════════════════════════════════════════
 
@@ -398,3 +574,337 @@ def test_interactive_plot_ctrl_c_graceful(monkeypatch, capsys):
     monkeypatch.setattr("builtins.input", _input)
     interactive_plot(_quad(), {"u": np.zeros(8)})
     assert "[INFO] 已退出交互绘图 (Ctrl-C)" in capsys.readouterr().out
+
+
+def test_parse_coord_fullwidth_and_ascii():
+    """坐标解析: NFKC 归一全角括号/逗号/数字, 非坐标/NaN 拒绝."""
+    assert _parse_coord("（0.10,0.15）") == (0.10, 0.15)
+    assert _parse_coord("（０.10，０.15）") == (0.10, 0.15)
+    assert _parse_coord("0.72, 0.30") == (0.72, 0.30)
+    assert _parse_coord("1e-3 2") == (1e-3, 2.0)
+    assert _parse_coord("zz") is None
+    assert _parse_coord("5") is None
+    assert _parse_coord("nan 1") is None
+
+
+# ═══════════════════════════════════════════════════════════════
+# 状态栏实时读值 (_readout_line / _READOUT_MODES)
+# ═══════════════════════════════════════════════════════════════
+
+def _probe_result():
+    """双三角网格 + 非常量应力 + 零位移 — 读值测试共用."""
+    mesh = _two_tri()
+    result = {"stress": np.array([[1e6, -2e6, 3e6], [2e6, 1e6, -1e6]]),
+              "stress_qp": None, "u": np.zeros(8)}
+    return mesh, result
+
+
+def test_readout_line_stress_matches_probe_rows():
+    """读值文本: 各应力分量/口径与 stress_probe 行逐分量一致.
+
+    taumax = (s1-s2)/2 — 与 plot_three 的 principal_stresses 口径一致.
+    """
+    mesh, result = _probe_result()
+    e_row, r_row = stress_probe(mesh, result, 0.25, 0.25)
+    for mode, row in (("element", e_row), ("recovered", r_row)):
+        for tag, idx in (("sx", 0), ("sy", 1), ("txy", 2),
+                         ("s1", 3), ("s2", 4), ("vm", 5)):
+            line = _readout_line(mesh, result, 0.25, 0.25, tag, mode)
+            assert f"{row[idx]:.4e}" in line, f"{tag}/{mode}: {line}"
+        line = _readout_line(mesh, result, 0.25, 0.25, "taumax", mode)
+        assert f"{0.5 * (row[3] - row[4]):.4e}" in line
+
+
+def test_readout_line_mode_suffix_labels():
+    """读值文本后缀注明口径 — 数据来源必须可见 (repo 色条标注同风格)."""
+    mesh, result = _probe_result()
+    line_e = _readout_line(mesh, result, 0.25, 0.25, "sx", "element")
+    line_r = _readout_line(mesh, result, 0.25, 0.25, "sx", "recovered")
+    assert "单元代表应力" in line_e and "SPR 恢复场插值" in line_r
+
+
+def test_readout_line_disp_shape_interpolation():
+    """位移读值: 线性场 (节点 ux=x) 形函数插值精确恢复 + umag."""
+    mesh = _two_tri()
+    u = np.zeros(8)
+    u[0::2] = [0.0, 1.0, 0.0, 1.0]   # ux = x
+    result = {"u": u}
+    line = _readout_line(mesh, result, 0.25, 0.25, "ux", "element")
+    assert "u_x = 2.5000e-01" in line and "形函数插值" in line
+    line = _readout_line(mesh, result, 0.25, 0.25, "umag", "element")
+    assert "|u| = 2.5000e-01" in line
+
+
+def test_readout_line_no_value_and_outside():
+    """mesh/loads/None → 空串; 网格外 → '（模型外）' (不抛异常)."""
+    mesh, result = _probe_result()
+    assert _readout_line(mesh, result, 0.25, 0.25, "mesh", "element") == ""
+    assert _readout_line(mesh, result, 0.25, 0.25, "loads", "element") == ""
+    assert _readout_line(mesh, result, 0.25, 0.25, None, "element") == ""
+    assert _readout_line(mesh, result, 2.0, 2.0, "sx", "element") == "（模型外）"
+    assert _readout_line(mesh, result, 2.0, 2.0, "ux", "element") == "（模型外）"
+
+
+def test_readout_registry_contract():
+    """口径注册表: 默认 element (≈质心), 每键取数函数返回 (6,) 应力行."""
+    assert _DEFAULT_READOUT == "element"
+    assert set(_READOUT_MODES) == {"element", "recovered"}
+    mesh, result = _probe_result()
+    for key, (label, fn) in _READOUT_MODES.items():
+        row = fn(mesh, result, 0.25, 0.25)
+        assert row.shape == (6,), f"{key}: {label}"
+
+
+def test_interactive_plot_direct_coord_probe(monkeypatch, capsys):
+    """主菜单直接输入坐标 (不按 p) → 探针打印两口径行."""
+    monkeypatch.setattr(viz, "plot_three", lambda *a, **k: None)
+    answers = iter(["0.25, 0.25", "q"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    mesh = _two_tri()
+    result = {"stress": np.ones((2, 3)), "stress_qp": None}
+    interactive_plot(mesh, result)
+    out = capsys.readouterr().out
+    assert "[probe] (0.2500, 0.2500)" in out
+    assert "element  :" in out and "recovered:" in out
+
+
+def test_interactive_plot_click_toggle(monkeypatch, capsys):
+    """c 键 → 点击探针开关状态打印并翻转."""
+    monkeypatch.setattr(viz, "plot_three", lambda *a, **k: None)
+    answers = iter(["c", "c", "q"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    interactive_plot(_quad(), {"u": np.zeros(8)})
+    out = capsys.readouterr().out
+    assert "点击探针已开启" in out and "点击探针已关闭" in out
+
+
+def test_interactive_plot_readout_toggle(monkeypatch, capsys):
+    """v 键 → 状态栏读值口径循环切换 (element ↔ recovered) 并打印."""
+    monkeypatch.setattr(viz, "plot_three", lambda *a, **k: None)
+    answers = iter(["v", "v", "q"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    interactive_plot(_quad(), {"u": np.zeros(8)})
+    out = capsys.readouterr().out
+    assert "状态栏读值口径" in out
+    assert "SPR 恢复场插值" in out and "单元代表应力" in out
+
+
+def test_interactive_plot_plot_branch_no_blank_figure(monkeypatch):
+    """plot 分支无图时不 gcf() 凭空建图 (Agg/测试下 plot_three 已 close).
+
+    曾无条件 plt.gcf().mpl_connect — plot_three 无图时静默多建一张空白图.
+    """
+    monkeypatch.setattr(viz, "plot_three", lambda *a, **k: None)
+    answers = iter(["1", "q"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    before = len(plt.get_fignums())
+    interactive_plot(_quad(), {"u": np.zeros(8)})
+    assert len(plt.get_fignums()) == before
+
+
+def test_interactive_plot_click_readout_end_to_end(monkeypatch):
+    """左键点击 → 右下角文本 = 当前分量 (vm) 单元代表值 (端到端).
+
+    plot_three 桩建真实 Agg figure; plt.close 桩为 no-op 让图跨 q 存活,
+    随后合成 button_press MouseEvent 走真实 callbacks.process 管线。
+    """
+    def _plot(*a, **k):
+        fig = plt.figure()
+        fig.add_subplot(111)
+        return fig
+    monkeypatch.setattr(viz, "plot_three", _plot)
+    monkeypatch.setattr(viz.plt, "close", lambda *a, **k: None)
+    answers = iter(["8", "q"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    mesh = _two_tri()
+    result = {"stress": np.ones((2, 3)), "stress_qp": None,
+              "u": np.zeros(8)}
+    interactive_plot(mesh, result)
+
+    from matplotlib.backend_bases import MouseEvent
+    fig = plt.gcf()
+    ev = MouseEvent("button_press_event", fig.canvas, 10, 10, button=1)
+    ev.inaxes = fig.axes[0]
+    ev.xdata, ev.ydata = 0.25, 0.25
+    fig.canvas.callbacks.process("button_press_event", ev)
+
+    text = fig.texts[-1].get_text()
+    # 常应力 [1,1,1] → vm = sqrt(1+1-1+3·1) = 2
+    assert "σ_vm = 2.0000e+00" in text
+    assert "单元代表应力" in text
+
+    # 点击同时圈出命中单元外轮廓: (0.25, 0.25) 落在三角形 [0,1,2] —
+    # 高亮闭圈为 (0,0)→(1,0)→(0,1)→(0,0) (label 供定位)
+    hls = [c for c in fig.axes[0].collections if c.get_label() == "_readout_hl"]
+    assert len(hls) == 1
+    segs = hls[0].get_segments()
+    assert len(segs) == 1
+    assert np.allclose(segs[0], [[0, 0], [1, 0], [0, 1], [0, 0]])
+
+    # blit 回归: 首帧全量重画后 (draw_event 捕获背景), 后续读值更新只
+    # restore+blit 文本框/高亮, 不得再 draw_idle 全量重绘整张图 — 4 面板
+    # Gouraud 图全量重绘曾使图窗整体卡顿
+    fig.canvas.draw()
+    calls = {"n": 0}
+    monkeypatch.setattr(fig.canvas, "draw_idle",
+                        lambda *a, **k: calls.__setitem__("n", calls["n"] + 1))
+    ev2 = MouseEvent("button_press_event", fig.canvas, 10, 10, button=1)
+    ev2.inaxes = fig.axes[0]
+    ev2.xdata, ev2.ydata = 2.0, 2.0  # 单位方外 → 域外文案
+    fig.canvas.callbacks.process("button_press_event", ev2)
+    assert "（模型外）" in fig.texts[-1].get_text()
+    assert len(hls[0].get_segments()) == 0  # 点外 → 高亮清除
+    assert calls["n"] == 0
+
+    # 右键不读值 (缩放/上下文菜单点击不得覆盖读值/高亮)
+    ev3 = MouseEvent("button_press_event", fig.canvas, 10, 10, button=3)
+    ev3.inaxes = fig.axes[0]
+    ev3.xdata, ev3.ydata = 0.25, 0.25
+    fig.canvas.callbacks.process("button_press_event", ev3)
+    assert "（模型外）" in fig.texts[-1].get_text()  # 文本未被右键覆盖
+    assert len(hls[0].get_segments()) == 0          # 高亮亦不被右键覆盖
+    plt.close(fig)
+
+
+def test_interactive_plot_pump_path_no_hang(monkeypatch, capsys):
+    """有图时后台线程读 + 主线程泵事件 — 输入照常返回, 不挂死.
+
+    pause 桩改为绊线 — 泵循环再碰 plt.pause 即失败: pause 内部每轮
+    show(block=False) → FigureManagerTk.show → canvas.draw_idle, 图窗
+    每 50ms 全量重绘一次 4 面板 Gouraud 图 (blit 局部刷新救不了 —
+    重绘由输入泵驱动, 与读值无关), 窗口永远卡顿 (用户实测).
+    """
+    def _no_pause(*a, **k):
+        raise AssertionError("交互泵不得再用 plt.pause — 每 50ms 全量重绘")
+    monkeypatch.setattr(viz, "plot_three", lambda *a, **k: None)
+    monkeypatch.setattr(viz.plt, "get_fignums", lambda: [1])
+    monkeypatch.setattr(viz.plt, "pause", _no_pause)
+
+    def _slow_input(*a):
+        # 首轮 lines.get(timeout=0.1) 必然超时 → 泵分支至少走一次,
+        # pause 绊线才真正被泵路径经过
+        time.sleep(0.15)
+        return "q"
+    monkeypatch.setattr("builtins.input", _slow_input)
+    interactive_plot(_quad(), {"u": np.zeros(8)})
+    out = capsys.readouterr().out
+    assert "网格 + 载荷 + 边界条件" in out  # 菜单打印后正常退出
+
+
+def test_plot_three_spr_seeds_cache_only_for_spr():
+    """Gouraud 用 SPR 恢复时把节点场播种进 result['_spr_cache'] — 与
+    stress_at_point 的 recovered 探针同源同算, 首次点击读值不再付 SPR
+    预热 (粗网格 0.09s/细网格秒级); 其他恢复方法不播种 — _spr_cache
+    语义恒为 SPR 场, L2/weighted 播种会污染 recovered 探针口径."""
+    mesh = _two_tri()
+    res = {"u": np.zeros(8), "stress": np.ones((2, 3)),
+           "vm_stress": np.ones(2), "stress_qp": None}
+    plot_three(mesh, res, tag="vm", recovery="SPR")
+    assert "_spr_cache" in res
+    res2 = {"u": np.zeros(8), "stress": np.ones((2, 3)),
+            "vm_stress": np.ones(2), "stress_qp": None}
+    plot_three(mesh, res2, tag="vm", recovery="L2")
+    assert "_spr_cache" not in res2
+
+
+def test_interactive_plot_p_key_probe_flow(monkeypatch, capsys):
+    """p 键 → 坐标输入 → 终端打印两口径探针行 (element + recovered);
+    域外坐标 → "not in mesh"; 格式非法 → "? 坐标格式: 如 0.72, 0.30"."""
+    monkeypatch.setattr(viz, "plot_three", lambda *a, **k: None)
+    answers = iter(["p", "0.25, 0.25", "p", "5, 5", "p", "zz", "q"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    mesh = _two_tri()
+    result = {"stress": np.array([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]])}
+    interactive_plot(mesh, result)
+    out = capsys.readouterr().out
+    assert "[probe] (0.2500, 0.2500)" in out
+    assert "element  :" in out and "recovered:" in out
+    assert "not in mesh" in out
+    assert "? 坐标格式: 如 0.72, 0.30" in out
+
+
+def test_interactive_plot_click_probe_with_toolbar_guard(monkeypatch,
+                                                         capsys):
+    """c 键开点击探针 → 真实 MouseEvent 点击走 stress_probe 打印;
+    工具栏缩放/平移模式非空时点击不探针 (拖拽起止点击不得误读)."""
+    def _plot(*a, **k):
+        fig = plt.figure()
+        fig.add_subplot(111)
+        return fig
+    monkeypatch.setattr(viz, "plot_three", _plot)
+    monkeypatch.setattr(viz.plt, "close", lambda *a, **k: None)
+    answers = iter(["c", "8", "q"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    mesh = _two_tri()
+    result = {"stress": np.array([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]),
+              "stress_qp": None, "u": np.zeros(8)}
+    interactive_plot(mesh, result)
+
+    from matplotlib.backend_bases import MouseEvent
+    fig = plt.gcf()
+    ev = MouseEvent("button_press_event", fig.canvas, 10, 10, button=1)
+    ev.inaxes = fig.axes[0]
+    ev.xdata, ev.ydata = 0.25, 0.25
+    fig.canvas.callbacks.process("button_press_event", ev)
+    out = capsys.readouterr().out
+    assert "[probe] (0.2500, 0.2500)" in out
+    assert "element  :" in out and "recovered:" in out
+
+    # 工具栏模式非空 (zoom 拖拽中) → 点击只走工具栏语义, 不探针
+    class _Bar:
+        mode = "zoom rect"
+    fig.canvas.toolbar = _Bar()
+    ev2 = MouseEvent("button_press_event", fig.canvas, 10, 10, button=1)
+    ev2.inaxes = fig.axes[0]
+    ev2.xdata, ev2.ydata = 0.25, 0.25
+    fig.canvas.callbacks.process("button_press_event", ev2)
+    assert "[probe]" not in capsys.readouterr().out
+    fig.canvas.toolbar = None
+    plt.close(fig)
+
+
+def test_interactive_plot_deformed_panel_click_inverse_mapping(
+        monkeypatch):
+    """变形面板点击逆映射: 在变形位置点击 → 读未变形网格对应点.
+
+    ux=0.1 常场 + scale=100 → 面板几何右移 10 (x∈[10,11]); 点击
+    (10.25, 0.25) 即变形后三角形 [0,1,2] 内点 → 逆映射 (0.25, 0.25)
+    读 u_x=0.1, 高亮轮廓为变形外轮廓 [[10,0],[11,0],[10,1],[10,0]].
+    曾按点击坐标直接查未变形网格: (10.25,0.25) 域外 → 恒"模型外".
+    """
+    def _plot(*a, **k):
+        fig = plt.figure()
+        for _ in range(3):
+            fig.add_subplot(1, 3, len(fig.axes) + 1)
+        return fig
+    monkeypatch.setattr(viz, "plot_three", _plot)
+    monkeypatch.setattr(viz.plt, "close", lambda *a, **k: None)
+    answers = iter(["2", "q"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    mesh = _two_tri()
+    u = np.zeros(8)
+    u[0::2] = 0.1                       # ux 常场, uy=0
+    result = {"u": u, "stress": np.ones((2, 3)), "stress_qp": None}
+    interactive_plot(mesh, result)
+
+    from matplotlib.backend_bases import MouseEvent
+    fig = plt.gcf()
+    ev = MouseEvent("button_press_event", fig.canvas, 10, 10, button=1)
+    ev.inaxes = fig.axes[1]             # 中面板 = 变形形状
+    ev.xdata, ev.ydata = 10.25, 0.25
+    fig.canvas.callbacks.process("button_press_event", ev)
+
+    text = fig.texts[-1].get_text()
+    assert "u_x = 1.0000e-01" in text
+    assert "（模型外）" not in text
+    # 读值行含 CJK 标签, 必须 sans-serif (monospace 无 CJK 字体且
+    # matplotlib 无跨族回退 → 方框 + missing glyph 警告)
+    assert "sans-serif" in fig.texts[-1].get_family()
+
+    hls = [c for c in fig.axes[1].collections
+           if c.get_label() == "_readout_hl"]
+    assert len(hls) == 1
+    segs = hls[0].get_segments()
+    assert len(segs) == 1
+    assert np.allclose(segs[0], [[10, 0], [11, 0], [10, 1], [10, 0]])
+    plt.close(fig)

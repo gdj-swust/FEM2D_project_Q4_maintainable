@@ -22,6 +22,7 @@ import pytest
 from fem2d.config import AnalysisConfig
 from fem2d.errors import CliError
 from scripts.gmsh_runner import (
+    _geo_lc_from,
     is_program_generated_msh,
     sanitize_geo_source,
     stamp_generated_msh,
@@ -427,6 +428,38 @@ def test_stamp_and_detect_marker_unit(tmp_path):
     fbad.write_text("$MeshFormat\n4.1 0 8\n", encoding="ascii")
     assert stamp_generated_msh(str(fbad)) is False
     assert fbad.read_text(encoding="ascii") == "$MeshFormat\n4.1 0 8\n"
+
+
+def test_stamp_density_metadata_and_backward_compat(tmp_path):
+    """lc 密度元数据: 带 lc 写入 "lc=<值>" 标记, 识别不受影响;
+    不带 lc (旧行为) 不写密度 — 复用判据据此区分"无密度承诺"."""
+    f4 = tmp_path / "a.msh"
+    f4.write_text(_MSH_4X, encoding="ascii")
+    assert stamp_generated_msh(str(f4), lc=0.5) is True
+    text = f4.read_text(encoding="ascii")
+    assert f"{_MARKER} lc=0.5" in text
+    assert is_program_generated_msh(str(f4)) is True  # 前缀扩展仍识别
+
+    # 无 lc (旧行为): 标记行不带密度 — 复用判据走"无可比"分支
+    f5 = tmp_path / "b.msh"
+    f5.write_text(_MSH_4X, encoding="ascii")
+    assert stamp_generated_msh(str(f5)) is True
+    assert "lc=" not in f5.read_text(encoding="ascii")
+
+    # 幂等: 已含标记 (无论带不带密度) 不重复注入
+    assert stamp_generated_msh(str(f4), lc=0.25) is False
+    assert stamp_generated_msh(str(f5), lc=0.25) is False
+
+
+def test_geo_lc_from_parses_first_lc_assignment(tmp_path):
+    """_geo_lc_from: 首条 lc 赋值 (含前导空白); 无 lc → None; 不可读 → None."""
+    geo = tmp_path / "m.geo"
+    geo.write_text('SetFactory("OpenCASCADE");\n  lc = 1e-2;\nlc = 0.9;\n',
+                   encoding="utf-8")
+    assert _geo_lc_from(str(geo)) == 0.01
+    geo.write_text('SetFactory("OpenCASCADE");\n', encoding="utf-8")
+    assert _geo_lc_from(str(geo)) is None
+    assert _geo_lc_from(str(tmp_path / "missing.geo")) is None
 
 
 def test_marker_readable_by_real_gmsh(tmp_path):
