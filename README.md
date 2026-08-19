@@ -1,6 +1,7 @@
 # FEM2D — CST + Q4 2-D Elasticity Solver
 
 [![CI main](https://img.shields.io/github/actions/workflow/status/gdj-swust/FEM2D_project_Q4_maintainable/ci.yml?branch=main)](https://github.com/gdj-swust/FEM2D_project_Q4_maintainable/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/gdj-swust/FEM2D_project_Q4_maintainable?label=release)](https://github.com/gdj-swust/FEM2D_project_Q4_maintainable/releases)
 
 二维小变形、各向同性线弹性有限元程序，支持：
 
