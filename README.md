@@ -1,5 +1,7 @@
 # FEM2D — CST + Q4 2-D Elasticity Solver
 
+[![CI main](https://img.shields.io/github/actions/workflow/status/gdj-swust/FEM2D_project_Q4_maintainable/ci.yml?branch=main)](https://github.com/gdj-swust/FEM2D_project_Q4_maintainable/actions/workflows/ci.yml)
+
 二维小变形、各向同性线弹性有限元程序，支持：
 
 - `CPS3` / `CPE3` / `C2D3`：三节点常应变三角形（CST）
@@ -8,6 +10,13 @@
 - 集中力、面力、压力和体力
 - Z2/L2/SPR 应力恢复、牵引跳跃与残差型加密指标
 - 三角形与四边形网格、云图、等应力带和变形图
+
+## 实时观测
+
+- **CI 徽章**（标题下方）：随每次 push/PR 自动刷新，点徽章直达 Actions。
+- **Actions 面板**: https://github.com/gdj-swust/FEM2D_project_Q4_maintainable/actions — 每次提交的 8 个 job 实时进度与日志。
+- **RSS/Atom 订阅**: https://github.com/gdj-swust/FEM2D_project_Q4_maintainable/commits/main.atom — 订阅到任意阅读器，每次更新即时推送。
+- **Watch**: 仓库右上角 Watch → 选择关注类型，更新发到 GitHub 通知/邮件。
 
 ## Quick start
 
